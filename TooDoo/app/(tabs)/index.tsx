@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Image,
@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 type Category = 'alla' | 'familj' | 'noje' | 'restauranger' | 'erbjudanden' | 'event' | 'mat' | 'sport';
@@ -122,6 +123,8 @@ export default function HomeScreen() {
   const [activeCategory, setActiveCategory] = useState<Category>('alla');
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const tabBarHeight = useBottomTabBarHeight();
+  const scrollRef = useRef<ScrollView>(null);
+  const router = useRouter();
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -146,9 +149,17 @@ export default function HomeScreen() {
     );
   };
 
+  const handleCardPress = () => {
+    router.push('/(tabs)/Erbjudanden');
+  };
+
   return (
     <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-[#000b2a]" style={styles.screen}>
-      <ScrollView className="flex-1" style={styles.scroll} contentContainerStyle={{ paddingBottom: tabBarHeight + 16 }}>
+      <ScrollView
+        ref={scrollRef}
+        className="flex-1"
+        style={styles.scroll}
+        contentContainerStyle={{ paddingBottom: tabBarHeight + 16 }}>
         <View className="relative h-60 overflow-hidden rounded-b-3xl" style={styles.sliderContainer}>
           {sliderImages.map((imageUri, idx) => (
             <Image
@@ -190,13 +201,13 @@ export default function HomeScreen() {
 
         <View className="px-4 pt-5">
           <Text className="mb-2 text-lg font-semibold text-white">🔥 Erbjudanden</Text>
-          <CardRow cards={deals} />
+          <CardRow cards={deals} onCardPress={handleCardPress} />
         </View>
 
         {filteredSections.map((section) => (
           <View key={section.id} className="px-4 pt-5">
             <Text className="mb-2 text-lg font-semibold text-white">{section.title}</Text>
-            <CardRow cards={section.cards} />
+            <CardRow cards={section.cards} onCardPress={handleCardPress} />
           </View>
         ))}
 
@@ -269,12 +280,12 @@ const styles = StyleSheet.create({
   },
 });
 
-function CardRow({ cards }: { cards: CardItem[] }) {
+function CardRow({ cards, onCardPress }: { cards: CardItem[]; onCardPress?: (card: CardItem) => void }) {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
       <View className="flex-row gap-3 pb-2">
         {cards.map((card) => (
-          <View key={card.id} className="w-40 overflow-hidden rounded-2xl bg-[#000b2a]">
+          <Pressable key={card.id} className="w-40 overflow-hidden rounded-2xl bg-[#000b2a]" onPress={() => onCardPress?.(card)}>
             <View className="relative h-28 w-full">
               <Image source={{ uri: card.image }} resizeMode="cover" className="h-full w-full" />
               {card.deal ? (
@@ -284,7 +295,7 @@ function CardRow({ cards }: { cards: CardItem[] }) {
               ) : null}
             </View>
             <Text className="px-2 py-2 text-sm text-white">{card.title}</Text>
-          </View>
+          </Pressable>
         ))}
       </View>
     </ScrollView>
