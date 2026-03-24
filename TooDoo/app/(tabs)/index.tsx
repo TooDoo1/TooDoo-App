@@ -10,6 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 type Category = 'alla' | 'familj' | 'noje' | 'restauranger' | 'erbjudanden' | 'event' | 'mat' | 'sport';
@@ -120,6 +121,7 @@ export default function HomeScreen() {
   const [sliderIndex, setSliderIndex] = useState(0);
   const [activeCategory, setActiveCategory] = useState<Category>('alla');
   const [isLoginOpen, setIsLoginOpen] = useState(false);
+  const tabBarHeight = useBottomTabBarHeight();
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -145,8 +147,8 @@ export default function HomeScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-[#000b2a]" style={styles.screen}>
-      <ScrollView className="flex-1" style={styles.scroll} contentContainerStyle={{ paddingBottom: 28 }}>
+    <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-[#000b2a]" style={styles.screen}>
+      <ScrollView className="flex-1" style={styles.scroll} contentContainerStyle={{ paddingBottom: tabBarHeight + 16 }}>
         <View className="relative h-60 overflow-hidden rounded-b-3xl" style={styles.sliderContainer}>
           {sliderImages.map((imageUri, idx) => (
             <Image
