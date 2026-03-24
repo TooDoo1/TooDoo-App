@@ -154,7 +154,7 @@ export default function HomeScreen() {
   };
 
   return (
-    <SafeAreaView edges={['top', 'left', 'right']} className="flex-1 bg-[#000b2a]" style={styles.screen}>
+    <SafeAreaView edges={['left', 'right']} className="flex-1 bg-[#000b2a]" style={styles.screen}>
       <ScrollView
         ref={scrollRef}
         className="flex-1"
