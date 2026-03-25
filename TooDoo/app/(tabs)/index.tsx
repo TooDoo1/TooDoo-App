@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+  import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Image,
@@ -22,6 +22,11 @@ type CardItem = {
   title: string;
   image: ImageSourcePropType;
   deal?: boolean;
+  Adress: string;
+  Telefon?: string;
+  Website: string;
+  kortbeskrivning: string;
+  långbeskrivning: string;
 };
 
 type SectionItem = {
@@ -54,12 +59,22 @@ const deals: CardItem[] = [
     title: 'Dunkers kulturhus',
     image: { uri: 'https://picsum.photos/id/1025/300/200' },
     deal: true,
+    Adress: 'Södra Vallgatan 18, Helsingborg',
+    Telefon: '+46 42-10 44 00',
+    Website: 'https://example.com/dunkers-kulturhus',
+    kortbeskrivning: 'En fantastisk kulturhus för familjer.',
+    långbeskrivning: 'Dunkers kulturhus är en utmärkt plats för familjer att utforska och njuta av kultur och underhållning.'
   },
   {
     id: 'deal-2',
     title: 'Cirkus Arena',
     image: { uri: 'https://picsum.photos/id/1050/300/200' },
     deal: true,
+    Adress: 'Södra Vallgatan 18, Helsingborg',
+    Telefon: '+46 42-10 55 20',
+    Website: 'https://example.com/cirkus-arena',
+    kortbeskrivning: 'Spännande cirkusföreställningar för alla åldrar.',
+    långbeskrivning: 'Cirkus Arena erbjuder spännande och underhållande cirkusföreställningar som passar både barn och vuxna.'
   },
 ];
 
@@ -74,11 +89,21 @@ const sections: SectionItem[] = [
         title: 'Dunkers kulturhus',
         image: { uri: 'https://picsum.photos/id/1025/300/200' },
         deal: true,
+        Adress: ' ',
+        Telefon: '+46 42-10 44 00',
+        Website: 'https://dunkerskulturhus.se/',
+        kortbeskrivning: 'En fantastisk kulturhus för familjer.',
+        långbeskrivning: 'Dunkers kulturhus är en utmärkt plats för familjer att utforska och njuta av kultur och underhållning.'
       },
       {
         id: 'familj-2',
         title: 'Fredriksdal',
         image: { uri: 'https://picsum.photos/id/1035/300/200' },
+        Adress: 'Södra Vallgatan 18, Helsingborg',
+        Telefon: '+46 42-10 45 10',
+        Website: 'https://example.com/fredriksdal',
+        kortbeskrivning: 'En vacker park och friluftsmuseum.',
+        långbeskrivning: 'Fredriksdal är en vacker park och friluftsmuseum som erbjuder en mängd aktiviteter och evenemang för hela familjen att njuta av.'
       },
     ],
   },
@@ -91,16 +116,31 @@ const sections: SectionItem[] = [
         id: 'event-1',
         title: 'Live Show',
         image: { uri: 'https://picsum.photos/id/1040/300/200' },
+        Adress: 'Södra Vallgatan 18, Helsingborg',
+        Telefon: '+46 42-10 60 30',
+        Website: 'https://example.com/live-show',
+        kortbeskrivning: 'En spännande live show med musik och dans.',
+        långbeskrivning: 'Upplev en spännande live show som kombinerar musik, dans och spektakulära effekter för en oförglömlig kväll.'
       },
       {
         id: 'event-2',
         title: 'Konsert',
         image: { uri: 'https://picsum.photos/id/1045/300/200' },
+        Adress: 'Södra Vallgatan 18, Helsingborg',
+        Telefon: '+46 42-10 61 40',
+        Website: 'https://example.com/konsert',
+        kortbeskrivning: 'En fantastisk konsert med lokala och internationella artister.',
+        långbeskrivning: 'Njut av en fantastisk konsert där både lokala och internationella artister samlas för att leverera en oförglömlig musikupplevelse.'
       },
       {
         id: 'event-3',
         title: 'Dukers Kulturhus',
         image: require('../../assets/images/testbild.jpg'),
+        Adress: 'Södra Vallgatan 18, Helsingborg',
+        Telefon: '+46 42-10 44 00',
+        Website: 'https://dunkerskulturhus.se/',
+        kortbeskrivning: 'En fantastisk kulturhus för familjer.',
+        långbeskrivning: 'Dunkers kulturhus är en utmärkt plats för familjer att utforska och njuta av kultur och underhållning.'
       },
     ],
   },
@@ -113,12 +153,22 @@ const sections: SectionItem[] = [
         id: 'noje-1',
         title: 'Cirkus Arena',
         image: { uri: 'https://picsum.photos/id/1050/300/200' },
+        Adress: 'Södra Vallgatan 18, Helsingborg',
+        Telefon: '+46 42-10 55 20',
+        Website: 'https://example.com/cirkus-arena',
+        kortbeskrivning: 'Spännande cirkusföreställningar för alla åldrar.',
+        långbeskrivning: 'Cirkus Arena erbjuder spännande och underhållande cirkusföreställningar som passar både barn och vuxna.'
       },
       {
         id: 'noje-2',
         title: 'Familjeföreställning',
         image: { uri: 'https://picsum.photos/id/1060/300/200' },
         deal: true,
+        Adress: 'Södra Vallgatan 18, Helsingborg',
+        Telefon: '+46 42-10 62 90',
+        Website: 'https://example.com/familjeforestallning',
+        kortbeskrivning: 'En rolig familjeföreställning med clowner och akrobater.',
+        långbeskrivning: 'Upplev en rolig familjeföreställning som kombinerar clowner, akrobater och magi för en underhållande dag för hela familjen.'
       },
     ],
   },
@@ -168,6 +218,11 @@ export default function HomeScreen() {
         title: card.title,
         deal: card.deal ? '1' : '0',
         imageUri: remoteImageUri,
+        Adress: card.Adress,
+        Telefon: card.Telefon ?? '+46 42-10 00 00',
+        Website: card.Website,
+        kortbeskrivning: card.kortbeskrivning,
+        långbeskrivning: card.långbeskrivning,
       },
     });
   };
