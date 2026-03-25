@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Image,
+  ImageSourcePropType,
   Modal,
   Pressable,
   ScrollView,
@@ -19,7 +20,7 @@ type Category = 'alla' | 'familj' | 'noje' | 'restauranger' | 'erbjudanden' | 'e
 type CardItem = {
   id: string;
   title: string;
-  image: string;
+  image: ImageSourcePropType;
   deal?: boolean;
 };
 
@@ -51,13 +52,13 @@ const deals: CardItem[] = [
   {
     id: 'deal-1',
     title: 'Dunkers kulturhus',
-    image: 'https://picsum.photos/id/1025/300/200',
+    image: { uri: 'https://picsum.photos/id/1025/300/200' },
     deal: true,
   },
   {
     id: 'deal-2',
     title: 'Cirkus Arena',
-    image: 'https://picsum.photos/id/1050/300/200',
+    image: { uri: 'https://picsum.photos/id/1050/300/200' },
     deal: true,
   },
 ];
@@ -71,13 +72,13 @@ const sections: SectionItem[] = [
       {
         id: 'familj-1',
         title: 'Dunkers kulturhus',
-        image: 'https://picsum.photos/id/1025/300/200',
+        image: { uri: 'https://picsum.photos/id/1025/300/200' },
         deal: true,
       },
       {
         id: 'familj-2',
         title: 'Fredriksdal',
-        image: 'https://picsum.photos/id/1035/300/200',
+        image: { uri: 'https://picsum.photos/id/1035/300/200' },
       },
     ],
   },
@@ -89,12 +90,17 @@ const sections: SectionItem[] = [
       {
         id: 'event-1',
         title: 'Live Show',
-        image: 'https://picsum.photos/id/1040/300/200',
+        image: { uri: 'https://picsum.photos/id/1040/300/200' },
       },
       {
         id: 'event-2',
         title: 'Konsert',
-        image: 'https://picsum.photos/id/1045/300/200',
+        image: { uri: 'https://picsum.photos/id/1045/300/200' },
+      },
+      {
+        id: 'event-3',
+        title: 'Dukers Kulturhus',
+        image: require('../../assets/images/testbild.jpg'),
       },
     ],
   },
@@ -106,12 +112,12 @@ const sections: SectionItem[] = [
       {
         id: 'noje-1',
         title: 'Cirkus Arena',
-        image: 'https://picsum.photos/id/1050/300/200',
+        image: { uri: 'https://picsum.photos/id/1050/300/200' },
       },
       {
         id: 'noje-2',
         title: 'Familjeföreställning',
-        image: 'https://picsum.photos/id/1060/300/200',
+        image: { uri: 'https://picsum.photos/id/1060/300/200' },
         deal: true,
       },
     ],
@@ -149,8 +155,21 @@ export default function HomeScreen() {
     );
   };
 
-  const handleCardPress = () => {
-    router.push('/(tabs)/Erbjudanden');
+  const handleCardPress = (card: CardItem) => {
+    const remoteImageUri =
+      typeof card.image === 'object' && card.image && 'uri' in card.image && typeof card.image.uri === 'string'
+        ? card.image.uri
+        : '';
+
+    router.push({
+      pathname: '/(tabs)/Erbjudanden',
+      params: {
+        id: card.id,
+        title: card.title,
+        deal: card.deal ? '1' : '0',
+        imageUri: remoteImageUri,
+      },
+    });
   };
 
   return (
@@ -287,7 +306,7 @@ function CardRow({ cards, onCardPress }: { cards: CardItem[]; onCardPress?: (car
         {cards.map((card) => (
           <Pressable key={card.id} className="w-40 overflow-hidden rounded-2xl bg-[#000b2a]" onPress={() => onCardPress?.(card)}>
             <View className="relative h-28 w-full">
-              <Image source={{ uri: card.image }} resizeMode="cover" className="h-full w-full" />
+              <Image source={card.image} resizeMode="cover" className="h-full w-full" />
               {card.deal ? (
                 <View className="absolute left-2 top-2 rounded-full bg-[#ff3b30] px-2 py-0.5">
                   <Text className="text-[10px] font-medium text-white">Erbjudande</Text>
