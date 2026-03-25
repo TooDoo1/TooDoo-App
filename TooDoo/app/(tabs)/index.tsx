@@ -1,5 +1,6 @@
   import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Animated,
   Alert,
   Image,
   ImageSourcePropType,
@@ -22,11 +23,16 @@ type CardItem = {
   title: string;
   image: ImageSourcePropType;
   deal?: boolean;
+  erbjudandepris?: number;
   Adress: string;
   Telefon?: string;
   Website: string;
   kortbeskrivning: string;
   långbeskrivning: string;
+  erbjudande?: string;
+  erbjudandeclaimade?: number;
+  erbjudandemängd?: number;
+  erbjudandelängd?: Date;
 };
 
 type SectionItem = {
@@ -59,6 +65,11 @@ const deals: CardItem[] = [
     title: 'Dunkers kulturhus',
     image: { uri: 'https://picsum.photos/id/1025/300/200' },
     deal: true,
+    erbjudandepris: 99,
+    erbjudande: '2 för 1 på entrébiljetter',
+    erbjudandeclaimade: 72,
+    erbjudandemängd: 120,
+    erbjudandelängd: new Date('2026-06-30'),
     Adress: 'Södra Vallgatan 18, Helsingborg',
     Telefon: '+46 42-10 44 00',
     Website: 'https://example.com/dunkers-kulturhus',
@@ -70,6 +81,11 @@ const deals: CardItem[] = [
     title: 'Cirkus Arena',
     image: { uri: 'https://picsum.photos/id/1050/300/200' },
     deal: true,
+    erbjudandepris: 149,
+    erbjudande: '25% rabatt på familjepaket',
+    erbjudandeclaimade: 31,
+    erbjudandemängd: 80,
+    erbjudandelängd: new Date('2026-05-15'),
     Adress: 'Södra Vallgatan 18, Helsingborg',
     Telefon: '+46 42-10 55 20',
     Website: 'https://example.com/cirkus-arena',
@@ -89,6 +105,11 @@ const sections: SectionItem[] = [
         title: 'Dunkers kulturhus',
         image: { uri: 'https://picsum.photos/id/1025/300/200' },
         deal: true,
+        erbjudandepris: 89,
+        erbjudande: 'Gratis barnbiljett med vuxen',
+        erbjudandeclaimade: 40,
+        erbjudandemängd: 60,
+        erbjudandelängd: new Date('2026-04-30'),
         Adress: ' ',
         Telefon: '+46 42-10 44 00',
         Website: 'https://dunkerskulturhus.se/',
@@ -164,6 +185,11 @@ const sections: SectionItem[] = [
         title: 'Familjeföreställning',
         image: { uri: 'https://picsum.photos/id/1060/300/200' },
         deal: true,
+        erbjudandepris: 0,
+        erbjudande: 'Barn går gratis söndagar',
+        erbjudandeclaimade: 18,
+        erbjudandemängd: 45,
+        erbjudandelängd: new Date('2026-05-31'),
         Adress: 'Södra Vallgatan 18, Helsingborg',
         Telefon: '+46 42-10 62 90',
         Website: 'https://example.com/familjeforestallning',
@@ -223,6 +249,11 @@ export default function HomeScreen() {
         Website: card.Website,
         kortbeskrivning: card.kortbeskrivning,
         långbeskrivning: card.långbeskrivning,
+        erbjudande: card.erbjudande,
+        erbjudandepris: card.erbjudandepris?.toString(),
+        erbjudandeclaimade: card.erbjudandeclaimade?.toString(),
+        erbjudandemängd: card.erbjudandemängd?.toString(),
+        erbjudandelängd: card.erbjudandelängd?.toISOString(),
       },
     });
   };
@@ -274,7 +305,7 @@ export default function HomeScreen() {
         </ScrollView>
 
         <View className="px-4 pt-5">
-          <Text className="mb-2 text-lg font-semibold text-white">🔥 Erbjudanden</Text>
+          <Text className="mb-2 text-lg font-semibold text-white">Erbjudanden</Text>
           <CardRow cards={deals} onCardPress={handleCardPress} />
         </View>
 
@@ -287,7 +318,7 @@ export default function HomeScreen() {
 
         <View className="mt-5 px-4">
           <Pressable onPress={() => setIsLoginOpen(true)} className="rounded-xl bg-[#ff3b30] px-4 py-3">
-            <Text className="text-center font-semibold text-white">👤 Logga in</Text>
+            <Text className="text-center font-semibold text-white">Logga in</Text>
           </Pressable>
         </View>
       </ScrollView>
@@ -363,9 +394,7 @@ function CardRow({ cards, onCardPress }: { cards: CardItem[]; onCardPress?: (car
             <View className="relative h-28 w-full">
               <Image source={card.image} resizeMode="cover" className="h-full w-full" />
               {card.deal ? (
-                <View className="absolute left-2 top-2 rounded-full bg-[#ff3b30] px-2 py-0.5">
-                  <Text className="text-[10px] font-medium text-white">Erbjudande</Text>
-                </View>
+                <DealTag />
               ) : null}
             </View>
             <Text className="px-2 py-2 text-sm text-white">{card.title}</Text>
@@ -373,5 +402,42 @@ function CardRow({ cards, onCardPress }: { cards: CardItem[]; onCardPress?: (car
         ))}
       </View>
     </ScrollView>
+  );
+}
+
+function DealTag() {
+  const wobble = useRef(new Animated.Value(0)).current;
+  const rotate = wobble.interpolate({
+    inputRange: [-1, 0, 1],
+    outputRange: ['-3deg', '0deg', '3deg'],
+  });
+
+  useEffect(() => {
+    const wobbleAnimation = Animated.loop(
+      Animated.sequence([
+        Animated.delay(1500),
+        Animated.timing(wobble, { toValue: -1, duration: 110, useNativeDriver: true }),
+        Animated.timing(wobble, { toValue: 1, duration: 110, useNativeDriver: true }),
+        Animated.timing(wobble, { toValue: -0.6, duration: 100, useNativeDriver: true }),
+        Animated.timing(wobble, { toValue: 0.6, duration: 100, useNativeDriver: true }),
+        Animated.timing(wobble, { toValue: 0, duration: 100, useNativeDriver: true }),
+      ])
+    );
+
+    wobbleAnimation.start();
+
+    return () => {
+      wobbleAnimation.stop();
+      wobble.setValue(0);
+    };
+  }, [wobble]);
+
+  return (
+    <Animated.View
+      className="absolute left-2 top-2 rounded-full bg-[#ff3b30] px-2 py-0.5"
+      style={{ transform: [{ rotate }] }}
+    >
+      <Text className="text-[10px] font-medium text-white">Erbjudande</Text>
+    </Animated.View>
   );
 }
