@@ -1,15 +1,65 @@
-import { useState } from 'react';
-import { View, Text,TextInput, Pressable, Alert } from 'react-native';
+import { useEffect, useState, useRef } from 'react';
+import { View, Text, TextInput, Pressable, Alert, Animated, type StyleProp, type TextStyle } from 'react-native';
+
+type BounceTextProps = {
+	text: string;
+	className?: string;
+	textStyle?: StyleProp<TextStyle>;
+	trigger: number;
+};
+
+function BounceText({ text, className, textStyle, trigger }: BounceTextProps) {
+	const letters = text.split('');
+	const bounceValues = useRef(letters.map(() => new Animated.Value(0))).current;
+
+	useEffect(() => {
+		if (trigger === 0) {
+			return;
+		}
+
+		bounceValues.forEach((value) => value.setValue(0));
+
+		const bounceOneLetter = Animated.stagger(
+			80,
+			bounceValues.map((value) =>
+				Animated.sequence([
+					Animated.timing(value, { toValue: -10, duration: 140, useNativeDriver: true }),
+					Animated.timing(value, { toValue: 0, duration: 140, useNativeDriver: true }),
+				])
+			)
+		);
+
+		bounceOneLetter.start();
+	}, [bounceValues, trigger]);
+
+	return (
+		<View style={{ flexDirection: 'row' }}>
+			{letters.map((char, i) => (
+				<Animated.Text
+					key={`${char}-${i}`}
+					className={className}
+					style={[{ transform: [{ translateY: bounceValues[i] }] }, textStyle]}
+				>
+					{char === ' ' ? '\u00A0' : char}
+				</Animated.Text>
+			))}
+		</View>
+	);
+}
 
 export default function MinaDealsScreen() {
 	const [selectedType, setSelectedType] = useState<'user' | 'company' | null>('user');
+	const [userBounceTrigger, setUserBounceTrigger] = useState(0);
+	const [companyBounceTrigger, setCompanyBounceTrigger] = useState(0);
 
 	const handleUserPress = () => {
 		setSelectedType('user');
+		setUserBounceTrigger((prev) => prev + 1);
 	};
 
 	const handleCompanyPress = () => {
 		setSelectedType('company');
+		setCompanyBounceTrigger((prev) => prev + 1);
 	};
 
 	const selectedGlowStyle = {
@@ -18,6 +68,7 @@ export default function MinaDealsScreen() {
 		shadowOpacity: 0.8,
 		shadowRadius: 20,
 	};
+
 
 	const [isLoginOpen, setIsLoginOpen] = useState(false);
 	
@@ -37,24 +88,28 @@ export default function MinaDealsScreen() {
 					className={`mb-3 mt-3 rounded-2xl w-1/2 py-3`}
 					onPress={handleUserPress}
 				>
-	                	<Text
-						className={`text-center font-medium px-6 ${selectedType === 'user' ? 'text-[#007AFF] ' : 'text-white'}`}
-						style={selectedType === 'user' ? selectedGlowStyle : undefined}
-					>
-						Användare
-					</Text>
+					<View className="items-center">
+						<BounceText
+							text="Användare"
+							className={`text-center font-medium ${selectedType === 'user' ? 'text-[#007AFF]' : 'text-white'}`}
+							textStyle={selectedType === 'user' ? selectedGlowStyle : undefined}
+							trigger={userBounceTrigger}
+						/>
+					</View>
                 </Pressable>
                 <View className="h-12 w-px bg-[#3e5592]" />
                 <Pressable 
 					className={`mb-3 mt-3 rounded-2xl py-3 w-1/2`}
 					onPress={handleCompanyPress}
 				>
-	                	<Text
-						className={`text-center font-medium px-6 ${selectedType === 'company' ? 'text-[#007AFF]' : 'text-white'}`}
-						style={selectedType === 'company' ? selectedGlowStyle : undefined}
-					>
-						Företag
-					</Text>
+					<View className="items-center">
+						<BounceText
+							text="Företag"
+							className={`text-center font-medium ${selectedType === 'company' ? 'text-[#007AFF]' : 'text-white'}`}
+							textStyle={selectedType === 'company' ? selectedGlowStyle : undefined}
+							trigger={companyBounceTrigger}
+						/>
+					</View>
                 </Pressable>
                 
             </View>
