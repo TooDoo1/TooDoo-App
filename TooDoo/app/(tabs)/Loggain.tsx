@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
-import { View, Text, TextInput, Pressable, Alert, Animated, type StyleProp, type TextStyle } from 'react-native';
+import { View, Text, TextInput, Pressable, Alert, Animated, ScrollView, type StyleProp, type TextStyle } from 'react-native';
+import { useRouter } from 'expo-router';
 
 type BounceTextProps = {
 	text: string;
@@ -48,6 +49,7 @@ function BounceText({ text, className, textStyle, trigger }: BounceTextProps) {
 }
 
 export default function MinaDealsScreen() {
+	const router = useRouter();
 	const [selectedType, setSelectedType] = useState<'user' | 'company' | null>('user');
 	const [userBounceTrigger, setUserBounceTrigger] = useState(0);
 	const [companyBounceTrigger, setCompanyBounceTrigger] = useState(0);
@@ -80,7 +82,8 @@ export default function MinaDealsScreen() {
 		};
 
 	return (
-		<View className="flex-1 bg-[#000b2a] px-6 pt-12">
+		<ScrollView className="flex-1 bg-[#000b2a]" contentContainerStyle={{ paddingBottom: 48 }}>
+			<View className="px-6 pt-12">
 			<Text className=" pt-10 text-3xl font-semibold text-white">In loggning:</Text>
 
             <View className="mt-8 rounded-2xl bg-[#0a1535] px-6 flex-row gap-3 items-center justify-center">
@@ -143,7 +146,7 @@ export default function MinaDealsScreen() {
 							  <Text className="text-center font-medium text-white">Fortsätt med Google</Text>
 						    </Pressable>
 
-							<Pressable className="mt-2 mb-4 rounded-2xl border border-white/20 bg-white/10 px-4 py-3" onPress={() => socialLogin('Apple')}>
+							<Pressable className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3" onPress={() => socialLogin('Apple')}>
 							  <Text className="text-center font-medium text-white">Fortsätt med Apple</Text>
 						    </Pressable>
 
@@ -151,7 +154,7 @@ export default function MinaDealsScreen() {
 
 							<View className="mt-4 flex-row justify-center">
 								<Text className="text-white/70 text-md">Har du inget konto? </Text>
-								<Pressable onPress={() => Alert.alert('Registrera', 'Navigerar till registrering...')}>
+								<Pressable onPress={() => router.push('/(tabs)/Registrering')}>
 									<Text className="text-blue-400 text-md font-medium underline">Registrera dig här!</Text>
 								</Pressable>
 							</View>
@@ -196,7 +199,7 @@ export default function MinaDealsScreen() {
 
 							<View className="mt-4 flex-row justify-center">
 								<Text className="text-white/70 text-md">Har ditt företag inget konto? </Text>
-								<Pressable onPress={() => Alert.alert('Registrera', 'Navigerar till registrering...')}>
+								<Pressable onPress={() => router.push('/(tabs)/Registrering')}>
 									<Text className="text-blue-400 text-md font-medium underline">Registrera dig här!</Text>
 								</Pressable>
 							</View>
@@ -206,6 +209,7 @@ export default function MinaDealsScreen() {
 
 
 
-		</View>
+			</View>
+		</ScrollView>
 	);
 }
