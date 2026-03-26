@@ -82,6 +82,15 @@ export default function TabLayout() {
           },
         }}
       />
+      <Tabs.Screen
+        name="Personality"
+        options={{
+          href: null,
+          tabBarStyle: {
+            display: 'none',
+          },
+        }}
+      />
     </Tabs>
   );
 }

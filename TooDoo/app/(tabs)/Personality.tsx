@@ -1,0 +1,181 @@
+import {
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+  Pressable,
+  Alert,
+} from "react-native";
+import { useState } from "react";
+import { useRouter } from "expo-router";
+
+export default function PersonalityScreen() {
+  const router = useRouter();
+  const totalCount = 3;
+  const [claimedCount, setClaimedCount] = useState(1);
+  const [selectedGender, setSelectedGender] = useState<"Man" | "Kvinna" | "Vill ej ange" | "Ickebinär" | null>(null);
+  const categoryOptions = [
+    "Familj",
+    "Nöje",
+    "Restauranger",
+    "Erbjudanden",
+    "Event",
+    "Mat & Dryck",
+    "Sport",
+  ] as const;
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const progressPercent = totalCount > 0 ? Math.min((claimedCount / totalCount) * 100, 100) : 0;
+
+  return (
+    <ScrollView
+      className="flex-1 bg-[#000b2a]"
+      contentContainerStyle={{ paddingBottom: 48, flexGrow: 1 }}
+    >
+      <View className="flex-1 justify-between px-6 pt-12">
+        <View>
+        <Text className="pt-10 text-3xl font-semibold text-white">
+          Skapa konto🎉
+        </Text>
+        <Text className="pt-5 text-md font-semibold text-white/70">
+          Steg {claimedCount} av {totalCount}
+        </Text>
+        <View className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/20">
+                  <View
+                    className="h-full rounded-full bg-[#007AFF]"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+        </View>
+
+        {claimedCount === 1? (
+
+        <View className="mt-20 rounded-2xl bg-[#0a1535] px-4 py-5">
+          <Text className="text-2xl text-white">Berätta om dig själv</Text>
+
+          <Text className="pt-4 text-lg text-white">Förnamn:</Text>
+          <TextInput
+            placeholder="Förnamn"
+            placeholderTextColor="rgba(255,255,255,0.45)"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
+          />
+          <Text className="pt-4 text-lg text-white">Efternamn:</Text>
+          <TextInput
+            placeholder="Efternamn"
+            placeholderTextColor="rgba(255,255,255,0.45)"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
+          />
+          <Text className="pt-4 text-lg text-white">Ålder:</Text>
+          <TextInput
+            placeholder="Ålder"
+            placeholderTextColor="rgba(255,255,255,0.45)"
+            keyboardType="numeric"
+            autoCapitalize="none"
+            className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
+          />
+
+        </View>
+        ) : null}
+
+        {claimedCount === 2 ? (
+            <View className="">
+              <View className="mt-20 pt-20 rounded-2xl px-2 py-5 ">
+              <Text className="text-2xl text-white">Välj kön</Text>
+              </View>
+
+              <View className=" flex-row flex-wrap justify-between">
+                {(["Man", "Kvinna", "Vill ej ange", "Ickebinär"] as const).map((option) => {
+                  const isSelected = selectedGender === option;
+                  return (
+                    <Pressable
+                      key={option}
+                      className={`mb-3 w-[48%] rounded-2xl border px-4 py-3 ${isSelected ? "border-[#061A47] bg-[#007AFF]" : "border-[#007AFF] bg-[#061A47]"}`}
+                      onPress={() => setSelectedGender(option)}
+                    >
+                      <Text className={`text-center text-lg font-medium ${isSelected ? "text-[#061A47]" : "text-[#66adff]"}`}>
+                        {option}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+
+            </View>
+        ):null}
+
+        {claimedCount === 3 ? (
+           <View className="">
+              <View className="mt-20 pt-20 rounded-2xl px-2 py-5 ">
+              <Text className="text-2xl text-white">Vad tycker du om?</Text>
+              <Text className="pt-2 text-white/70">Välj en eller flera kategorier.</Text>
+              </View>
+
+              <View className="mb-20 flex-row flex-wrap gap-3">
+                {categoryOptions.map((option) => {
+                  const isSelected = selectedCategories.includes(option);
+                  return (
+                    <Pressable
+                      key={option}
+                      className={`rounded-2xl border px-5 py-3 ${isSelected ? "border-[#061A47] bg-[#007AFF]" : "border-[#007AFF] bg-[#061A47]"}`}
+                      onPress={() => {
+                        setSelectedCategories((prev) =>
+                          prev.includes(option)
+                            ? prev.filter((item) => item !== option)
+                            : [...prev, option]
+                        );
+                      }}
+                    >
+                      <Text className={`text-center text-lg font-medium ${isSelected ? "text-[#061A47]" : "text-[#66adff]"}`}>
+                        {option}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+
+            </View>
+        ):null}
+
+        </View>
+
+        <View className="mt-8 rounded-2xl bg-[#0a1535] px-4 py-5">
+          <Pressable
+            className=" rounded-2xl bg-[#007AFF] px-4 py-3"
+            onPress={() => {
+              if (claimedCount === 2 && !selectedGender) {
+                Alert.alert("Välj ett alternativ", "Välj Man, Kvinna, Vill ej ange eller Ickebinär innan du går vidare.");
+                return;
+              }
+              if (claimedCount === 3 && selectedCategories.length === 0) {
+                Alert.alert("Välj kategori", "Välj minst en kategori innan du går vidare.");
+                return;
+              }
+              setClaimedCount((prev) => Math.min(prev + 1, totalCount));
+            }}
+          >
+            <Text className="text-center font-medium text-[#061A47]">Nästa</Text>
+          </Pressable>
+
+          <Pressable
+            className="mt-3 rounded-2xl bg-[#061A47] px-4 py-3"
+            onPress={() => {
+              if (claimedCount >= 2) {
+                setClaimedCount((prev) => Math.max(prev - 1, 1));
+                return;
+              }
+              router.push("/(tabs)/Registrering");
+            }}
+          >
+            <Text className="text-center font-medium text-[#007AFF]">
+              Tillbaka
+            </Text>
+          </Pressable>
+       </View>
+      </View>
+    </ScrollView>
+  );
+}

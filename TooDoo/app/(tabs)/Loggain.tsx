@@ -154,7 +154,9 @@ export default function MinaDealsScreen() {
 
 							<View className="mt-4 flex-row justify-center">
 								<Text className="text-white/70 text-md">Har du inget konto? </Text>
-								<Pressable onPress={() => router.push('/(tabs)/Registrering')}>
+								<Pressable
+									onPress={() => router.push({ pathname: '/(tabs)/Registrering', params: { accountType: 'user' } })}
+								>
 									<Text className="text-blue-400 text-md font-medium underline">Registrera dig här!</Text>
 								</Pressable>
 							</View>
@@ -199,7 +201,9 @@ export default function MinaDealsScreen() {
 
 							<View className="mt-4 flex-row justify-center">
 								<Text className="text-white/70 text-md">Har ditt företag inget konto? </Text>
-								<Pressable onPress={() => router.push('/(tabs)/Registrering')}>
+								<Pressable
+									onPress={() => router.push({ pathname: '/(tabs)/Registrering', params: { accountType: 'company' } })}
+								>
 									<Text className="text-blue-400 text-md font-medium underline">Registrera dig här!</Text>
 								</Pressable>
 							</View>
