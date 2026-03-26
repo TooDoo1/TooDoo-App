@@ -56,7 +56,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="MinaDeals"
         options={{
-          title: 'Mina Deals',
+          title: 'Mina Erbjudanden',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
         }}
       />
@@ -71,6 +71,24 @@ export default function TabLayout() {
         name="Erbjudanden"
         options={{
           href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="Registrering"
+        options={{
+          href: null,
+          tabBarStyle: {
+            display: 'none',
+          },
+        }}
+      />
+      <Tabs.Screen
+        name="Personality"
+        options={{
+          href: null,
+          tabBarStyle: {
+            display: 'none',
+          },
         }}
       />
     </Tabs>

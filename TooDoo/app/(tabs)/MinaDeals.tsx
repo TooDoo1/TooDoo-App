@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Modal, Pressable, Text, TextInput, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 export default function MinaDealsScreen() {
 	const [isLoginOpen, setIsLoginOpen] = useState(false);
@@ -12,10 +12,11 @@ export default function MinaDealsScreen() {
 	};
 
 	return (
-		<View className="bg-[#000b2a] px-6 pt-24 h-full">
-			<Text className="text-3xl text-center font-semibold text-white">Mina Deals</Text>
+		<ScrollView className="flex-1 bg-[#000b2a]" contentContainerStyle={{ paddingBottom: 48 }}>
+			<View className="px-6 pt-24 min-h-full">
+			<Text className="text-3xl text-center font-semibold text-white">Mina Erbjudanden</Text>
 			{/* <Text className="mt-2 text-center text-white/70">Här visas dina sparade deals.</Text> */}
-			<Text className="mt-2 pt-4 text-xl text-center text-white/70">0 av 3 aktiva</Text>
+			<Text className="mt-2 pt-4 text-xl text-center text-white/70">0 av 3 aktiva erbjudanden</Text>
 
 			<View className="mt-8 px-4">
 				<Pressable onPress={() => setIsLoginOpen(true)} className="rounded-xl bg-[#ff3b30] px-4 py-3">
@@ -60,6 +61,7 @@ export default function MinaDealsScreen() {
 					</View>
 				</View>
 			</Modal>
-		</View>
+			</View>
+		</ScrollView>
 	);
 }
