@@ -18,13 +18,11 @@ const localImagesById: Record<string, ImageSourcePropType> = {
   "event-3": require("../../assets/images/testbild.jpg"),
 };
 
-const addressCoordinates: Record<string, { latitude: number; longitude: number }> = {
-  "Södra Vallgatan 18, Helsingborg": { latitude: 56.0469, longitude: 12.6945 },
-};
-
 export default function ErbjudandenScreen() {
   const [isOfferOpen, setIsOfferOpen] = useState(false);
+  const [geocodedCoordinate, setGeocodedCoordinate] = useState<{ latitude: number; longitude: number; addressText?: string }>();
   const {
+    mapResetNonce,
     id,
     title,
     deal,
@@ -40,6 +38,7 @@ export default function ErbjudandenScreen() {
     erbjudandemängd,
     erbjudandelängd,
   } = useLocalSearchParams<{
+    mapResetNonce?: string;
     id?: string;
     title?: string;
     deal?: string;
@@ -62,7 +61,8 @@ export default function ErbjudandenScreen() {
       ? localImagesById[id]
       : undefined;
   const websiteUrl = Array.isArray(Website) ? Website[0] : Website;
-  const addressText = Array.isArray(Adress) ? Adress[0] : Adress;
+  const rawAddressText = Array.isArray(Adress) ? Adress[0] : Adress;
+  const addressText = rawAddressText?.trim() ? rawAddressText.trim() : undefined;
   const phoneText = Array.isArray(Telefon) ? Telefon[0] : Telefon;
   const dealFlag = Array.isArray(deal) ? deal[0] : deal;
   const offerText = Array.isArray(erbjudande) ? erbjudande[0] : erbjudande;
@@ -70,6 +70,7 @@ export default function ErbjudandenScreen() {
   const offerClaimedText = Array.isArray(erbjudandeclaimade) ? erbjudandeclaimade[0] : erbjudandeclaimade;
   const offerAmountText = Array.isArray(erbjudandemängd) ? erbjudandemängd[0] : erbjudandemängd;
   const offerEndText = Array.isArray(erbjudandelängd) ? erbjudandelängd[0] : erbjudandelängd;
+  const resetNonceText = Array.isArray(mapResetNonce) ? mapResetNonce[0] : mapResetNonce;
   const claimedCount = Number(offerClaimedText ?? 0);
   const totalCount = Number(offerAmountText ?? 0);
   const progressPercent = totalCount > 0 ? Math.min((claimedCount / totalCount) * 100, 100) : 0;
@@ -84,9 +85,8 @@ export default function ErbjudandenScreen() {
   const mapsUrl = addressText
     ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressText)}`
     : undefined;
-  const mapCoordinate = addressText
-    ? addressCoordinates[addressText] ?? { latitude: 56.0465, longitude: 12.6945 }
-    : undefined;
+  const mapCoordinate = geocodedCoordinate;
+  const mapResetKey = `${id ?? "no-id"}-${addressText ?? "no-address"}-${resetNonceText ?? "no-reset"}-${mapCoordinate?.latitude ?? "no-lat"}-${mapCoordinate?.longitude ?? "no-lon"}`;
   const swingValue = useRef(new Animated.Value(0)).current;
   const offerDropAnim = useRef(new Animated.Value(0)).current;
   const seesawRotate = swingValue.interpolate({
@@ -138,6 +138,47 @@ export default function ErbjudandenScreen() {
       useNativeDriver: false,
     }).start();
   }, [isOfferOpen, offerDropAnim]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const geocodeAddress = async () => {
+      setGeocodedCoordinate(undefined);
+      if (!addressText) {
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(addressText)}`,
+          {
+            headers: {
+              Accept: "application/json",
+            },
+          }
+        );
+
+        const results: Array<{ lat: string; lon: string }> = await response.json();
+        const firstResult = results?.[0];
+        const latitude = Number(firstResult?.lat);
+        const longitude = Number(firstResult?.lon);
+
+        if (!cancelled && Number.isFinite(latitude) && Number.isFinite(longitude)) {
+          setGeocodedCoordinate({ latitude, longitude, addressText });
+        }
+      } catch {
+        if (!cancelled) {
+          setGeocodedCoordinate(undefined);
+        }
+      }
+    };
+
+    geocodeAddress();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [addressText, resetNonceText]);
 
   useEffect(() => {
     if (!offerEndDate || dealFlag !== "1") {
@@ -305,11 +346,12 @@ export default function ErbjudandenScreen() {
         </Text>
       )}
 
-      {addressText && mapCoordinate ? (
+      {addressText && mapCoordinate && mapCoordinate.addressText === addressText ? (
         <View className="mt-6 mx-6 mb-2">
           <Text className="mb-2 text-white text-xl font-medium ml-4">Karta:</Text>
           <View className="overflow-hidden rounded-2xl border border-white/10">
             <MapView
+              key={mapResetKey}
               provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
               style={{ width: "100%", height: 220 }}
               scrollEnabled

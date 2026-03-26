@@ -1,10 +1,8 @@
   import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
-  Alert,
   Image,
   ImageSourcePropType,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -25,6 +23,8 @@ type CardItem = {
   deal?: boolean;
   erbjudandepris?: number;
   Adress: string;
+  latitude?: number;
+  longitude?: number;
   Telefon?: string;
   Website: string;
   kortbeskrivning: string;
@@ -71,6 +71,8 @@ const deals: CardItem[] = [
     erbjudandemängd: 120,
     erbjudandelängd: new Date('2026-06-30'),
     Adress: 'Södra Vallgatan 18, Helsingborg',
+    latitude: 56.0469,
+    longitude: 12.6945,
     Telefon: '+46 42-10 44 00',
     Website: 'https://example.com/dunkers-kulturhus',
     kortbeskrivning: 'En fantastisk kulturhus för familjer.',
@@ -87,6 +89,8 @@ const deals: CardItem[] = [
     erbjudandemängd: 80,
     erbjudandelängd: new Date('2026-05-15'),
     Adress: 'Södra Vallgatan 18, Helsingborg',
+    latitude: 56.0515,
+    longitude: 12.7062,
     Telefon: '+46 42-10 55 20',
     Website: 'https://example.com/cirkus-arena',
     kortbeskrivning: 'Spännande cirkusföreställningar för alla åldrar.',
@@ -110,7 +114,9 @@ const sections: SectionItem[] = [
         erbjudandeclaimade: 40,
         erbjudandemängd: 60,
         erbjudandelängd: new Date('2026-04-30'),
-        Adress: ' ',
+        Adress: 'Svärdsgatan 3, Helsingborg',
+        latitude: 56.0469,
+        longitude: 12.6945,
         Telefon: '+46 42-10 44 00',
         Website: 'https://dunkerskulturhus.se/',
         kortbeskrivning: 'En fantastisk kulturhus för familjer.',
@@ -121,6 +127,8 @@ const sections: SectionItem[] = [
         title: 'Fredriksdal',
         image: { uri: 'https://picsum.photos/id/1035/300/200' },
         Adress: 'Södra Vallgatan 18, Helsingborg',
+        latitude: 56.0712,
+        longitude: 12.7149,
         Telefon: '+46 42-10 45 10',
         Website: 'https://example.com/fredriksdal',
         kortbeskrivning: 'En vacker park och friluftsmuseum.',
@@ -138,6 +146,8 @@ const sections: SectionItem[] = [
         title: 'Live Show',
         image: { uri: 'https://picsum.photos/id/1040/300/200' },
         Adress: 'Södra Vallgatan 18, Helsingborg',
+        latitude: 56.0448,
+        longitude: 12.6992,
         Telefon: '+46 42-10 60 30',
         Website: 'https://example.com/live-show',
         kortbeskrivning: 'En spännande live show med musik och dans.',
@@ -148,6 +158,8 @@ const sections: SectionItem[] = [
         title: 'Konsert',
         image: { uri: 'https://picsum.photos/id/1045/300/200' },
         Adress: 'Södra Vallgatan 18, Helsingborg',
+        latitude: 56.0427,
+        longitude: 12.7016,
         Telefon: '+46 42-10 61 40',
         Website: 'https://example.com/konsert',
         kortbeskrivning: 'En fantastisk konsert med lokala och internationella artister.',
@@ -158,6 +170,8 @@ const sections: SectionItem[] = [
         title: 'Dukers Kulturhus',
         image: require('../../assets/images/testbild.jpg'),
         Adress: 'Södra Vallgatan 18, Helsingborg',
+        latitude: 56.0469,
+        longitude: 12.6945,
         Telefon: '+46 42-10 44 00',
         Website: 'https://dunkerskulturhus.se/',
         kortbeskrivning: 'En fantastisk kulturhus för familjer.',
@@ -175,6 +189,8 @@ const sections: SectionItem[] = [
         title: 'Cirkus Arena',
         image: { uri: 'https://picsum.photos/id/1050/300/200' },
         Adress: 'Södra Vallgatan 18, Helsingborg',
+        latitude: 56.0515,
+        longitude: 12.7062,
         Telefon: '+46 42-10 55 20',
         Website: 'https://example.com/cirkus-arena',
         kortbeskrivning: 'Spännande cirkusföreställningar för alla åldrar.',
@@ -191,6 +207,8 @@ const sections: SectionItem[] = [
         erbjudandemängd: 45,
         erbjudandelängd: new Date('2026-05-31'),
         Adress: 'Södra Vallgatan 18, Helsingborg',
+        latitude: 56.0498,
+        longitude: 12.7094,
         Telefon: '+46 42-10 62 90',
         Website: 'https://example.com/familjeforestallning',
         kortbeskrivning: 'En rolig familjeföreställning med clowner och akrobater.',
@@ -203,7 +221,6 @@ const sections: SectionItem[] = [
 export default function HomeScreen() {
   const [sliderIndex, setSliderIndex] = useState(0);
   const [activeCategory, setActiveCategory] = useState<Category>('alla');
-  const [isLoginOpen, setIsLoginOpen] = useState(false);
   const tabBarHeight = useBottomTabBarHeight();
   const scrollRef = useRef<ScrollView>(null);
   const router = useRouter();
@@ -224,12 +241,7 @@ export default function HomeScreen() {
     return sections.filter((section) => section.category === activeCategory);
   }, [activeCategory]);
 
-  const socialLogin = (provider: 'Google' | 'Facebook' | 'Apple') => {
-    Alert.alert(
-      `Fortsätt med ${provider}`,
-      `Omdirigerar till ${provider}-inloggning...\n\n(Koppla ihop med ${provider} OAuth för att aktivera)`
-    );
-  };
+
 
   const handleCardPress = (card: CardItem) => {
     const remoteImageUri =
@@ -240,11 +252,14 @@ export default function HomeScreen() {
     router.push({
       pathname: '/(tabs)/Erbjudanden',
       params: {
+        mapResetNonce: `${Date.now()}-${Math.random()}`,
         id: card.id,
         title: card.title,
         deal: card.deal ? '1' : '0',
         imageUri: remoteImageUri,
         Adress: card.Adress,
+        latitude: card.latitude?.toString(),
+        longitude: card.longitude?.toString(),
         Telefon: card.Telefon ?? '+46 42-10 00 00',
         Website: card.Website,
         kortbeskrivning: card.kortbeskrivning,
@@ -315,51 +330,7 @@ export default function HomeScreen() {
             <CardRow cards={section.cards} onCardPress={handleCardPress} />
           </View>
         ))}
-
-        <View className="mt-5 px-4">
-          <Pressable onPress={() => setIsLoginOpen(true)} className="rounded-xl bg-[#ff3b30] px-4 py-3">
-            <Text className="text-center font-semibold text-white">Logga in</Text>
-          </Pressable>
-        </View>
       </ScrollView>
-
-      <Modal visible={isLoginOpen} transparent animationType="slide" onRequestClose={() => setIsLoginOpen(false)}>
-        <View className="flex-1 justify-end bg-black/70">
-          <Pressable className="flex-1" onPress={() => setIsLoginOpen(false)} />
-          <View className="rounded-t-3xl bg-[#0a1535] px-6 pb-9 pt-6">
-            <View className="mb-4 h-1 w-10 self-center rounded-full bg-white/30" />
-            <Text className="text-2xl font-semibold text-white">Välkommen!</Text>
-            <Text className="mb-5 mt-1 text-sm text-white/50">Logga in för att se dina deals och favoriter</Text>
-
-            <Pressable className="mb-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3" onPress={() => socialLogin('Google')}>
-              <Text className="text-center font-medium text-white">Fortsätt med Google</Text>
-            </Pressable>
-
-            <Pressable className="mb-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3" onPress={() => socialLogin('Facebook')}>
-              <Text className="text-center font-medium text-white">Fortsätt med Facebook</Text>
-            </Pressable>
-
-            <Pressable className="mb-4 rounded-2xl border border-white/20 bg-white/10 px-4 py-3" onPress={() => socialLogin('Apple')}>
-              <Text className="text-center font-medium text-white">Fortsätt med Apple</Text>
-            </Pressable>
-
-            <TextInput
-              placeholder="Din e-postadress"
-              placeholderTextColor="rgba(255,255,255,0.45)"
-              keyboardType="email-address"
-              className="mb-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
-            />
-
-            <Pressable className="mb-4 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={() => Alert.alert('E-post', 'Fortsätt med e-post')}>
-              <Text className="text-center font-medium text-white">Fortsätt med e-post</Text>
-            </Pressable>
-
-            <Text className="text-center text-xs leading-5 text-white/50">
-              Genom att logga in godkänner du våra användarvillkor och integritetspolicy.
-            </Text>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }
