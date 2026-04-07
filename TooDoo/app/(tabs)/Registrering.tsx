@@ -1,19 +1,59 @@
 import { useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useAuth } from '@/context/auth-context';
 
 export default function RegistreringScreen() {
 	const router = useRouter();
-	const { accountType } = useLocalSearchParams<{ accountType?: string }>();
+	const { setPendingRegistration } = useAuth();
+	const { accountType, returnTo, returnParams } = useLocalSearchParams<{ accountType?: string; returnTo?: string; returnParams?: string }>();
 	const isCompanyRegistration = accountType === 'company';
 	const [email, setEmail] = useState('');
 	const [password, setPassword] = useState('');
 	const [confirmPassword, setConfirmPassword] = useState('');
 	const [companyName, setCompanyName] = useState('');
 
-	const handleRegister = () => {
+	const handleBack = () => {
+		if (returnTo === 'erbjudanden') {
+			let parsedParams: Record<string, string | string[]> = {};
+			if (returnParams) {
+				try {
+					parsedParams = JSON.parse(returnParams) as Record<string, string | string[]>;
+				} catch {
+					parsedParams = {};
+				}
+			}
+
+			router.replace({ pathname: '/(tabs)/Erbjudanden', params: parsedParams });
+			return;
+		}
+
+		if (returnTo === 'minadeals') {
+			router.replace('/(tabs)/MinaDeals');
+			return;
+		}
+
+		if (returnTo === 'loggain') {
+			router.replace('/(tabs)/Loggain');
+			return;
+		}
+
+		if (router.canGoBack()) {
+			router.back();
+			return;
+		}
+
+		router.replace('/(tabs)/Loggain');
+	};
+
+	const handleRegister = async () => {
 		if (!email.trim() || !password.trim() || !confirmPassword.trim()) {
 			Alert.alert('Saknad information', 'Fyll i alla fält för att registrera dig.');
+			return;
+		}
+
+		if (password.length < 8) {
+			Alert.alert('Ogiltigt lösenord', 'Lösenord måste vara minst 8 tecken.');
 			return;
 		}
 
@@ -27,8 +67,14 @@ export default function RegistreringScreen() {
 			return;
 		}
 
-		Alert.alert('Konto skapat', 'Din registrering lyckades. Du kan nu logga in.');
-		router.push('/(tabs)/Loggain');
+		setPendingRegistration({
+			email: email.trim(),
+			password,
+			accountType: isCompanyRegistration ? 'company' : 'user',
+			companyName: isCompanyRegistration ? companyName.trim() : undefined,
+		});
+
+		router.push('/(tabs)/Personality');
 	};
 
 	return (
@@ -85,11 +131,14 @@ export default function RegistreringScreen() {
 						className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
 					/>
 
-<Pressable className="mt-6 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={() => router.push('/(tabs)/Personality')}>
+					<Pressable className="mt-6 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={handleRegister}>
 						<Text className="text-center font-medium text-white">Skapa konto</Text>
 					</Pressable>
 
-					<Pressable className="mt-3 rounded-2xl bg-[#061A47] px-4 py-3" onPress={() => router.push('/(tabs)/Loggain')}>
+					<Pressable
+						className="mt-3 rounded-2xl bg-[#061A47] px-4 py-3"
+						onPress={handleBack}
+					>
 						<Text className="text-center font-medium text-[#007AFF]">Tillbaka</Text>
 					</Pressable>
 				</View>

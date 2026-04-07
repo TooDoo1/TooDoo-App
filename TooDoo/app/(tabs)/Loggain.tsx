@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { View, Text, TextInput, Pressable, Alert, Animated, ScrollView, type StyleProp, type TextStyle } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useAuth } from '@/context/auth-context';
 
 type BounceTextProps = {
 	text: string;
@@ -50,9 +51,16 @@ function BounceText({ text, className, textStyle, trigger }: BounceTextProps) {
 
 export default function MinaDealsScreen() {
 	const router = useRouter();
+	const { signIn } = useAuth();
+	const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'https://toodoo-backend-ejml.onrender.com';
 	const [selectedType, setSelectedType] = useState<'user' | 'company' | null>('user');
 	const [userBounceTrigger, setUserBounceTrigger] = useState(0);
 	const [companyBounceTrigger, setCompanyBounceTrigger] = useState(0);
+	const [userEmail, setUserEmail] = useState('');
+	const [userPassword, setUserPassword] = useState('');
+	const [companyEmail, setCompanyEmail] = useState('');
+	const [companyPassword, setCompanyPassword] = useState('');
+	const [isSubmittingLogin, setIsSubmittingLogin] = useState(false);
 
 	const handleUserPress = () => {
 		setSelectedType('user');
@@ -73,6 +81,52 @@ export default function MinaDealsScreen() {
 
 
 	const [isLoginOpen, setIsLoginOpen] = useState(false);
+
+	const handleLogin = async (accountType: 'user' | 'company') => {
+		const email = (accountType === 'user' ? userEmail : companyEmail).trim();
+		const password = accountType === 'user' ? userPassword : companyPassword;
+
+		if (!email || !password) {
+			Alert.alert('Saknad information', 'Fyll i e-post och lösenord.');
+			return;
+		}
+
+		if (password.length < 8) {
+			Alert.alert('Ogiltigt lösenord', 'Lösenord måste vara minst 8 tecken.');
+			return;
+		}
+
+		setIsSubmittingLogin(true);
+		try {
+			const response = await fetch(`${apiBaseUrl}/user/login`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({ email, password }),
+			});
+
+			const data = (await response.json().catch(() => ({}))) as { token?: string; error?: string };
+
+			if (response.status === 200 && data.token) {
+				signIn(data.token);
+				Alert.alert('Inloggad', 'Inloggning lyckades.');
+				router.push('/(tabs)/MinaDeals');
+				return;
+			}
+
+			if (response.status === 401) {
+				Alert.alert('Fel inloggning', data.error ?? 'Invalid credentials');
+				return;
+			}
+
+			Alert.alert('Fel', data.error ?? 'Kunde inte logga in just nu.');
+		} catch {
+			Alert.alert('Nätverksfel', 'Kunde inte ansluta till servern.');
+		} finally {
+			setIsSubmittingLogin(false);
+		}
+	};
 	
 		const socialLogin = (provider: 'Google' | 'Facebook' | 'Apple') => {
 			Alert.alert(
@@ -124,19 +178,24 @@ export default function MinaDealsScreen() {
 								<Text className="text-white/70 text-xs">Säkra dina erbjudanden idag genom att logga in!</Text>
 								<Text className="pt-4 text-xl text-white">E-post:</Text>
 								<TextInput
+																value={userEmail}
+																onChangeText={setUserEmail}
 															placeholder="Din e-postadress"
 															placeholderTextColor="rgba(255,255,255,0.45)"
 															keyboardType="email-address"
+																autoCapitalize="none"
 															className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
 														/>
 								<Text className="pt-4 text-xl text-white">Lösenord:</Text>
 								<TextInput
+																value={userPassword}
+																onChangeText={setUserPassword}
 															placeholder="lösenord"
 															placeholderTextColor="rgba(255,255,255,0.45)"
 															secureTextEntry
 															className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
 														/>
-								<Pressable className="mt-6 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={() => Alert.alert('Logga in', 'Fortsätt med e-post')}>
+								<Pressable className="mt-6 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={() => handleLogin('user')} disabled={isSubmittingLogin}>
 									<Text className="text-center font-medium text-white">Logga in</Text>
 								</Pressable>
 							</View>
@@ -155,7 +214,7 @@ export default function MinaDealsScreen() {
 							<View className="mt-4 flex-row justify-center">
 								<Text className="text-white/70 text-md">Har du inget konto? </Text>
 								<Pressable
-									onPress={() => router.push({ pathname: '/(tabs)/Registrering', params: { accountType: 'user' } })}
+									onPress={() => router.push({ pathname: '/(tabs)/Registrering', params: { accountType: 'user', returnTo: 'loggain' } })}
 								>
 									<Text className="text-blue-400 text-md font-medium underline">Registrera dig här!</Text>
 								</Pressable>
@@ -171,19 +230,24 @@ export default function MinaDealsScreen() {
 								<Text className="text-white/70 text-xs">Skapa erbjudanden idag genom att logga in!</Text>
 								<Text className="pt-4 text-xl text-white">E-post:</Text>
 								<TextInput
+																value={companyEmail}
+																onChangeText={setCompanyEmail}
 															placeholder="Din e-postadress"
 															placeholderTextColor="rgba(255,255,255,0.45)"
 															keyboardType="email-address"
+																autoCapitalize="none"
 															className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
 														/>
 								<Text className="pt-4 text-xl text-white">Lösenord:</Text>
 								<TextInput
+																value={companyPassword}
+																onChangeText={setCompanyPassword}
 															placeholder="lösenord"
 															placeholderTextColor="rgba(255,255,255,0.45)"
 															secureTextEntry
 															className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
 														/>
-								<Pressable className="mt-6 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={() => Alert.alert('Logga in', 'Fortsätt med e-post')}>
+								<Pressable className="mt-6 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={() => handleLogin('company')} disabled={isSubmittingLogin}>
 									<Text className="text-center font-medium text-white">Logga in</Text>
 								</Pressable>
 							</View>
@@ -202,7 +266,7 @@ export default function MinaDealsScreen() {
 							<View className="mt-4 flex-row justify-center">
 								<Text className="text-white/70 text-md">Har ditt företag inget konto? </Text>
 								<Pressable
-									onPress={() => router.push({ pathname: '/(tabs)/Registrering', params: { accountType: 'company' } })}
+									onPress={() => router.push({ pathname: '/(tabs)/Registrering', params: { accountType: 'company', returnTo: 'loggain' } })}
 								>
 									<Text className="text-blue-400 text-md font-medium underline">Registrera dig här!</Text>
 								</Pressable>

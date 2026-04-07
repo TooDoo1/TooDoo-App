@@ -1,8 +1,12 @@
 import { useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useAuth } from '@/context/auth-context';
 
 export default function MinaDealsScreen() {
 	const [isLoginOpen, setIsLoginOpen] = useState(false);
+	const router = useRouter();
+	const { isLoggedIn } = useAuth();
 
 	const socialLogin = (provider: 'Google' | 'Facebook' | 'Apple') => {
 		Alert.alert(
@@ -18,11 +22,17 @@ export default function MinaDealsScreen() {
 			{/* <Text className="mt-2 text-center text-white/70">Här visas dina sparade deals.</Text> */}
 			<Text className="mt-2 pt-4 text-xl text-center text-white/70">0 av 3 aktiva erbjudanden</Text>
 
-			<View className="mt-8 px-4">
-				<Pressable onPress={() => setIsLoginOpen(true)} className="rounded-xl bg-[#ff3b30] px-4 py-3">
-					<Text className="text-center font-semibold text-white">Logga in för att säkra erbjudanden!</Text>
-				</Pressable>
-			</View>
+			{isLoggedIn ? (
+				<View className="mt-8 rounded-2xl bg-[#0a1535] px-4 py-4">
+					<Text className="text-center text-white">Du är inloggad. Nu kan du claima erbjudanden.</Text>
+				</View>
+			) : (
+				<View className="mt-8 px-4">
+					<Pressable onPress={() => setIsLoginOpen(true)} className="rounded-xl bg-[#ff3b30] px-4 py-3">
+						<Text className="text-center font-semibold text-white">Logga in för att säkra erbjudanden!</Text>
+					</Pressable>
+				</View>
+			)}
 
 			<Modal visible={isLoginOpen} transparent animationType="slide" onRequestClose={() => setIsLoginOpen(false)}>
 				<View className="flex-1 justify-end bg-black/70">
@@ -54,6 +64,18 @@ export default function MinaDealsScreen() {
 						<Pressable className="mb-4 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={() => Alert.alert('E-post', 'Fortsätt med e-post')}>
 							<Text className="text-center font-medium text-white">Fortsätt med e-post</Text>
 						</Pressable>
+
+						<View className="mb-4 flex-row justify-center">
+							<Text className="text-white/70 text-md">Har du inget konto? </Text>
+							<Pressable
+								onPress={() => {
+									setIsLoginOpen(false);
+									router.push({ pathname: '/(tabs)/Registrering', params: { accountType: 'user', returnTo: 'minadeals' } });
+								}}
+							>
+								<Text className="text-blue-400 text-md font-medium underline">Registrera dig här!</Text>
+							</Pressable>
+						</View>
 
 						<Text className="text-center text-xs leading-5 text-white/50">
 							Genom att logga in godkänner du våra användarvillkor och integritetspolicy.
