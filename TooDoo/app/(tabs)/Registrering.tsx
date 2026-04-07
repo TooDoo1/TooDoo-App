@@ -4,16 +4,23 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 
 export default function RegistreringScreen() {
 	const router = useRouter();
+	const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'https://toodoo-backend-ejml.onrender.com';
 	const { accountType } = useLocalSearchParams<{ accountType?: string }>();
 	const isCompanyRegistration = accountType === 'company';
 	const [email, setEmail] = useState('');
 	const [password, setPassword] = useState('');
 	const [confirmPassword, setConfirmPassword] = useState('');
 	const [companyName, setCompanyName] = useState('');
+	const [isSubmittingRegister, setIsSubmittingRegister] = useState(false);
 
-	const handleRegister = () => {
+	const handleRegister = async () => {
 		if (!email.trim() || !password.trim() || !confirmPassword.trim()) {
 			Alert.alert('Saknad information', 'Fyll i alla fält för att registrera dig.');
+			return;
+		}
+
+		if (password.length < 8) {
+			Alert.alert('Ogiltigt lösenord', 'Lösenord måste vara minst 8 tecken.');
 			return;
 		}
 
@@ -27,8 +34,39 @@ export default function RegistreringScreen() {
 			return;
 		}
 
-		Alert.alert('Konto skapat', 'Din registrering lyckades. Du kan nu logga in.');
-		router.push('/(tabs)/Loggain');
+		setIsSubmittingRegister(true);
+		try {
+			const response = await fetch(`${apiBaseUrl}/user/register`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({
+					email: email.trim(),
+					password,
+					name: isCompanyRegistration ? companyName.trim() : undefined,
+				}),
+			});
+
+			const data = (await response.json().catch(() => ({}))) as { error?: string };
+
+			if (response.status === 201) {
+				Alert.alert('Konto skapat', 'Din registrering lyckades.');
+				router.push('/(tabs)/Personality');
+				return;
+			}
+
+			if (response.status === 409) {
+				Alert.alert('E-post upptagen', data.error ?? 'Email already exists');
+				return;
+			}
+
+			Alert.alert('Fel', data.error ?? 'Kunde inte registrera just nu.');
+		} catch {
+			Alert.alert('Nätverksfel', 'Kunde inte ansluta till servern.');
+		} finally {
+			setIsSubmittingRegister(false);
+		}
 	};
 
 	return (
@@ -85,7 +123,7 @@ export default function RegistreringScreen() {
 						className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
 					/>
 
-<Pressable className="mt-6 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={() => router.push('/(tabs)/Personality')}>
+					<Pressable className="mt-6 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={handleRegister} disabled={isSubmittingRegister}>
 						<Text className="text-center font-medium text-white">Skapa konto</Text>
 					</Pressable>
 
