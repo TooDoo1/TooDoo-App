@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { View, Text, TextInput, Pressable, Alert, Animated, ScrollView, type StyleProp, type TextStyle } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useAuth } from '@/context/auth-context';
 
 type BounceTextProps = {
 	text: string;
@@ -50,6 +51,7 @@ function BounceText({ text, className, textStyle, trigger }: BounceTextProps) {
 
 export default function MinaDealsScreen() {
 	const router = useRouter();
+	const { signIn } = useAuth();
 	const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'https://toodoo-backend-ejml.onrender.com';
 	const [selectedType, setSelectedType] = useState<'user' | 'company' | null>('user');
 	const [userBounceTrigger, setUserBounceTrigger] = useState(0);
@@ -107,7 +109,9 @@ export default function MinaDealsScreen() {
 			const data = (await response.json().catch(() => ({}))) as { token?: string; error?: string };
 
 			if (response.status === 200 && data.token) {
+				signIn(data.token);
 				Alert.alert('Inloggad', 'Inloggning lyckades.');
+				router.push('/(tabs)/MinaDeals');
 				return;
 			}
 
@@ -210,7 +214,7 @@ export default function MinaDealsScreen() {
 							<View className="mt-4 flex-row justify-center">
 								<Text className="text-white/70 text-md">Har du inget konto? </Text>
 								<Pressable
-									onPress={() => router.push({ pathname: '/(tabs)/Registrering', params: { accountType: 'user' } })}
+									onPress={() => router.push({ pathname: '/(tabs)/Registrering', params: { accountType: 'user', returnTo: 'loggain' } })}
 								>
 									<Text className="text-blue-400 text-md font-medium underline">Registrera dig här!</Text>
 								</Pressable>
@@ -262,7 +266,7 @@ export default function MinaDealsScreen() {
 							<View className="mt-4 flex-row justify-center">
 								<Text className="text-white/70 text-md">Har ditt företag inget konto? </Text>
 								<Pressable
-									onPress={() => router.push({ pathname: '/(tabs)/Registrering', params: { accountType: 'company' } })}
+									onPress={() => router.push({ pathname: '/(tabs)/Registrering', params: { accountType: 'company', returnTo: 'loggain' } })}
 								>
 									<Text className="text-blue-400 text-md font-medium underline">Registrera dig här!</Text>
 								</Pressable>

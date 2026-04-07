@@ -8,11 +8,15 @@ import {
 } from "react-native";
 import { useState } from "react";
 import { useRouter } from "expo-router";
+import { useAuth } from "@/context/auth-context";
 
 export default function PersonalityScreen() {
   const router = useRouter();
-  const totalCount = 3;
+  const { pendingRegistration, clearPendingRegistration, signIn } = useAuth();
+  const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'https://toodoo-backend-ejml.onrender.com';
+  const totalCount = 4;
   const [claimedCount, setClaimedCount] = useState(1);
+  const [isSubmittingCreate, setIsSubmittingCreate] = useState(false);
   const [selectedGender, setSelectedGender] = useState<"Man" | "Kvinna" | "Vill ej ange" | "Ickebinär" | null>(null);
   const categoryOptions = [
     "Familj",
@@ -140,41 +144,125 @@ export default function PersonalityScreen() {
             </View>
         ):null}
 
+        {claimedCount === 4 ? (
+          <View className="mt-20 rounded-2xl bg-[#0a1535] px-4 py-8">
+            <Text className="text-center text-2xl font-semibold text-white">Börja upptäck platser nära dig!</Text>
+          </View>
+        ) : null}
+
         </View>
 
-        <View className="mt-8 rounded-2xl bg-[#0a1535] px-4 py-5">
-          <Pressable
-            className=" rounded-2xl bg-[#007AFF] px-4 py-3"
-            onPress={() => {
-              if (claimedCount === 2 && !selectedGender) {
-                Alert.alert("Välj ett alternativ", "Välj Man, Kvinna, Vill ej ange eller Ickebinär innan du går vidare.");
-                return;
-              }
-              if (claimedCount === 3 && selectedCategories.length === 0) {
-                Alert.alert("Välj kategori", "Välj minst en kategori innan du går vidare.");
-                return;
-              }
-              setClaimedCount((prev) => Math.min(prev + 1, totalCount));
-            }}
-          >
-            <Text className="text-center font-medium text-[#061A47]">Nästa</Text>
-          </Pressable>
+        {claimedCount === 4 ? (
+          <View className="mt-8 rounded-2xl bg-[#0a1535] px-4 py-5">
+            <Pressable className="rounded-2xl bg-[#007AFF] px-4 py-3" onPress={() => router.replace('/')}>
+              <Text className="text-center font-medium text-[#061A47]">Fortsätt</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View className="mt-8 rounded-2xl bg-[#0a1535] px-4 py-5">
+            <Pressable
+              className=" rounded-2xl bg-[#007AFF] px-4 py-3"
+              onPress={async () => {
+                if (claimedCount === 2 && !selectedGender) {
+                  Alert.alert("Välj ett alternativ", "Välj Man, Kvinna, Vill ej ange eller Ickebinär innan du går vidare.");
+                  return;
+                }
+                if (claimedCount === 3 && selectedCategories.length === 0) {
+                  Alert.alert("Välj kategori", "Välj minst en kategori innan du går vidare.");
+                  return;
+                }
 
-          <Pressable
-            className="mt-3 rounded-2xl bg-[#061A47] px-4 py-3"
-            onPress={() => {
-              if (claimedCount >= 2) {
-                setClaimedCount((prev) => Math.max(prev - 1, 1));
-                return;
-              }
-              router.push("/(tabs)/Registrering");
-            }}
-          >
-            <Text className="text-center font-medium text-[#007AFF]">
-              Tillbaka
-            </Text>
-          </Pressable>
-       </View>
+                if (claimedCount === 3) {
+                  if (!pendingRegistration) {
+                    Alert.alert("Saknad registrering", "Fyll i registrering först innan du fortsätter.");
+                    router.replace("/(tabs)/Registrering");
+                    return;
+                  }
+
+                  setIsSubmittingCreate(true);
+                  try {
+                    const response = await fetch(`${apiBaseUrl}/user/register`, {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify({
+                        email: pendingRegistration.email,
+                        password: pendingRegistration.password,
+                        name: pendingRegistration.accountType === 'company' ? pendingRegistration.companyName : undefined,
+                      }),
+                    });
+
+                    const data = (await response.json().catch(() => ({}))) as { error?: string; token?: string };
+
+                    if (response.status === 201) {
+                      let tokenToUse = data.token;
+
+                      if (!tokenToUse) {
+                        const loginResponse = await fetch(`${apiBaseUrl}/user/login`, {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                          },
+                          body: JSON.stringify({
+                            email: pendingRegistration.email,
+                            password: pendingRegistration.password,
+                          }),
+                        });
+
+                        const loginData = (await loginResponse.json().catch(() => ({}))) as { token?: string };
+                        tokenToUse = loginResponse.status === 200 ? loginData.token : undefined;
+                      }
+
+                      if (tokenToUse) {
+                        signIn(tokenToUse);
+                      } else {
+                        Alert.alert('Konto skapat', 'Kontot skapades men automatisk inloggning misslyckades. Logga in manuellt.');
+                      }
+
+                      clearPendingRegistration();
+                      setClaimedCount(4);
+                      return;
+                    }
+
+                    if (response.status === 409) {
+                      Alert.alert('E-post upptagen', data.error ?? 'Email already exists');
+                      return;
+                    }
+
+                    Alert.alert('Fel', data.error ?? 'Kunde inte registrera just nu.');
+                    return;
+                  } catch {
+                    Alert.alert('Nätverksfel', 'Kunde inte ansluta till servern.');
+                    return;
+                  } finally {
+                    setIsSubmittingCreate(false);
+                  }
+                }
+
+                setClaimedCount((prev) => Math.min(prev + 1, totalCount));
+              }}
+              disabled={isSubmittingCreate}
+            >
+              <Text className="text-center font-medium text-[#061A47]">{isSubmittingCreate ? "Skapar konto..." : "Nästa"}</Text>
+            </Pressable>
+
+            <Pressable
+              className="mt-3 rounded-2xl bg-[#061A47] px-4 py-3"
+              onPress={() => {
+                if (claimedCount >= 2) {
+                  setClaimedCount((prev) => Math.max(prev - 1, 1));
+                  return;
+                }
+                router.push("/(tabs)/Registrering");
+              }}
+            >
+              <Text className="text-center font-medium text-[#007AFF]">
+                Tillbaka
+              </Text>
+            </Pressable>
+         </View>
+        )}
       </View>
     </ScrollView>
   );

@@ -1,17 +1,50 @@
 import { useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useAuth } from '@/context/auth-context';
 
 export default function RegistreringScreen() {
 	const router = useRouter();
-	const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'https://toodoo-backend-ejml.onrender.com';
-	const { accountType } = useLocalSearchParams<{ accountType?: string }>();
+	const { setPendingRegistration } = useAuth();
+	const { accountType, returnTo, returnParams } = useLocalSearchParams<{ accountType?: string; returnTo?: string; returnParams?: string }>();
 	const isCompanyRegistration = accountType === 'company';
 	const [email, setEmail] = useState('');
 	const [password, setPassword] = useState('');
 	const [confirmPassword, setConfirmPassword] = useState('');
 	const [companyName, setCompanyName] = useState('');
-	const [isSubmittingRegister, setIsSubmittingRegister] = useState(false);
+
+	const handleBack = () => {
+		if (returnTo === 'erbjudanden') {
+			let parsedParams: Record<string, string | string[]> = {};
+			if (returnParams) {
+				try {
+					parsedParams = JSON.parse(returnParams) as Record<string, string | string[]>;
+				} catch {
+					parsedParams = {};
+				}
+			}
+
+			router.replace({ pathname: '/(tabs)/Erbjudanden', params: parsedParams });
+			return;
+		}
+
+		if (returnTo === 'minadeals') {
+			router.replace('/(tabs)/MinaDeals');
+			return;
+		}
+
+		if (returnTo === 'loggain') {
+			router.replace('/(tabs)/Loggain');
+			return;
+		}
+
+		if (router.canGoBack()) {
+			router.back();
+			return;
+		}
+
+		router.replace('/(tabs)/Loggain');
+	};
 
 	const handleRegister = async () => {
 		if (!email.trim() || !password.trim() || !confirmPassword.trim()) {
@@ -34,39 +67,14 @@ export default function RegistreringScreen() {
 			return;
 		}
 
-		setIsSubmittingRegister(true);
-		try {
-			const response = await fetch(`${apiBaseUrl}/user/register`, {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-				},
-				body: JSON.stringify({
-					email: email.trim(),
-					password,
-					name: isCompanyRegistration ? companyName.trim() : undefined,
-				}),
-			});
+		setPendingRegistration({
+			email: email.trim(),
+			password,
+			accountType: isCompanyRegistration ? 'company' : 'user',
+			companyName: isCompanyRegistration ? companyName.trim() : undefined,
+		});
 
-			const data = (await response.json().catch(() => ({}))) as { error?: string };
-
-			if (response.status === 201) {
-				Alert.alert('Konto skapat', 'Din registrering lyckades.');
-				router.push('/(tabs)/Personality');
-				return;
-			}
-
-			if (response.status === 409) {
-				Alert.alert('E-post upptagen', data.error ?? 'Email already exists');
-				return;
-			}
-
-			Alert.alert('Fel', data.error ?? 'Kunde inte registrera just nu.');
-		} catch {
-			Alert.alert('Nätverksfel', 'Kunde inte ansluta till servern.');
-		} finally {
-			setIsSubmittingRegister(false);
-		}
+		router.push('/(tabs)/Personality');
 	};
 
 	return (
@@ -123,11 +131,14 @@ export default function RegistreringScreen() {
 						className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
 					/>
 
-					<Pressable className="mt-6 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={handleRegister} disabled={isSubmittingRegister}>
+					<Pressable className="mt-6 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={handleRegister}>
 						<Text className="text-center font-medium text-white">Skapa konto</Text>
 					</Pressable>
 
-					<Pressable className="mt-3 rounded-2xl bg-[#061A47] px-4 py-3" onPress={() => router.push('/(tabs)/Loggain')}>
+					<Pressable
+						className="mt-3 rounded-2xl bg-[#061A47] px-4 py-3"
+						onPress={handleBack}
+					>
 						<Text className="text-center font-medium text-[#007AFF]">Tillbaka</Text>
 					</Pressable>
 				</View>

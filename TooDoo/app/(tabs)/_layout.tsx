@@ -6,11 +6,13 @@ import { BlurView } from 'expo-blur';
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
+import { useAuth } from '@/context/auth-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   const isDark = (colorScheme ?? 'light') === 'dark';
+  const { isLoggedIn } = useAuth();
 
   return (
     <Tabs
@@ -65,6 +67,15 @@ export default function TabLayout() {
         options={{
           title: 'Logga In',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          href: isLoggedIn ? null : undefined,
+        }}
+      />
+      <Tabs.Screen
+        name="Profile"
+        options={{
+          title: 'Profil',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.fill" color={color} />,
+          href: isLoggedIn ? undefined : null,
         }}
       />
       <Tabs.Screen

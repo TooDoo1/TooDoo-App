@@ -1,26 +1,34 @@
-import { useEffect, useRef, useState } from "react";
-import { useLocalSearchParams } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import {
+  Alert,
   Animated,
   Image,
   ImageSourcePropType,
   Linking,
+  Modal,
   Platform,
+  Pressable,
   ScrollView,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Button } from "@react-navigation/elements";
 import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
+import { useAuth } from "@/context/auth-context";
 
 const localImagesById: Record<string, ImageSourcePropType> = {
   "event-3": require("../../assets/images/testbild.jpg"),
 };
 
 export default function ErbjudandenScreen() {
-  const [isOfferOpen, setIsOfferOpen] = useState(false);
+  const router = useRouter();
+  const { isLoggedIn } = useAuth();
   const [geocodedCoordinate, setGeocodedCoordinate] = useState<{ latitude: number; longitude: number; addressText?: string }>();
+  const [nowMs, setNowMs] = useState(Date.now());
+  const [isLoginOpen, setIsLoginOpen] = useState(false);
   const {
     mapResetNonce,
     id,
@@ -65,20 +73,138 @@ export default function ErbjudandenScreen() {
   const addressText = rawAddressText?.trim() ? rawAddressText.trim() : undefined;
   const phoneText = Array.isArray(Telefon) ? Telefon[0] : Telefon;
   const dealFlag = Array.isArray(deal) ? deal[0] : deal;
-  const offerText = Array.isArray(erbjudande) ? erbjudande[0] : erbjudande;
-  const offerPriceText = Array.isArray(erbjudandepris) ? erbjudandepris[0] : erbjudandepris;
-  const offerClaimedText = Array.isArray(erbjudandeclaimade) ? erbjudandeclaimade[0] : erbjudandeclaimade;
-  const offerAmountText = Array.isArray(erbjudandemängd) ? erbjudandemängd[0] : erbjudandemängd;
-  const offerEndText = Array.isArray(erbjudandelängd) ? erbjudandelängd[0] : erbjudandelängd;
   const resetNonceText = Array.isArray(mapResetNonce) ? mapResetNonce[0] : mapResetNonce;
-  const claimedCount = Number(offerClaimedText ?? 0);
-  const totalCount = Number(offerAmountText ?? 0);
-  const progressPercent = totalCount > 0 ? Math.min((claimedCount / totalCount) * 100, 100) : 0;
-  const remainingCount = Math.max(totalCount - claimedCount, 0);
-  const offerEndDate = offerEndText ? new Date(offerEndText) : undefined;
-  const [timeLeftMs, setTimeLeftMs] = useState(() =>
-    offerEndDate ? Math.max(offerEndDate.getTime() - Date.now(), 0) : 0
-  );
+
+  const toParamList = (value?: string | string[]) => {
+    if (!value) {
+      return [] as string[];
+    }
+
+    return Array.isArray(value) ? value : [value];
+  };
+
+  const offerTexts = toParamList(erbjudande);
+  const offerPriceTexts = toParamList(erbjudandepris);
+  const offerClaimedTexts = toParamList(erbjudandeclaimade);
+  const offerAmountTexts = toParamList(erbjudandemängd);
+  const offerEndTexts = toParamList(erbjudandelängd);
+  const claimWobbleValue = useMemo(() => new Animated.Value(0), []);
+  const claimWobbleRotate = claimWobbleValue.interpolate({
+    inputRange: [-1, 1],
+    outputRange: ["-2deg", "2deg"],
+  });
+
+  const offers = useMemo(() => {
+    const maxLength = Math.max(
+      offerTexts.length,
+      offerPriceTexts.length,
+      offerClaimedTexts.length,
+      offerAmountTexts.length,
+      offerEndTexts.length,
+      1
+    );
+
+    const parsedOffers = Array.from({ length: maxLength }, (_, index) => {
+      const text = offerTexts[index] ?? offerTexts[0];
+      const priceText = offerPriceTexts[index] ?? offerPriceTexts[0];
+      const claimedText = offerClaimedTexts[index] ?? offerClaimedTexts[0];
+      const amountText = offerAmountTexts[index] ?? offerAmountTexts[0];
+      const endText = offerEndTexts[index] ?? offerEndTexts[0];
+      const claimedCount = Number(claimedText ?? 0);
+      const totalCount = Number(amountText ?? 0);
+      const progressPercent = totalCount > 0 ? Math.min((claimedCount / totalCount) * 100, 100) : 0;
+      const endDate = endText ? new Date(endText) : undefined;
+      const timeLeftMs = endDate ? Math.max(endDate.getTime() - nowMs, 0) : 0;
+
+      return {
+        id: `${index}-${text ?? "offer"}`,
+        text,
+        priceText,
+        claimedCount,
+        totalCount,
+        progressPercent,
+        endDate,
+        timeLeftMs,
+      };
+    }).filter((offer) => offer.text || offer.priceText || offer.totalCount > 0 || offer.endDate);
+
+    if (dealFlag !== "1") {
+      return parsedOffers;
+    }
+
+    if (parsedOffers.length > 1) {
+      return parsedOffers;
+    }
+
+    const seed = parsedOffers[0] ?? {
+      id: "seed-offer",
+      text: "Specialerbjudande",
+      priceText: "99",
+      claimedCount: 12,
+      totalCount: 40,
+      progressPercent: 30,
+      endDate: new Date(nowMs + 1000 * 60 * 60 * 24),
+      timeLeftMs: 1000 * 60 * 60 * 24,
+    };
+
+    const today = new Date(nowMs);
+    const mockEndOne = new Date(today.getTime() + 1000 * 60 * 60 * 18);
+    const mockEndTwo = new Date(today.getTime() + 1000 * 60 * 60 * 36);
+
+    const mockOffers = [
+      seed,
+      {
+        ...seed,
+        id: "mock-2",
+        text: "2-for-1 efter kl 17:00",
+        priceText: "149",
+        claimedCount: 27,
+        totalCount: 60,
+        progressPercent: 45,
+        endDate: mockEndOne,
+        timeLeftMs: Math.max(mockEndOne.getTime() - nowMs, 0),
+      },
+      {
+        ...seed,
+        id: "mock-3",
+        text: "Familjepaket 30% rabatt",
+        priceText: "199",
+        claimedCount: 8,
+        totalCount: 25,
+        progressPercent: 32,
+        endDate: mockEndTwo,
+        timeLeftMs: Math.max(mockEndTwo.getTime() - nowMs, 0),
+      },
+    ];
+
+    return mockOffers;
+  }, [offerTexts, offerPriceTexts, offerClaimedTexts, offerAmountTexts, offerEndTexts, nowMs, dealFlag]);
+
+  useEffect(() => {
+    if (dealFlag !== "1" || offers.length === 0) {
+      claimWobbleValue.setValue(0);
+      return;
+    }
+
+    const wobbleAnimation = Animated.loop(
+      Animated.sequence([
+        Animated.delay(1800),
+        Animated.timing(claimWobbleValue, { toValue: -1, duration: 120, useNativeDriver: true }),
+        Animated.timing(claimWobbleValue, { toValue: 1, duration: 120, useNativeDriver: true }),
+        Animated.timing(claimWobbleValue, { toValue: -0.6, duration: 110, useNativeDriver: true }),
+        Animated.timing(claimWobbleValue, { toValue: 0.6, duration: 110, useNativeDriver: true }),
+        Animated.timing(claimWobbleValue, { toValue: 0, duration: 110, useNativeDriver: true }),
+      ])
+    );
+
+    wobbleAnimation.start();
+
+    return () => {
+      wobbleAnimation.stop();
+      claimWobbleValue.setValue(0);
+    };
+  }, [dealFlag, offers.length, claimWobbleValue]);
+
   const phoneUrl = phoneText
     ? `tel:${phoneText.replace(/[\s-]/g, "")}`
     : undefined;
@@ -87,57 +213,25 @@ export default function ErbjudandenScreen() {
     : undefined;
   const mapCoordinate = geocodedCoordinate;
   const mapResetKey = `${id ?? "no-id"}-${addressText ?? "no-address"}-${resetNonceText ?? "no-reset"}-${mapCoordinate?.latitude ?? "no-lat"}-${mapCoordinate?.longitude ?? "no-lon"}`;
-  const swingValue = useRef(new Animated.Value(0)).current;
-  const offerDropAnim = useRef(new Animated.Value(0)).current;
-  const seesawRotate = swingValue.interpolate({
-    inputRange: [-1, 0, 1],
-    outputRange: ["-2deg", "0deg", "2deg"],
-  });
-  const offerDropHeight = offerDropAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 220],
-  });
-  const offerDropOpacity = offerDropAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 1],
-  });
-  const offerDropTranslateY = offerDropAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-8, 0],
-  });
+
+  const socialLogin = (provider: 'Google' | 'Facebook' | 'Apple') => {
+    Alert.alert(
+      `Fortsätt med ${provider}`,
+      `Omdirigerar till ${provider}-inloggning...\n\n(Koppla ihop med ${provider} OAuth för att aktivera)`
+    );
+  };
 
   useEffect(() => {
-    if (dealFlag !== "1" || isOfferOpen) {
-      swingValue.setValue(0);
+    if (dealFlag !== "1") {
       return;
     }
 
-    const swingAnimation = Animated.loop(
-      Animated.sequence([
-        Animated.delay(1800),
-        Animated.timing(swingValue, { toValue: -1, duration: 120, useNativeDriver: true }),
-        Animated.timing(swingValue, { toValue: 1, duration: 120, useNativeDriver: true }),
-        Animated.timing(swingValue, { toValue: -0.6, duration: 110, useNativeDriver: true }),
-        Animated.timing(swingValue, { toValue: 0.6, duration: 110, useNativeDriver: true }),
-        Animated.timing(swingValue, { toValue: 0, duration: 110, useNativeDriver: true }),
-      ])
-    );
+    const timer = setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
 
-    swingAnimation.start();
-
-    return () => {
-      swingAnimation.stop();
-      swingValue.setValue(0);
-    };
-  }, [dealFlag, isOfferOpen, swingValue]);
-
-  useEffect(() => {
-    Animated.timing(offerDropAnim, {
-      toValue: isOfferOpen ? 1 : 0,
-      duration: 220,
-      useNativeDriver: false,
-    }).start();
-  }, [isOfferOpen, offerDropAnim]);
+    return () => clearInterval(timer);
+  }, [dealFlag]);
 
   useEffect(() => {
     let cancelled = false;
@@ -179,22 +273,6 @@ export default function ErbjudandenScreen() {
       cancelled = true;
     };
   }, [addressText, resetNonceText]);
-
-  useEffect(() => {
-    if (!offerEndDate || dealFlag !== "1") {
-      setTimeLeftMs(0);
-      return;
-    }
-
-    const updateTimeLeft = () => {
-      setTimeLeftMs(Math.max(offerEndDate.getTime() - Date.now(), 0));
-    };
-
-    updateTimeLeft();
-    const timer = setInterval(updateTimeLeft, 1000);
-
-    return () => clearInterval(timer);
-  }, [offerEndText, dealFlag]);
 
   const formatRemaining = (milliseconds: number) => {
     const totalSeconds = Math.max(Math.floor(milliseconds / 1000), 0);
@@ -250,73 +328,142 @@ export default function ErbjudandenScreen() {
         ) : null}
       </View>
 
-      {dealFlag === "1" ? (
-        <Animated.View
-          style={{
-            marginHorizontal: 24,
-            transform: [{ rotate: seesawRotate }],
-          }}
-        >
-          <Button variant="filled" color="#ff3b30" onPress={() => setIsOfferOpen((prev) => !prev)}>
-            {isOfferOpen ? "Erbjudanden" : "Visa erbjudande"}
-          </Button>
-        </Animated.View>
+      {dealFlag === "1" && offers.length > 0 ? (
+        <View className="mt-2">
+          {offers.length > 1 ? (
+            <Text className="mb-2 px-6 text-sm text-white/70">Svep sidledes för fler erbjudanden</Text>
+          ) : null}
+
+          <ScrollView
+            horizontal
+            nestedScrollEnabled
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 4 }}
+          >
+            {offers.map((offer) => (
+              <View key={offer.id} className="mr-3 w-[320px] rounded-2xl bg-[#0a1535] p-4">
+                <View className="flex-row gap-3">
+                  <View className="relative h-28 w-28 overflow-hidden rounded-xl bg-[#12214d]">
+                    {imageSource ? <Image source={imageSource} className="h-full w-full" /> : null}
+                    <LinearGradient
+                      colors={["rgba(0, 11, 42, 0)", "rgba(0, 11, 42, 0.9)"]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 0, y: 1 }}
+                      style={{
+                        position: "absolute",
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        height: 40,
+                      }}
+                    />
+                    <View className="absolute bottom-1 left-2 rounded-full border border-white/15 bg-black/60 px-2 py-1">
+                      <Text className="text-[10px] font-medium text-white">
+                        {offer.endDate ? formatRemaining(offer.timeLeftMs) : "--:--:--"}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View className="flex-1 justify-center">
+                    <Text className="text-white/80">{offer.text ?? "-"}</Text>
+                    <Text className="mt-1 font-medium text-white">{offer.priceText ? `${offer.priceText} kr` : "-"}</Text>
+                    <Text className="mt-1 text-white/80">Claimade: {offer.claimedCount} / {offer.totalCount || "-"}</Text>
+                    <View className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/20">
+                      <View
+                        className="h-full rounded-full bg-[#ff3b30]"
+                        style={{ width: `${offer.progressPercent}%` }}
+                      />
+                    </View>
+                  </View>
+                </View>
+                <View className="mt-3">
+                  <Animated.View style={{ transform: [{ rotate: claimWobbleRotate }] }}>
+                    <Button
+                      variant="filled"
+                      color="#ff3b30"
+                      onPress={() => {
+                        if (!isLoggedIn) {
+                          setIsLoginOpen(true);
+                          return;
+                        }
+                      }}
+                    >
+                      {isLoggedIn ? "Claima" : "Logga in för att claima!"}
+                    </Button>
+                  </Animated.View>
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
       ) : null}
 
-      {dealFlag === "1" ? (
-        <Animated.View
-          style={{
-            marginHorizontal: 24,
-            marginTop: 8,
-            height: offerDropHeight,
-            opacity: offerDropOpacity,
-            transform: [{ translateY: offerDropTranslateY }],
-            overflow: "hidden",
-          }}
-        >
-          <View className="rounded-2xl bg-[#0a1535] p-4">
-            <View className="flex-row gap-3">
-              <View className="relative h-28 w-28 overflow-hidden rounded-xl bg-[#12214d]">
-                {imageSource ? <Image source={imageSource} className="h-full w-full" /> : null}
-                <LinearGradient
-                  colors={["rgba(0, 11, 42, 0)", "rgba(0, 11, 42, 0.9)"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 0, y: 1 }}
-                  style={{
-                    position: "absolute",
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    height: 40,
-                  }}
-                />
-                <View className="absolute bottom-1 left-2 rounded-full bg-black/60 px-2 py-1 border border-white/15">
-                  <Text className="text-[10px] font-medium text-white">
-                    {offerEndDate ? formatRemaining(timeLeftMs) : "--:--:--"}
-                  </Text>
-                </View>
-              </View>
+      <Modal visible={isLoginOpen} transparent animationType="slide" onRequestClose={() => setIsLoginOpen(false)}>
+        <View className="flex-1 justify-end bg-black/70">
+          <Pressable className="flex-1" onPress={() => setIsLoginOpen(false)} />
+          <View className="rounded-t-3xl bg-[#0a1535] px-6 pb-9 pt-6">
+            <View className="mb-4 h-1 w-10 self-center rounded-full bg-white/30" />
+            <Text className="text-2xl font-semibold text-white">Välkommen!</Text>
+            <Text className="mb-5 mt-1 text-sm text-white/50">Logga in för att se dina deals och favoriter</Text>
 
-              <View className="flex-1 justify-center">
-                <Text className="text-white/80">{offerText ?? "-"}</Text>
-                <Text className="mt-1 text-white font-medium">{offerPriceText ? `${offerPriceText} kr` : "-"}</Text>
-                <Text className="mt-1 text-white/80">Claimade: {claimedCount} / {totalCount || "-"}</Text>
-                <View className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/20">
-                  <View
-                    className="h-full rounded-full bg-[#ff3b30]"
-                    style={{ width: `${progressPercent}%` }}
-                  />
-                </View>
-              </View>
+            <Pressable className="mb-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3" onPress={() => socialLogin('Google')}>
+              <Text className="text-center font-medium text-white">Fortsätt med Google</Text>
+            </Pressable>
+
+            <Pressable className="mb-4 rounded-2xl border border-white/20 bg-white/10 px-4 py-3" onPress={() => socialLogin('Apple')}>
+              <Text className="text-center font-medium text-white">Fortsätt med Apple</Text>
+            </Pressable>
+
+            <TextInput
+              placeholder="Din e-postadress"
+              placeholderTextColor="rgba(255,255,255,0.45)"
+              keyboardType="email-address"
+              className="mb-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
+            />
+
+            <Pressable className="mb-4 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={() => Alert.alert('E-post', 'Fortsätt med e-post')}>
+              <Text className="text-center font-medium text-white">Fortsätt med e-post</Text>
+            </Pressable>
+
+            <View className="mb-4 flex-row justify-center">
+              <Text className="text-white/70 text-md">Har du inget konto? </Text>
+              <Pressable
+                onPress={() => {
+                  const returnParams = JSON.stringify({
+                    mapResetNonce,
+                    id,
+                    title,
+                    deal,
+                    imageUri,
+                    Adress,
+                    Telefon,
+                    Website,
+                    kortbeskrivning,
+                    långbeskrivning,
+                    erbjudande,
+                    erbjudandepris,
+                    erbjudandeclaimade,
+                    erbjudandemängd,
+                    erbjudandelängd,
+                  });
+
+                  setIsLoginOpen(false);
+                  router.push({
+                    pathname: '/(tabs)/Registrering',
+                    params: { accountType: 'user', returnTo: 'erbjudanden', returnParams },
+                  });
+                }}
+              >
+                <Text className="text-blue-400 text-md font-medium underline">Registrera dig här!</Text>
+              </Pressable>
             </View>
-            <View className="mt-3">
-              <Button variant="filled" color="#050c62">
-                Claima
-              </Button>
-            </View>
+
+            <Text className="text-center text-xs leading-5 text-white/50">
+              Genom att logga in godkänner du våra användarvillkor och integritetspolicy.
+            </Text>
           </View>
-        </Animated.View>
-      ) : null}
+        </View>
+      </Modal>
 
       {title ? (
         <View className=" mt-6 overflow-hidden rounded-2xl bg-[#0a1535] p-4 mx-6">
