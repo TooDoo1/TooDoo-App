@@ -263,14 +263,14 @@ export default function MinaDealsScreen() {
 
 							</View> */}
 
-							<View className="mt-4 flex-row justify-center">
+							{/* <View className="mt-4 flex-row justify-center">
 								<Text className="text-white/70 text-md">Har ditt företag inget konto? </Text>
 								<Pressable
 									onPress={() => router.push({ pathname: '/(tabs)/Registrering', params: { accountType: 'company', returnTo: 'loggain' } })}
 								>
 									<Text className="text-blue-400 text-md font-medium underline">Registrera dig här!</Text>
 								</Pressable>
-							</View>
+							</View> */}
 
 							</View>
 						) : null}
@@ -278,6 +278,8 @@ export default function MinaDealsScreen() {
 
 
 			</View>
-		</ScrollView>
+
+			
+	   </ScrollView>
 	);
 }
