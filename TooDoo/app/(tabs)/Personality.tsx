@@ -6,7 +6,7 @@ import {
   Pressable,
   Alert,
 } from "react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/context/auth-context";
 
@@ -17,18 +17,65 @@ export default function PersonalityScreen() {
   const totalCount = 4;
   const [claimedCount, setClaimedCount] = useState(1);
   const [isSubmittingCreate, setIsSubmittingCreate] = useState(false);
-  const [selectedGender, setSelectedGender] = useState<"Man" | "Kvinna" | "Vill ej ange" | "Ickebinär" | null>(null);
-  const categoryOptions = [
-    "Familj",
-    "Nöje",
-    "Restauranger",
-    "Erbjudanden",
-    "Event",
-    "Mat & Dryck",
-    "Sport",
-  ] as const;
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [age, setAge] = useState('');
+  const [selectedGender, setSelectedGender] = useState<'MALE' | 'FEMALE' | 'OTHER' | null>(null);
+  const [categoryOptions, setCategoryOptions] = useState<Array<{ id?: string; name: string }>>([]);
+  const [isLoadingCategories, setIsLoadingCategories] = useState(false);
+  const [categoryLoadError, setCategoryLoadError] = useState('');
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const progressPercent = totalCount > 0 ? Math.min((claimedCount / totalCount) * 100, 100) : 0;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCategories = async () => {
+      setIsLoadingCategories(true);
+      setCategoryLoadError('');
+
+      try {
+        const response = await fetch(`${apiBaseUrl}/category`);
+        const data = await response.json().catch(() => []);
+        const categories = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.categories)
+            ? data.categories
+            : Array.isArray(data?.data)
+              ? data.data
+              : [];
+
+        if (!cancelled) {
+          setCategoryOptions(
+            categories
+              .map((item: { id?: string; name?: string }) => ({ id: item.id, name: item.name }))
+              .filter((item: { id?: string; name: string }) => Boolean(item.name))
+          );
+        }
+      } catch {
+        if (!cancelled) {
+          setCategoryLoadError('Kunde inte hämta kategorier just nu.');
+          setCategoryOptions([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingCategories(false);
+        }
+      }
+    };
+
+    loadCategories();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBaseUrl]);
+
+  const genderOptions = [
+    { label: 'Man', value: 'MALE' as const },
+    { label: 'Kvinna', value: 'FEMALE' as const },
+    { label: 'Vill ej ange', value: 'OTHER' as const },
+  ];
 
   return (
     <ScrollView
@@ -57,23 +104,27 @@ export default function PersonalityScreen() {
 
           <Text className="pt-4 text-lg text-white">Förnamn:</Text>
           <TextInput
-            placeholder="Förnamn"
+                value={firstName}
+                onChangeText={setFirstName}
+                placeholder="Förnamn"
             placeholderTextColor="rgba(255,255,255,0.45)"
-            keyboardType="email-address"
-            autoCapitalize="none"
+                autoCapitalize="words"
             className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
           />
           <Text className="pt-4 text-lg text-white">Efternamn:</Text>
           <TextInput
-            placeholder="Efternamn"
+                value={lastName}
+                onChangeText={setLastName}
+                placeholder="Efternamn"
             placeholderTextColor="rgba(255,255,255,0.45)"
-            keyboardType="email-address"
-            autoCapitalize="none"
+                autoCapitalize="words"
             className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
           />
           <Text className="pt-4 text-lg text-white">Ålder:</Text>
           <TextInput
-            placeholder="Ålder"
+                value={age}
+                onChangeText={setAge}
+                placeholder="Ålder"
             placeholderTextColor="rgba(255,255,255,0.45)"
             keyboardType="numeric"
             autoCapitalize="none"
@@ -90,16 +141,16 @@ export default function PersonalityScreen() {
               </View>
 
               <View className=" flex-row flex-wrap justify-between">
-                {(["Man", "Kvinna", "Vill ej ange", "Ickebinär"] as const).map((option) => {
-                  const isSelected = selectedGender === option;
+                {genderOptions.map((option) => {
+                  const isSelected = selectedGender === option.value;
                   return (
                     <Pressable
-                      key={option}
+                      key={option.value}
                       className={`mb-3 w-[48%] rounded-2xl border px-4 py-3 ${isSelected ? "border-[#061A47] bg-[#007AFF]" : "border-[#007AFF] bg-[#061A47]"}`}
-                      onPress={() => setSelectedGender(option)}
+                      onPress={() => setSelectedGender(option.value)}
                     >
                       <Text className={`text-center text-lg font-medium ${isSelected ? "text-[#061A47]" : "text-[#66adff]"}`}>
-                        {option}
+                        {option.label}
                       </Text>
                     </Pressable>
                   );
@@ -114,26 +165,33 @@ export default function PersonalityScreen() {
            <View className="">
               <View className="mt-20 pt-20 rounded-2xl px-2 py-5 ">
               <Text className="text-2xl text-white">Vad tycker du om?</Text>
-              <Text className="pt-2 text-white/70">Välj en eller flera kategorier.</Text>
+                    <Text className="pt-2 text-white/70">Välj en eller flera kategorier.</Text>
               </View>
 
-              <View className="mb-20 flex-row flex-wrap gap-3">
-                {categoryOptions.map((option) => {
-                  const isSelected = selectedCategories.includes(option);
+              {isLoadingCategories ? (
+                <Text className="text-white/70">Laddar kategorier...</Text>
+              ) : null}
+              {categoryLoadError ? (
+                <Text className="text-white/70">{categoryLoadError}</Text>
+              ) : null}
+
+                    <View className="mb-20 flex-row flex-wrap gap-3">
+              {categoryOptions.map((option) => {
+                const isSelected = selectedCategoryIds.includes(option.id ?? '');
                   return (
                     <Pressable
-                      key={option}
+                    key={option.id ?? option.name}
                       className={`rounded-2xl border px-5 py-3 ${isSelected ? "border-[#061A47] bg-[#007AFF]" : "border-[#007AFF] bg-[#061A47]"}`}
                       onPress={() => {
-                        setSelectedCategories((prev) =>
-                          prev.includes(option)
-                            ? prev.filter((item) => item !== option)
-                            : [...prev, option]
+                        setSelectedCategoryIds((prev) =>
+                        prev.includes(option.id ?? '')
+                          ? prev.filter((item) => item !== (option.id ?? ''))
+                          : [...prev, option.id ?? '']
                         );
                       }}
                     >
                       <Text className={`text-center text-lg font-medium ${isSelected ? "text-[#061A47]" : "text-[#66adff]"}`}>
-                        {option}
+                      {option.name}
                       </Text>
                     </Pressable>
                   );
@@ -167,7 +225,11 @@ export default function PersonalityScreen() {
                   Alert.alert("Välj ett alternativ", "Välj Man, Kvinna, Vill ej ange eller Ickebinär innan du går vidare.");
                   return;
                 }
-                if (claimedCount === 3 && selectedCategories.length === 0) {
+                if (claimedCount === 1 && (!firstName.trim() || !lastName.trim())) {
+                  Alert.alert("Saknad information", "Fyll i förnamn och efternamn innan du går vidare.");
+                  return;
+                }
+                if (claimedCount === 3 && selectedCategoryIds.length === 0) {
                   Alert.alert("Välj kategori", "Välj minst en kategori innan du går vidare.");
                   return;
                 }
@@ -188,8 +250,11 @@ export default function PersonalityScreen() {
                       },
                       body: JSON.stringify({
                         email: pendingRegistration.email,
+                        firstName: firstName.trim(),
+                        lastName: lastName.trim(),
+                        gender: selectedGender,
                         password: pendingRegistration.password,
-                        name: pendingRegistration.accountType === 'company' ? pendingRegistration.companyName : undefined,
+                        interests: selectedCategoryIds,
                       }),
                     });
 

@@ -21,7 +21,7 @@ type CardItem = {
   title: string;
   image: ImageSourcePropType;
   deal?: boolean;
-  erbjudandepris?: number;
+  erbjudandepris?: number | string[];
   Adress: string;
   latitude?: number;
   longitude?: number;
@@ -29,10 +29,10 @@ type CardItem = {
   Website: string;
   kortbeskrivning: string;
   långbeskrivning: string;
-  erbjudande?: string;
-  erbjudandeclaimade?: number;
-  erbjudandemängd?: number;
-  erbjudandelängd?: Date;
+  erbjudande?: string | string[];
+  erbjudandeclaimade?: number | string[];
+  erbjudandemängd?: number | string[];
+  erbjudandelängd?: string | string[];
 };
 
 type SectionItem = {
@@ -40,6 +40,36 @@ type SectionItem = {
   category: Exclude<Category, 'alla' | 'erbjudanden'>;
   title: string;
   cards: CardItem[];
+};
+
+type ApiCategory = { id?: string; _id?: string; name?: string };
+type ApiBusiness = {
+  id?: string;
+  _id?: string;
+  name?: string;
+  description?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  website?: string;
+  address?: string;
+  city?: string;
+  categoryId?: string;
+  categoryName?: string;
+  status?: string;
+  latitude?: number;
+  longitude?: number;
+};
+type ApiOrder = {
+  id?: string;
+  _id?: string;
+  title?: string;
+  price?: number;
+  maxRedemptions?: number;
+  claimedCount?: number;
+  orderTimeFrom?: string;
+  orderTimeTo?: string;
+  validTo?: string;
+  businessId?: string | { id?: string; _id?: string };
 };
 
 const sliderImages = [
@@ -59,171 +89,26 @@ const categories: { label: string; value: Category }[] = [
   { label: 'Sport', value: 'sport' },
 ];
 
-const deals: CardItem[] = [
-  {
-    id: 'deal-1',
-    title: 'Dunkers kulturhus',
-    image: { uri: 'https://picsum.photos/id/1025/300/200' },
-    deal: true,
-    erbjudandepris: 99,
-    erbjudande: '2 för 1 på entrébiljetter',
-    erbjudandeclaimade: 72,
-    erbjudandemängd: 120,
-    erbjudandelängd: new Date('2026-06-30'),
-    Adress: 'Södra Vallgatan 18, Helsingborg',
-    latitude: 56.0469,
-    longitude: 12.6945,
-    Telefon: '+46 42-10 44 00',
-    Website: 'https://example.com/dunkers-kulturhus',
-    kortbeskrivning: 'En fantastisk kulturhus för familjer.',
-    långbeskrivning: 'Dunkers kulturhus är en utmärkt plats för familjer att utforska och njuta av kultur och underhållning.'
-  },
-  {
-    id: 'deal-2',
-    title: 'Cirkus Arena',
-    image: { uri: 'https://picsum.photos/id/1050/300/200' },
-    deal: true,
-    erbjudandepris: 149,
-    erbjudande: '25% rabatt på familjepaket',
-    erbjudandeclaimade: 31,
-    erbjudandemängd: 80,
-    erbjudandelängd: new Date('2026-05-15'),
-    Adress: 'Södra Vallgatan 18, Helsingborg',
-    latitude: 56.0515,
-    longitude: 12.7062,
-    Telefon: '+46 42-10 55 20',
-    Website: 'https://example.com/cirkus-arena',
-    kortbeskrivning: 'Spännande cirkusföreställningar för alla åldrar.',
-    långbeskrivning: 'Cirkus Arena erbjuder spännande och underhållande cirkusföreställningar som passar både barn och vuxna.'
-  },
-];
-
-const sections: SectionItem[] = [
-  {
-    id: 'familj',
-    category: 'familj',
-    title: 'Familj',
-    cards: [
-      {
-        id: 'familj-1',
-        title: 'Dunkers kulturhus',
-        image: { uri: 'https://picsum.photos/id/1025/300/200' },
-        deal: true,
-        erbjudandepris: 89,
-        erbjudande: 'Gratis barnbiljett med vuxen',
-        erbjudandeclaimade: 40,
-        erbjudandemängd: 60,
-        erbjudandelängd: new Date('2026-04-30'),
-        Adress: 'Svärdsgatan 3, Helsingborg',
-        latitude: 56.0469,
-        longitude: 12.6945,
-        Telefon: '+46 42-10 44 00',
-        Website: 'https://dunkerskulturhus.se/',
-        kortbeskrivning: 'En fantastisk kulturhus för familjer.',
-        långbeskrivning: 'Dunkers kulturhus är en utmärkt plats för familjer att utforska och njuta av kultur och underhållning.'
-      },
-      {
-        id: 'familj-2',
-        title: 'Fredriksdal',
-        image: { uri: 'https://picsum.photos/id/1035/300/200' },
-        Adress: 'Södra Vallgatan 18, Helsingborg',
-        latitude: 56.0712,
-        longitude: 12.7149,
-        Telefon: '+46 42-10 45 10',
-        Website: 'https://example.com/fredriksdal',
-        kortbeskrivning: 'En vacker park och friluftsmuseum.',
-        långbeskrivning: 'Fredriksdal är en vacker park och friluftsmuseum som erbjuder en mängd aktiviteter och evenemang för hela familjen att njuta av.'
-      },
-    ],
-  },
-  {
-    id: 'event',
-    category: 'event',
-    title: 'Event',
-    cards: [
-      {
-        id: 'event-1',
-        title: 'Live Show',
-        image: { uri: 'https://picsum.photos/id/1040/300/200' },
-        Adress: 'Södra Vallgatan 18, Helsingborg',
-        latitude: 56.0448,
-        longitude: 12.6992,
-        Telefon: '+46 42-10 60 30',
-        Website: 'https://example.com/live-show',
-        kortbeskrivning: 'En spännande live show med musik och dans.',
-        långbeskrivning: 'Upplev en spännande live show som kombinerar musik, dans och spektakulära effekter för en oförglömlig kväll.'
-      },
-      {
-        id: 'event-2',
-        title: 'Konsert',
-        image: { uri: 'https://picsum.photos/id/1045/300/200' },
-        Adress: 'Södra Vallgatan 18, Helsingborg',
-        latitude: 56.0427,
-        longitude: 12.7016,
-        Telefon: '+46 42-10 61 40',
-        Website: 'https://example.com/konsert',
-        kortbeskrivning: 'En fantastisk konsert med lokala och internationella artister.',
-        långbeskrivning: 'Njut av en fantastisk konsert där både lokala och internationella artister samlas för att leverera en oförglömlig musikupplevelse.'
-      },
-      {
-        id: 'event-3',
-        title: 'Dukers Kulturhus',
-        image: require('../../assets/images/testbild.jpg'),
-        Adress: 'Södra Vallgatan 18, Helsingborg',
-        latitude: 56.0469,
-        longitude: 12.6945,
-        Telefon: '+46 42-10 44 00',
-        Website: 'https://dunkerskulturhus.se/',
-        kortbeskrivning: 'En fantastisk kulturhus för familjer.',
-        långbeskrivning: 'Dunkers kulturhus är en utmärkt plats för familjer att utforska och njuta av kultur och underhållning.'
-      },
-    ],
-  },
-  {
-    id: 'noje',
-    category: 'noje',
-    title: 'Cirkus',
-    cards: [
-      {
-        id: 'noje-1',
-        title: 'Cirkus Arena',
-        image: { uri: 'https://picsum.photos/id/1050/300/200' },
-        Adress: 'Södra Vallgatan 18, Helsingborg',
-        latitude: 56.0515,
-        longitude: 12.7062,
-        Telefon: '+46 42-10 55 20',
-        Website: 'https://example.com/cirkus-arena',
-        kortbeskrivning: 'Spännande cirkusföreställningar för alla åldrar.',
-        långbeskrivning: 'Cirkus Arena erbjuder spännande och underhållande cirkusföreställningar som passar både barn och vuxna.'
-      },
-      {
-        id: 'noje-2',
-        title: 'Familjeföreställning',
-        image: { uri: 'https://picsum.photos/id/1060/300/200' },
-        deal: true,
-        erbjudandepris: 0,
-        erbjudande: 'Barn går gratis söndagar',
-        erbjudandeclaimade: 18,
-        erbjudandemängd: 45,
-        erbjudandelängd: new Date('2026-05-31'),
-        Adress: 'Södra Vallgatan 18, Helsingborg',
-        latitude: 56.0498,
-        longitude: 12.7094,
-        Telefon: '+46 42-10 62 90',
-        Website: 'https://example.com/familjeforestallning',
-        kortbeskrivning: 'En rolig familjeföreställning med clowner och akrobater.',
-        långbeskrivning: 'Upplev en rolig familjeföreställning som kombinerar clowner, akrobater och magi för en underhållande dag för hela familjen.'
-      },
-    ],
-  },
-];
+const mapCategoryNameToKey = (name?: string): Exclude<Category, 'alla' | 'erbjudanden'> => {
+  const value = (name ?? '').toLowerCase();
+  if (value.includes('familj')) return 'familj';
+  if (value.includes('nöje') || value.includes('noje')) return 'noje';
+  if (value.includes('restaurang')) return 'restauranger';
+  if (value.includes('mat')) return 'mat';
+  if (value.includes('sport')) return 'sport';
+  return 'event';
+};
 
 export default function HomeScreen() {
   const [sliderIndex, setSliderIndex] = useState(0);
   const [activeCategory, setActiveCategory] = useState<Category>('alla');
+  const [deals, setDeals] = useState<CardItem[]>([]);
+  const [sections, setSections] = useState<SectionItem[]>([]);
+  const [isLoadingData, setIsLoadingData] = useState(true);
   const tabBarHeight = useBottomTabBarHeight();
   const scrollRef = useRef<ScrollView>(null);
   const router = useRouter();
+  const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'https://toodoo-backend-ejml.onrender.com';
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -233,17 +118,191 @@ export default function HomeScreen() {
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadHomeData = async () => {
+      setIsLoadingData(true);
+      try {
+        const [categoryRes, businessRes, ordersRes] = await Promise.all([
+          fetch(`${apiBaseUrl}/category`),
+          fetch(`${apiBaseUrl}/business?status=APPROVED`),
+          fetch(`${apiBaseUrl}/orders`),
+        ]);
+
+        const categoryJson = await categoryRes.json().catch(() => []);
+        const businessJson = await businessRes.json().catch(() => []);
+        const ordersJson = await ordersRes.json().catch(() => []);
+
+        const categoriesRaw: ApiCategory[] = Array.isArray(categoryJson)
+          ? categoryJson
+          : Array.isArray(categoryJson?.categories)
+            ? categoryJson.categories
+            : Array.isArray(categoryJson?.data)
+              ? categoryJson.data
+              : [];
+
+        const businessesRaw: ApiBusiness[] = Array.isArray(businessJson)
+          ? businessJson
+          : Array.isArray(businessJson?.businesses)
+            ? businessJson.businesses
+            : Array.isArray(businessJson?.data)
+              ? businessJson.data
+              : [];
+
+        const ordersRaw: ApiOrder[] = Array.isArray(ordersJson)
+          ? ordersJson
+          : Array.isArray(ordersJson?.orders)
+            ? ordersJson.orders
+            : Array.isArray(ordersJson?.data)
+              ? ordersJson.data
+              : [];
+
+        const categoryNameById = new Map<string, string>();
+        categoriesRaw.forEach((category) => {
+          const id = category.id ?? category._id;
+          if (id && category.name) {
+            categoryNameById.set(id, category.name);
+          }
+        });
+
+        const ordersByBusinessId = new Map<string, ApiOrder[]>();
+        ordersRaw.forEach((order) => {
+          const businessId =
+            typeof order.businessId === 'string'
+              ? order.businessId
+              : order.businessId?.id ?? order.businessId?._id;
+
+          if (!businessId) {
+            return;
+          }
+
+          if (!ordersByBusinessId.has(businessId)) {
+            ordersByBusinessId.set(businessId, []);
+          }
+          ordersByBusinessId.get(businessId)?.push(order);
+        });
+
+        const nowMs = Date.now();
+
+        const approvedBusinesses = businessesRaw.filter(
+          (business) => (business.status ?? 'APPROVED').toUpperCase() === 'APPROVED'
+        );
+
+        const cards: CardItem[] = approvedBusinesses.map((business, index) => {
+          const businessId = business.id ?? business._id ?? `business-${index}`;
+          const businessOrders = ordersByBusinessId.get(businessId) ?? [];
+          const visibleOrders = businessOrders.filter((order) => {
+            if (!order.orderTimeFrom) {
+              return true;
+            }
+
+            const fromMs = new Date(order.orderTimeFrom).getTime();
+            return Number.isFinite(fromMs) && fromMs <= nowMs;
+          });
+
+          const offers = visibleOrders.map((order) => order.title ?? 'Erbjudande');
+          const offerPrices = visibleOrders.map((order) => String(order.price ?? 0));
+          const offerClaimed = visibleOrders.map((order) => String(order.claimedCount ?? 0));
+          const offerAmount = visibleOrders.map((order) => String(order.maxRedemptions ?? 0));
+          const offerEnd = visibleOrders.map((order) => order.orderTimeTo ?? order.validTo ?? '');
+
+          return {
+            id: businessId,
+            title: business.name ?? 'Okänd verksamhet',
+            image: { uri: `https://picsum.photos/seed/${encodeURIComponent(businessId)}/300/200` },
+            deal: visibleOrders.length > 0,
+            erbjudandepris: offerPrices,
+            Adress: [business.address, business.city].filter(Boolean).join(', ') || 'Adress saknas',
+            latitude: business.latitude,
+            longitude: business.longitude,
+            Telefon: business.contactPhone ?? undefined,
+            Website: business.website ?? '',
+            kortbeskrivning: business.description ?? '',
+            långbeskrivning: business.description ?? '',
+            erbjudande: offers,
+            erbjudandeclaimade: offerClaimed,
+            erbjudandemängd: offerAmount,
+            erbjudandelängd: offerEnd,
+          };
+        });
+
+        const dealsList = cards.filter((card) => card.deal);
+
+        const sectionBuckets: Record<Exclude<Category, 'alla' | 'erbjudanden'>, CardItem[]> = {
+          familj: [],
+          noje: [],
+          restauranger: [],
+          event: [],
+          mat: [],
+          sport: [],
+        };
+
+        cards.forEach((card, index) => {
+          const business = approvedBusinesses[index];
+          const categoryName = business?.categoryName ?? (business?.categoryId ? categoryNameById.get(business.categoryId) : undefined);
+          const key = mapCategoryNameToKey(categoryName);
+          sectionBuckets[key].push(card);
+        });
+
+        const nextSections: SectionItem[] = [
+          { id: 'familj', category: 'familj', title: 'Familj', cards: sectionBuckets.familj },
+          { id: 'noje', category: 'noje', title: 'Nöje', cards: sectionBuckets.noje },
+          { id: 'restauranger', category: 'restauranger', title: 'Restauranger', cards: sectionBuckets.restauranger },
+          { id: 'event', category: 'event', title: 'Event', cards: sectionBuckets.event },
+          { id: 'mat', category: 'mat', title: 'Mat & Dryck', cards: sectionBuckets.mat },
+          { id: 'sport', category: 'sport', title: 'Sport', cards: sectionBuckets.sport },
+        ].filter((section) => section.cards.length > 0);
+
+        if (!cancelled) {
+          setDeals(dealsList);
+          setSections(nextSections);
+        }
+      } catch {
+        if (!cancelled) {
+          setDeals([]);
+          setSections([]);
+          Alert.alert('Fel', 'Kunde inte ladda startsidan just nu.');
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingData(false);
+        }
+      }
+    };
+
+    loadHomeData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBaseUrl]);
+
   const filteredSections = useMemo(() => {
     if (activeCategory === 'alla' || activeCategory === 'erbjudanden') {
       return sections;
     }
 
     return sections.filter((section) => section.category === activeCategory);
-  }, [activeCategory]);
+  }, [activeCategory, sections]);
 
 
 
   const handleCardPress = (card: CardItem) => {
+    const encodeListParam = (value: string | string[] | number | number[] | Date | Date[] | undefined) => {
+      if (value === undefined || value === null) {
+        return undefined;
+      }
+
+      if (Array.isArray(value)) {
+        return JSON.stringify(
+          value.map((item) => (item instanceof Date ? item.toISOString() : String(item)))
+        );
+      }
+
+      return value instanceof Date ? value.toISOString() : String(value);
+    };
+
     const remoteImageUri =
       typeof card.image === 'object' && card.image && 'uri' in card.image && typeof card.image.uri === 'string'
         ? card.image.uri
@@ -264,11 +323,11 @@ export default function HomeScreen() {
         Website: card.Website,
         kortbeskrivning: card.kortbeskrivning,
         långbeskrivning: card.långbeskrivning,
-        erbjudande: card.erbjudande,
-        erbjudandepris: card.erbjudandepris?.toString(),
-        erbjudandeclaimade: card.erbjudandeclaimade?.toString(),
-        erbjudandemängd: card.erbjudandemängd?.toString(),
-        erbjudandelängd: card.erbjudandelängd?.toISOString(),
+        erbjudande: encodeListParam(card.erbjudande),
+        erbjudandepris: encodeListParam(card.erbjudandepris),
+        erbjudandeclaimade: encodeListParam(card.erbjudandeclaimade),
+        erbjudandemängd: encodeListParam(card.erbjudandemängd),
+        erbjudandelängd: encodeListParam(card.erbjudandelängd),
       },
     });
   };
@@ -321,7 +380,11 @@ export default function HomeScreen() {
 
         <View className="px-4 pt-5">
           <Text className="mb-2 text-lg font-semibold text-white">Erbjudanden</Text>
-          <CardRow cards={deals} onCardPress={handleCardPress} />
+          {isLoadingData ? (
+            <Text className="text-white/70">Laddar...</Text>
+          ) : (
+            <CardRow cards={deals} onCardPress={handleCardPress} />
+          )}
         </View>
 
         {filteredSections.map((section) => (

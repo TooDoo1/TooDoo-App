@@ -80,7 +80,27 @@ export default function ErbjudandenScreen() {
       return [] as string[];
     }
 
-    return Array.isArray(value) ? value : [value];
+    const rawValues = Array.isArray(value) ? value : [value];
+
+    return rawValues.flatMap((raw) => {
+      const trimmed = raw.trim();
+      if (!trimmed) {
+        return [];
+      }
+
+      if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (Array.isArray(parsed)) {
+            return parsed.map((item) => String(item));
+          }
+        } catch {
+          return [trimmed];
+        }
+      }
+
+      return [trimmed];
+    });
   };
 
   const offerTexts = toParamList(erbjudande);
@@ -100,9 +120,12 @@ export default function ErbjudandenScreen() {
       offerPriceTexts.length,
       offerClaimedTexts.length,
       offerAmountTexts.length,
-      offerEndTexts.length,
-      1
+      offerEndTexts.length
     );
+
+    if (maxLength === 0) {
+      return [];
+    }
 
     const parsedOffers = Array.from({ length: maxLength }, (_, index) => {
       const text = offerTexts[index] ?? offerTexts[0];
@@ -113,7 +136,8 @@ export default function ErbjudandenScreen() {
       const claimedCount = Number(claimedText ?? 0);
       const totalCount = Number(amountText ?? 0);
       const progressPercent = totalCount > 0 ? Math.min((claimedCount / totalCount) * 100, 100) : 0;
-      const endDate = endText ? new Date(endText) : undefined;
+      const parsedEndDate = endText ? new Date(endText) : undefined;
+      const endDate = parsedEndDate && Number.isFinite(parsedEndDate.getTime()) ? parsedEndDate : undefined;
       const timeLeftMs = endDate ? Math.max(endDate.getTime() - nowMs, 0) : 0;
 
       return {
@@ -127,57 +151,7 @@ export default function ErbjudandenScreen() {
         timeLeftMs,
       };
     }).filter((offer) => offer.text || offer.priceText || offer.totalCount > 0 || offer.endDate);
-
-    if (dealFlag !== "1") {
-      return parsedOffers;
-    }
-
-    if (parsedOffers.length > 1) {
-      return parsedOffers;
-    }
-
-    const seed = parsedOffers[0] ?? {
-      id: "seed-offer",
-      text: "Specialerbjudande",
-      priceText: "99",
-      claimedCount: 12,
-      totalCount: 40,
-      progressPercent: 30,
-      endDate: new Date(nowMs + 1000 * 60 * 60 * 24),
-      timeLeftMs: 1000 * 60 * 60 * 24,
-    };
-
-    const today = new Date(nowMs);
-    const mockEndOne = new Date(today.getTime() + 1000 * 60 * 60 * 18);
-    const mockEndTwo = new Date(today.getTime() + 1000 * 60 * 60 * 36);
-
-    const mockOffers = [
-      seed,
-      {
-        ...seed,
-        id: "mock-2",
-        text: "2-for-1 efter kl 17:00",
-        priceText: "149",
-        claimedCount: 27,
-        totalCount: 60,
-        progressPercent: 45,
-        endDate: mockEndOne,
-        timeLeftMs: Math.max(mockEndOne.getTime() - nowMs, 0),
-      },
-      {
-        ...seed,
-        id: "mock-3",
-        text: "Familjepaket 30% rabatt",
-        priceText: "199",
-        claimedCount: 8,
-        totalCount: 25,
-        progressPercent: 32,
-        endDate: mockEndTwo,
-        timeLeftMs: Math.max(mockEndTwo.getTime() - nowMs, 0),
-      },
-    ];
-
-    return mockOffers;
+    return parsedOffers;
   }, [offerTexts, offerPriceTexts, offerClaimedTexts, offerAmountTexts, offerEndTexts, nowMs, dealFlag]);
 
   useEffect(() => {
