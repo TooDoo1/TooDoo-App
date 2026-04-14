@@ -1,6 +1,6 @@
 import { Image, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { useState, useCallback } from 'react';
-import QRCode from 'qrcode';
+import QRCodeSVG from 'react-native-qrcode-svg';
 
 export type ClaimedOfferItem = {
 	id: string;
@@ -21,28 +21,10 @@ type Props = {
 export default function ClaimedOffers({ items }: Props) {
 	const [selectedItem, setSelectedItem] = useState<ClaimedOfferItem | null>(null);
 	const [modalVisible, setModalVisible] = useState(false);
-	const [qrCodeUri, setQrCodeUri] = useState<string | null>(null);
 
-	const handleItemPress = useCallback(async (item: ClaimedOfferItem) => {
+	const handleItemPress = useCallback((item: ClaimedOfferItem) => {
 		setSelectedItem(item);
 		setModalVisible(true);
-		
-		// Generate QR code
-		if (item.code) {
-			try {
-				const qrDataUrl = await QRCode.toDataURL(item.code, {
-					width: 200,
-					margin: 1,
-					color: {
-						dark: '#000000',
-						light: '#ffffff',
-					},
-				});
-				setQrCodeUri(qrDataUrl);
-			} catch (error) {
-				console.error('Error generating QR code:', error);
-			}
-		}
 	}, []);
 
 	if (items.length === 0) {
@@ -63,12 +45,23 @@ export default function ClaimedOffers({ items }: Props) {
 						onPress={() => handleItemPress(item)}
 					>
 						<View className="flex-row items-start gap-3">
-							<View className="h-28 w-28 overflow-hidden rounded-xl mt-1 bg-[#12214d]">
-								<Image
-									source={{ uri: item.imageUri ?? `https://picsum.photos/seed/${encodeURIComponent(item.id)}/240/240` }}
-									className="h-full w-full"
-									resizeMode="cover"
-								/>
+							<View className="h-28 w-28 overflow-hidden rounded-xl mt-1 bg-[#12214d] items-center justify-center">
+								{item.code ? (
+									<View className="h-full w-full items-center justify-center bg-white p-1">
+										<QRCodeSVG
+											value={item.code}
+											size={100}
+											color="#000000"
+											backgroundColor="#ffffff"
+										/>
+									</View>
+								) : (
+									<Image
+										source={{ uri: item.imageUri ?? `https://picsum.photos/seed/${encodeURIComponent(item.id)}/240/240` }}
+										className="h-full w-full"
+										resizeMode="cover"
+									/>
+								)}
 							</View>
 
 							<View className="flex-1">
@@ -105,34 +98,38 @@ export default function ClaimedOffers({ items }: Props) {
 							{selectedItem && (
 								<>
 									<View className="w-full aspect-square overflow-hidden rounded-xl bg-[#12214d] mb-6">
-										<Image
-											source={{
-												uri:
-													selectedItem.imageUri ??
-													`https://picsum.photos/seed/${encodeURIComponent(selectedItem.id)}/240/240`,
-											}}
-											className="h-full w-full"
-											resizeMode="cover"
-										/>
+										{selectedItem.code ? (
+											<View className="h-full w-full items-center justify-center bg-white p-3">
+												<QRCodeSVG
+													value={selectedItem.code}
+													size={240}
+													color="#000000"
+													backgroundColor="#ffffff"
+												/>
+											</View>
+										) : (
+											<Image
+												source={{
+													uri:
+														selectedItem.imageUri ??
+														`https://picsum.photos/seed/${encodeURIComponent(selectedItem.id)}/240/240`,
+												}}
+												className="h-full w-full"
+												resizeMode="cover"
+											/>
+										)}
 									</View>
 
 									<Text className="text-xl font-semibold text-white mb-4">{selectedItem.title}</Text>
 
-									{selectedItem.code && qrCodeUri && (
+									{selectedItem.code ? (
 										<View className="bg-[#12214d] rounded-lg p-4 mb-6">
 											<Text className="text-white/60 text-xs mb-2">Kod:</Text>
 											<Text className="text-white text-2xl font-bold tracking-widest mb-4">
 												{selectedItem.code}
 											</Text>
-
-											<View className="items-center bg-white p-3 rounded-lg">
-												<Image
-													source={{ uri: qrCodeUri }}
-													style={{ width: 200, height: 200 }}
-												/>
-											</View>
 										</View>
-									)}
+									) : null}
 
 									<Pressable
 										className="bg-[#ff3b30] rounded-lg py-3 mt-4"

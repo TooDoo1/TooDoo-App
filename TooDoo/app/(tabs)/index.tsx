@@ -1,5 +1,6 @@
   import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
   Image,
   ImageSourcePropType,
@@ -21,6 +22,7 @@ type CardItem = {
   title: string;
   image: ImageSourcePropType;
   deal?: boolean;
+  orderIds?: string[];
   erbjudandepris?: number | string[];
   Adress: string;
   latitude?: number;
@@ -202,6 +204,7 @@ export default function HomeScreen() {
           });
 
           const offers = visibleOrders.map((order) => order.title ?? 'Erbjudande');
+          const orderIds = visibleOrders.map((order, orderIndex) => order.id ?? order._id ?? `${businessId}-order-${orderIndex}`);
           const offerPrices = visibleOrders.map((order) => String(order.price ?? 0));
           const offerClaimed = visibleOrders.map((order) => String(order.claimedCount ?? 0));
           const offerAmount = visibleOrders.map((order) => String(order.maxRedemptions ?? 0));
@@ -212,6 +215,7 @@ export default function HomeScreen() {
             title: business.name ?? 'Okänd verksamhet',
             image: { uri: `https://picsum.photos/seed/${encodeURIComponent(businessId)}/300/200` },
             deal: visibleOrders.length > 0,
+            orderIds,
             erbjudandepris: offerPrices,
             Adress: [business.address, business.city].filter(Boolean).join(', ') || 'Adress saknas',
             latitude: business.latitude,
@@ -245,18 +249,20 @@ export default function HomeScreen() {
           sectionBuckets[key].push(card);
         });
 
-        const nextSections: SectionItem[] = [
+        const nextSections = [
           { id: 'familj', category: 'familj', title: 'Familj', cards: sectionBuckets.familj },
           { id: 'noje', category: 'noje', title: 'Nöje', cards: sectionBuckets.noje },
           { id: 'restauranger', category: 'restauranger', title: 'Restauranger', cards: sectionBuckets.restauranger },
           { id: 'event', category: 'event', title: 'Event', cards: sectionBuckets.event },
           { id: 'mat', category: 'mat', title: 'Mat & Dryck', cards: sectionBuckets.mat },
           { id: 'sport', category: 'sport', title: 'Sport', cards: sectionBuckets.sport },
-        ].filter((section) => section.cards.length > 0);
+        ] as SectionItem[];
+
+        const filteredSections = nextSections.filter((section) => section.cards.length > 0);
 
         if (!cancelled) {
           setDeals(dealsList);
-          setSections(nextSections);
+          setSections(filteredSections);
         }
       } catch {
         if (!cancelled) {
@@ -313,6 +319,7 @@ export default function HomeScreen() {
       params: {
         mapResetNonce: `${Date.now()}-${Math.random()}`,
         id: card.id,
+        claimBusinessId: card.id,
         title: card.title,
         deal: card.deal ? '1' : '0',
         imageUri: remoteImageUri,
@@ -324,6 +331,7 @@ export default function HomeScreen() {
         kortbeskrivning: card.kortbeskrivning,
         långbeskrivning: card.långbeskrivning,
         erbjudande: encodeListParam(card.erbjudande),
+        orderIds: encodeListParam(card.orderIds),
         erbjudandepris: encodeListParam(card.erbjudandepris),
         erbjudandeclaimade: encodeListParam(card.erbjudandeclaimade),
         erbjudandemängd: encodeListParam(card.erbjudandemängd),
