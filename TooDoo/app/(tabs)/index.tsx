@@ -24,6 +24,7 @@ type CardItem = {
   deal?: boolean;
   orderIds?: string[];
   erbjudandepris?: number | string[];
+  erbjudandeoriginalpris?: number | string[];
   Adress: string;
   latitude?: number;
   longitude?: number;
@@ -66,6 +67,7 @@ type ApiOrder = {
   _id?: string;
   title?: string;
   price?: number;
+  originalPrice?: number;
   maxRedemptions?: number;
   claimedCount?: number;
   orderTimeFrom?: string;
@@ -206,6 +208,7 @@ export default function HomeScreen() {
           const offers = visibleOrders.map((order) => order.title ?? 'Erbjudande');
           const orderIds = visibleOrders.map((order, orderIndex) => order.id ?? order._id ?? `${businessId}-order-${orderIndex}`);
           const offerPrices = visibleOrders.map((order) => String(order.price ?? 0));
+          const offerOriginalPrices = visibleOrders.map((order) => order.originalPrice !== undefined ? String(order.originalPrice) : '');
           const offerClaimed = visibleOrders.map((order) => String(order.claimedCount ?? 0));
           const offerAmount = visibleOrders.map((order) => String(order.maxRedemptions ?? 0));
           const offerEnd = visibleOrders.map((order) => order.orderTimeTo ?? order.validTo ?? '');
@@ -217,6 +220,7 @@ export default function HomeScreen() {
             deal: visibleOrders.length > 0,
             orderIds,
             erbjudandepris: offerPrices,
+            erbjudandeoriginalpris: offerOriginalPrices,
             Adress: [business.address, business.city].filter(Boolean).join(', ') || 'Adress saknas',
             latitude: business.latitude,
             longitude: business.longitude,
@@ -333,6 +337,7 @@ export default function HomeScreen() {
         erbjudande: encodeListParam(card.erbjudande),
         orderIds: encodeListParam(card.orderIds),
         erbjudandepris: encodeListParam(card.erbjudandepris),
+        erbjudandeoriginalpris: encodeListParam(card.erbjudandeoriginalpris),
         erbjudandeclaimade: encodeListParam(card.erbjudandeclaimade),
         erbjudandemängd: encodeListParam(card.erbjudandemängd),
         erbjudandelängd: encodeListParam(card.erbjudandelängd),

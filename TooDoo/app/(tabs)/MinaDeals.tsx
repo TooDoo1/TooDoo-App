@@ -32,12 +32,56 @@ type ApiClaim = {
 			id?: string;
 			code?: string;
 			expiresAt?: string;
-			orderId?: string | { id?: string; _id?: string; title?: string; price?: number; orderTimeTo?: string; validTo?: string; businessId?: string | { id?: string; _id?: string; name?: string } };
-			order?: { id?: string; _id?: string; title?: string; price?: number; orderTimeTo?: string; validTo?: string; businessId?: string | { id?: string; _id?: string; name?: string } };
+			orderId?:
+				| string
+				| {
+					id?: string;
+					_id?: string;
+					title?: string;
+					description?: string;
+					price?: number;
+					originalPrice?: number;
+					orderTimeTo?: string;
+					validTo?: string;
+					businessId?: string | { id?: string; _id?: string; name?: string };
+				};
+			order?: {
+				id?: string;
+				_id?: string;
+				title?: string;
+				description?: string;
+				price?: number;
+				originalPrice?: number;
+				orderTimeTo?: string;
+				validTo?: string;
+				businessId?: string | { id?: string; _id?: string; name?: string };
+			};
 			createdAt?: string;
 		};
-	orderId?: string | { id?: string; _id?: string; title?: string; price?: number; orderTimeTo?: string; validTo?: string; businessId?: string | { id?: string; _id?: string; name?: string } };
-	order?: { id?: string; _id?: string; title?: string; price?: number; orderTimeTo?: string; validTo?: string; businessId?: string | { id?: string; _id?: string; name?: string } };
+	orderId?:
+		| string
+		| {
+			id?: string;
+			_id?: string;
+			title?: string;
+			description?: string;
+			price?: number;
+			originalPrice?: number;
+			orderTimeTo?: string;
+			validTo?: string;
+			businessId?: string | { id?: string; _id?: string; name?: string };
+		};
+	order?: {
+		id?: string;
+		_id?: string;
+		title?: string;
+		description?: string;
+		price?: number;
+		originalPrice?: number;
+		orderTimeTo?: string;
+		validTo?: string;
+		businessId?: string | { id?: string; _id?: string; name?: string };
+	};
 	qr?: { code?: string };
 	qrCodeId?: { code?: string };
 	expiresAt?: string;
@@ -148,10 +192,13 @@ export default function MinaDealsScreen() {
 				return {
 					id: claim.id ?? claim._id ?? qrCodeObject?.id ?? orderId ?? `claim-${index}`,
 					title: embeddedOrder?.title ?? 'Erbjudande',
+					descriptionText: embeddedOrder?.description,
 					businessName,
 					imageUri: `https://picsum.photos/seed/${encodeURIComponent(orderId ?? `claim-${index}`)}/240/240`,
 					priceText: embeddedOrder?.price !== undefined ? `${embeddedOrder.price} kr` : undefined,
+					originalPriceText: embeddedOrder?.originalPrice !== undefined ? `${embeddedOrder.originalPrice} kr` : undefined,
 					claimedAtText: claimedAt && Number.isFinite(claimedAt.getTime()) ? claimedAt.toLocaleDateString('sv-SE') : undefined,
+					expiresAt: qrExpiryValue,
 					statusText: isQrExpired || isStatusExpired ? 'Utgånget' : claim.status ?? 'Aktiv',
 					code,
 					onOpen: orderId

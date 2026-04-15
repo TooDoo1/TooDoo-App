@@ -1,15 +1,18 @@
 import { Image, Modal, Pressable, ScrollView, Text, View } from 'react-native';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import QRCodeSVG from 'react-native-qrcode-svg';
 
 export type ClaimedOfferItem = {
 	id: string;
 	title: string;
+	descriptionText?: string;
 	businessName?: string;
 	imageUri?: string;
 	priceText?: string;
+	originalPriceText?: string;
 	claimedAtText?: string;
 	statusText?: string;
+	expiresAt?: string;
 	code?: string;
 	onOpen?: () => void;
 };
@@ -21,16 +24,50 @@ type Props = {
 export default function ClaimedOffers({ items }: Props) {
 	const [selectedItem, setSelectedItem] = useState<ClaimedOfferItem | null>(null);
 	const [modalVisible, setModalVisible] = useState(false);
+	const [nowMs, setNowMs] = useState(Date.now());
 
 	const handleItemPress = useCallback((item: ClaimedOfferItem) => {
 		setSelectedItem(item);
 		setModalVisible(true);
 	}, []);
 
-	if (items.length === 0) {
+	useEffect(() => {
+		const timer = setInterval(() => {
+			setNowMs(Date.now());
+		}, 1000);
+
+		return () => clearInterval(timer);
+	}, []);
+
+	const formatRemaining = (milliseconds: number) => {
+		const totalSeconds = Math.max(Math.floor(milliseconds / 1000), 0);
+		const hours = Math.floor(totalSeconds / 3600);
+		const minutes = Math.floor((totalSeconds % 3600) / 60);
+		const seconds = totalSeconds % 60;
+
+		return [hours, minutes, seconds].map((value) => value.toString().padStart(2, '0')).join(':');
+	};
+
+	const getShortDescription = (value?: string) => {
+		if (!value) return undefined;
+		const firstLine = value
+			.split(/\r?\n/)
+			.map((line) => line.trim())
+			.find((line) => line.length > 0);
+		return firstLine;
+	};
+
+	const activeItems = items.filter((item) => {
+		if (!item.expiresAt) return true;
+		const expiresAtMs = new Date(item.expiresAt).getTime();
+		if (!Number.isFinite(expiresAtMs)) return true;
+		return expiresAtMs > nowMs;
+	});
+
+	if (activeItems.length === 0) {
 		return (
 			<View className="mt-6 rounded-2xl bg-[#0a1535] px-4 py-5">
-				<Text className="text-center text-white/70">Du har inte claimat några erbjudanden ännu.</Text>
+				<Text className="text-center text-white/70">Du har inga aktiva erbjudanden just nu.</Text>
 			</View>
 		);
 	}
@@ -38,14 +75,14 @@ export default function ClaimedOffers({ items }: Props) {
 	return (
 		<>
 			<ScrollView className="mt-6" contentContainerStyle={{ gap: 12, paddingBottom: 24 }}>
-				{items.map((item) => (
+				{activeItems.map((item) => (
 					<Pressable
 						key={item.id}
 						className="rounded-2xl bg-[#0a1535] px-4 py-4"
 						onPress={() => handleItemPress(item)}
 					>
 						<View className="flex-row items-start gap-3">
-							<View className="h-28 w-28 overflow-hidden rounded-xl mt-1 bg-[#12214d] items-center justify-center">
+							<View className="relative h-28 w-28 overflow-hidden rounded-xl mt-1 bg-[#12214d] items-center justify-center">
 								{item.code ? (
 									<View className="h-full w-full items-center justify-center bg-white p-1">
 										<QRCodeSVG
@@ -64,18 +101,39 @@ export default function ClaimedOffers({ items }: Props) {
 								)}
 							</View>
 
-							<View className="flex-1">
-								<Text className="text-lg font-semibold text-white" numberOfLines={2}>
-									{item.title}
-								</Text>
-								{item.businessName ? (
-									<Text className="mt-1 text-white/70" numberOfLines={1}>
-										{item.businessName}
-									</Text>
-								) : null}
-								<View className="mt-3 flex-row items-center justify-between">
+							<View className="flex-1 min-w-0">
+								<View className="flex-row items-start justify-between gap-3">
+									<View className="flex-1 min-w-0">
+										{getShortDescription(item.descriptionText) ? (
+												<Text className="text-lg font-semibold text-white" numberOfLines={2}>
+												{getShortDescription(item.descriptionText)}
+											</Text>
+										) : null}
+											<Text className="mt-1 text-white/70" numberOfLines={1}>
+												{item.title}
+											</Text>
+									</View>
+									<View className="w-24 items-end">
+										{item.expiresAt ? (
+											(() => {
+												const expiresAtMs = new Date(item.expiresAt as string).getTime();
+												if (!Number.isFinite(expiresAtMs)) return null;
+												const remainingMs = expiresAtMs - nowMs;
+												return (
+													<View className="mb-1 rounded-full border border-white/20 bg-black/70 px-2 py-1">
+														<Text className="text-[10px] font-medium text-white">{formatRemaining(remainingMs)}</Text>
+													</View>
+												);
+											})()
+										) : null}
+										<Text className="text-xs text-white/60 text-right">{item.statusText ?? 'Claimad'}</Text>
+									</View>
+								</View>
+								<View className="mt-3 flex-row items-center gap-2">
 									<Text className="text-white/90">{item.priceText ?? '-'}</Text>
-									<Text className="text-xs text-white/60">{item.statusText ?? 'Claimad'}</Text>
+									{item.originalPriceText ? (
+										<Text className="text-blue-300 line-through">{item.originalPriceText}</Text>
+									) : null}
 								</View>
 								{item.claimedAtText ? (
 									<Text className="mt-2 text-xs text-white/50">Claimad: {item.claimedAtText}</Text>

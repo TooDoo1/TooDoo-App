@@ -48,6 +48,7 @@ export default function ErbjudandenScreen() {
     claimBusinessId,
     orderIds,
     erbjudandepris,
+    erbjudandeoriginalpris,
     erbjudandeclaimade,
     erbjudandemängd,
     erbjudandelängd,
@@ -67,6 +68,7 @@ export default function ErbjudandenScreen() {
     claimBusinessId?: string;
     orderIds?: string;
     erbjudandepris?: string;
+    erbjudandeoriginalpris?: string;
     erbjudandeclaimade?: string;
     erbjudandemängd?: string;
     erbjudandelängd?: string;
@@ -118,6 +120,7 @@ export default function ErbjudandenScreen() {
   const claimBusinessIdText = Array.isArray(claimBusinessId) ? claimBusinessId[0] : claimBusinessId;
   const businessIdFromIdParam = Array.isArray(id) ? id[0] : id;
   const offerPriceTexts = toParamList(erbjudandepris);
+  const offerOriginalPriceTexts = toParamList(erbjudandeoriginalpris);
   const offerClaimedTexts = toParamList(erbjudandeclaimade);
   const offerAmountTexts = toParamList(erbjudandemängd);
   const offerEndTexts = toParamList(erbjudandelängd);
@@ -132,6 +135,7 @@ export default function ErbjudandenScreen() {
       offerTexts.length,
     offerOrderIds.length,
       offerPriceTexts.length,
+      offerOriginalPriceTexts.length,
       offerClaimedTexts.length,
       offerAmountTexts.length,
       offerEndTexts.length
@@ -145,6 +149,7 @@ export default function ErbjudandenScreen() {
       const text = offerTexts[index] ?? offerTexts[0];
       const orderId = offerOrderIds[index] ?? offerOrderIds[0] ?? claimOrderIdText;
       const priceText = offerPriceTexts[index] ?? offerPriceTexts[0];
+      const originalPriceText = offerOriginalPriceTexts[index] ?? offerOriginalPriceTexts[0];
       const claimedText = offerClaimedTexts[index] ?? offerClaimedTexts[0];
       const amountText = offerAmountTexts[index] ?? offerAmountTexts[0];
       const endText = offerEndTexts[index] ?? offerEndTexts[0];
@@ -160,15 +165,16 @@ export default function ErbjudandenScreen() {
         orderId,
         text,
         priceText,
+        originalPriceText,
         claimedCount,
         totalCount,
         progressPercent,
         endDate,
         timeLeftMs,
       };
-    }).filter((offer) => offer.text || offer.priceText || offer.totalCount > 0 || offer.endDate);
+    }).filter((offer) => offer.text || offer.priceText || offer.originalPriceText || offer.totalCount > 0 || offer.endDate);
     return parsedOffers;
-  }, [offerTexts, offerOrderIds, claimOrderIdText, offerPriceTexts, offerClaimedTexts, offerAmountTexts, offerEndTexts, nowMs, dealFlag]);
+  }, [offerTexts, offerOrderIds, claimOrderIdText, offerPriceTexts, offerOriginalPriceTexts, offerClaimedTexts, offerAmountTexts, offerEndTexts, nowMs, dealFlag]);
 
   const isDuplicateClaimConflict = (message: string) => {
     const normalized = message.toLowerCase();
@@ -687,7 +693,12 @@ export default function ErbjudandenScreen() {
 
                   <View className="flex-1 justify-center">
                     <Text className="text-white/80">{offer.text ?? "-"}</Text>
-                    <Text className="mt-1 font-medium text-white">{offer.priceText ? `${offer.priceText} kr` : "-"}</Text>
+                    <View className="mt-1 flex-row items-center gap-2">
+                      <Text className="font-medium text-white">{offer.priceText ? `${offer.priceText} kr` : "-"}</Text>
+                      {offer.originalPriceText ? (
+                        <Text className="text-blue-300 line-through">{offer.originalPriceText} kr</Text>
+                      ) : null}
+                    </View>
                     <Text className="mt-1 text-white/80">Claimade: {offer.claimedCount} / {offer.totalCount || "-"}</Text>
                     <View className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/20">
                       <View
