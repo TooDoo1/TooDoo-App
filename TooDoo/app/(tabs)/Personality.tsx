@@ -229,10 +229,6 @@ export default function PersonalityScreen() {
                   Alert.alert("Saknad information", "Fyll i förnamn och efternamn innan du går vidare.");
                   return;
                 }
-                if (claimedCount === 3 && selectedCategoryIds.length === 0) {
-                  Alert.alert("Välj kategori", "Välj minst en kategori innan du går vidare.");
-                  return;
-                }
 
                 if (claimedCount === 3) {
                   if (!pendingRegistration) {
