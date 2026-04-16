@@ -2,6 +2,7 @@
 import {
   Alert,
   Animated,
+  Dimensions,
   Image,
   ImageSourcePropType,
   Pressable,
@@ -10,17 +11,21 @@ import {
   Text,
   TextInput,
   View,
+  FlatList,
 } from 'react-native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-type Category = 'alla' | 'familj' | 'noje' | 'restauranger' | 'erbjudanden' | 'event' | 'mat' | 'sport';
+const ALL_CATEGORIES_ID = 'all';
+const OFFERS_CATEGORY_ID = 'offers';
 
 type CardItem = {
   id: string;
   title: string;
   image: ImageSourcePropType;
+  categoryId?: string;
+  categoryName?: string;
   deal?: boolean;
   orderIds?: string[];
   erbjudandepris?: number | string[];
@@ -40,9 +45,14 @@ type CardItem = {
 
 type SectionItem = {
   id: string;
-  category: Exclude<Category, 'alla' | 'erbjudanden'>;
+  categoryId: string;
   title: string;
   cards: CardItem[];
+};
+
+type FilterCategory = {
+  id: string;
+  label: string;
 };
 
 type ApiCategory = { id?: string; _id?: string; name?: string };
@@ -82,37 +92,29 @@ const sliderImages = [
   'https://picsum.photos/id/1016/800/400',
 ];
 
-const categories: { label: string; value: Category }[] = [
-  { label: 'Alla kategorier', value: 'alla' },
-  { label: 'Familj', value: 'familj' },
-  { label: 'Nöje', value: 'noje' },
-  { label: 'Restauranger', value: 'restauranger' },
-  { label: 'Erbjudanden', value: 'erbjudanden' },
-  { label: 'Event', value: 'event' },
-  { label: 'Mat & Dryck', value: 'mat' },
-  { label: 'Sport', value: 'sport' },
-];
-
-const mapCategoryNameToKey = (name?: string): Exclude<Category, 'alla' | 'erbjudanden'> => {
-  const value = (name ?? '').toLowerCase();
-  if (value.includes('familj')) return 'familj';
-  if (value.includes('nöje') || value.includes('noje')) return 'noje';
-  if (value.includes('restaurang')) return 'restauranger';
-  if (value.includes('mat')) return 'mat';
-  if (value.includes('sport')) return 'sport';
-  return 'event';
-};
-
 export default function HomeScreen() {
   const [sliderIndex, setSliderIndex] = useState(0);
-  const [activeCategory, setActiveCategory] = useState<Category>('alla');
+  const [activeCategory, setActiveCategory] = useState<string>(ALL_CATEGORIES_ID);
+  const [categoryFilters, setCategoryFilters] = useState<FilterCategory[]>([]);
   const [deals, setDeals] = useState<CardItem[]>([]);
+  const [featuredBusinesses, setFeaturedBusinesses] = useState<CardItem[]>([]);
   const [sections, setSections] = useState<SectionItem[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const tabBarHeight = useBottomTabBarHeight();
   const scrollRef = useRef<ScrollView>(null);
+  const featuredScrollRef = useRef<any>(null);
+  const featuredScrollX = useRef(new Animated.Value(0)).current;
+  const isInteracting = useRef(false);
+  const lastInteractionTime = useRef(Date.now());
+  const currentFeaturedIndex = useRef(0);
   const router = useRouter();
   const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'https://toodoo-backend-ejml.onrender.com';
+  const { width: screenWidth } = Dimensions.get('window');
+  // Decreased card width ratio to make side cards visibly occupy more space on screen
+  const featuredCardWidth = Math.min(screenWidth * 0.68, 300);
+  const featuredCardSpacing = 16;
+  const featuredSnapInterval = featuredCardWidth + featuredCardSpacing;
+  const featuredSidePadding = Math.max((screenWidth - featuredCardWidth) / 2, 20);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -121,6 +123,59 @@ export default function HomeScreen() {
 
     return () => clearInterval(timer);
   }, []);
+
+  const repeatedFeaturedBusinesses = useMemo(() => {
+    if (featuredBusinesses.length === 0) return [];
+    // Repeat the featured businesses many times to create a seamless infinite loop
+    return Array(200).fill(featuredBusinesses).flat();
+  }, [featuredBusinesses]);
+
+  // Start perfectly in the middle of our massive array so users can comfortably manual-scroll left or right
+  const INITIAL_INDEX = featuredBusinesses.length > 0 ? featuredBusinesses.length * 100 : 0;
+
+  useEffect(() => {
+    if (featuredBusinesses.length === 0) {
+      return;
+    }
+
+    if (currentFeaturedIndex.current === 0 && featuredBusinesses.length > 0) {
+      currentFeaturedIndex.current = INITIAL_INDEX;
+    }
+
+    const timer = setInterval(() => {
+      // Don't auto-scroll if the user is currently touching the screen
+      if (isInteracting.current) return;
+      // Don't auto-scroll until a few seconds after they let go
+      if (Date.now() - lastInteractionTime.current < 4000) return;
+
+      currentFeaturedIndex.current += 1;
+      
+      const maxLength = repeatedFeaturedBusinesses.length;
+      const buffer = 10;
+      
+      if (currentFeaturedIndex.current >= maxLength - buffer) {
+        // Silently snap back to the middle BEFORE we run out of array, seamlessly
+        // We match exactly the position mod the true length so it doesn't shift
+        currentFeaturedIndex.current = INITIAL_INDEX + (currentFeaturedIndex.current % featuredBusinesses.length);
+        if (featuredScrollRef.current?.scrollToOffset) {
+          featuredScrollRef.current.scrollToOffset({ 
+            offset: currentFeaturedIndex.current * featuredSnapInterval, 
+            animated: false 
+          });
+        }
+        return;
+      }
+
+      const nextOffset = currentFeaturedIndex.current * featuredSnapInterval;
+      
+      // Use scrollToOffset to support FlatList
+      if (featuredScrollRef.current?.scrollToOffset) {
+        featuredScrollRef.current.scrollToOffset({ offset: nextOffset, animated: true });
+      }
+    }, 3500);
+
+    return () => clearInterval(timer);
+  }, [featuredBusinesses.length, featuredSnapInterval, INITIAL_INDEX, repeatedFeaturedBusinesses.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -170,6 +225,21 @@ export default function HomeScreen() {
           }
         });
 
+        const apiCategoryFilters: FilterCategory[] = categoriesRaw
+          .map((category, index) => {
+            const id = category.id ?? category._id ?? `category-${index}`;
+            const name = category.name?.trim();
+            if (!name) {
+              return null;
+            }
+
+            return {
+              id,
+              label: name,
+            };
+          })
+          .filter((item): item is FilterCategory => Boolean(item));
+
         const ordersByBusinessId = new Map<string, ApiOrder[]>();
         ordersRaw.forEach((order) => {
           const businessId =
@@ -217,6 +287,9 @@ export default function HomeScreen() {
             id: businessId,
             title: business.name ?? 'Okänd verksamhet',
             image: { uri: `https://picsum.photos/seed/${encodeURIComponent(businessId)}/300/200` },
+            categoryId:
+              business.categoryId,
+            categoryName: business.categoryName ?? (business.categoryId ? categoryNameById.get(business.categoryId) : undefined),
             deal: visibleOrders.length > 0,
             orderIds,
             erbjudandepris: offerPrices,
@@ -236,41 +309,30 @@ export default function HomeScreen() {
         });
 
         const dealsList = cards.filter((card) => card.deal);
+        const shuffledBusinesses = [...cards].sort(() => Math.random() - 0.5);
+        const featuredList = shuffledBusinesses.slice(0, 5);
 
-        const sectionBuckets: Record<Exclude<Category, 'alla' | 'erbjudanden'>, CardItem[]> = {
-          familj: [],
-          noje: [],
-          restauranger: [],
-          event: [],
-          mat: [],
-          sport: [],
-        };
-
-        cards.forEach((card, index) => {
-          const business = approvedBusinesses[index];
-          const categoryName = business?.categoryName ?? (business?.categoryId ? categoryNameById.get(business.categoryId) : undefined);
-          const key = mapCategoryNameToKey(categoryName);
-          sectionBuckets[key].push(card);
-        });
-
-        const nextSections = [
-          { id: 'familj', category: 'familj', title: 'Familj', cards: sectionBuckets.familj },
-          { id: 'noje', category: 'noje', title: 'Nöje', cards: sectionBuckets.noje },
-          { id: 'restauranger', category: 'restauranger', title: 'Restauranger', cards: sectionBuckets.restauranger },
-          { id: 'event', category: 'event', title: 'Event', cards: sectionBuckets.event },
-          { id: 'mat', category: 'mat', title: 'Mat & Dryck', cards: sectionBuckets.mat },
-          { id: 'sport', category: 'sport', title: 'Sport', cards: sectionBuckets.sport },
-        ] as SectionItem[];
+        const nextSections: SectionItem[] = apiCategoryFilters.map((category) => ({
+          id: category.id,
+          categoryId: category.id,
+          title: category.label,
+          cards: cards.filter((card) => card.categoryId === category.id),
+        }));
 
         const filteredSections = nextSections.filter((section) => section.cards.length > 0);
 
         if (!cancelled) {
+          setCategoryFilters(apiCategoryFilters);
           setDeals(dealsList);
+          setFeaturedBusinesses(featuredList);
+          currentFeaturedIndex.current = featuredList.length > 0 ? featuredList.length * 100 : 0;
           setSections(filteredSections);
         }
       } catch {
         if (!cancelled) {
+          setCategoryFilters([]);
           setDeals([]);
+          setFeaturedBusinesses([]);
           setSections([]);
           Alert.alert('Fel', 'Kunde inte ladda startsidan just nu.');
         }
@@ -289,12 +351,43 @@ export default function HomeScreen() {
   }, [apiBaseUrl]);
 
   const filteredSections = useMemo(() => {
-    if (activeCategory === 'alla' || activeCategory === 'erbjudanden') {
+    if (activeCategory === ALL_CATEGORIES_ID) {
       return sections;
     }
 
-    return sections.filter((section) => section.category === activeCategory);
+    if (activeCategory === OFFERS_CATEGORY_ID) {
+      return [];
+    }
+
+    return sections.filter((section) => section.categoryId === activeCategory);
   }, [activeCategory, sections]);
+
+  const filteredDeals = useMemo(() => {
+    if (activeCategory === ALL_CATEGORIES_ID || activeCategory === OFFERS_CATEGORY_ID) {
+      return deals;
+    }
+
+    return deals.filter((card) => card.categoryId === activeCategory);
+  }, [activeCategory, deals]);
+
+  const categoryOptions = useMemo<FilterCategory[]>(
+    () => [
+      { id: ALL_CATEGORIES_ID, label: 'Alla kategorier' },
+      { id: OFFERS_CATEGORY_ID, label: 'Erbjudanden' },
+      ...categoryFilters,
+    ],
+    [categoryFilters]
+  );
+
+  useEffect(() => {
+    if (!categoryOptions.some((category) => category.id === activeCategory)) {
+      setActiveCategory(ALL_CATEGORIES_ID);
+    }
+  }, [activeCategory, categoryOptions]);
+
+  const featuredBusiness = featuredBusinesses.length > 0
+    ? featuredBusinesses[currentFeaturedIndex.current % featuredBusinesses.length]
+    : undefined;
 
 
 
@@ -374,14 +467,14 @@ export default function HomeScreen() {
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-4 px-4">
           <View className="flex-row gap-2">
-            {categories.map((category) => {
-              const active = category.value === activeCategory;
+            {categoryOptions.map((category, index) => {
+              const active = category.id === activeCategory;
 
               return (
                 <Pressable
-                  key={category.value}
+                  key={`${category.id}-${index}`}
                   className={`rounded-full px-4 py-2 ${active ? 'bg-[#ff3b30]' : 'bg-[#eef2ff]'}`}
-                  onPress={() => setActiveCategory(category.value)}>
+                  onPress={() => setActiveCategory(category.id)}>
                   <Text className={`${active ? 'text-white' : 'text-[#000b2a]'} text-xs font-medium`}>
                     {category.label}
                   </Text>
@@ -391,17 +484,174 @@ export default function HomeScreen() {
           </View>
         </ScrollView>
 
+        {featuredBusinesses.length > 0 ? (
+          <View className="px-4 pt-5">
+            <View className="mb-2 flex-row items-center justify-between">
+              <Text className="text-lg font-semibold text-white">Utvalda företag</Text>
+              
+            </View>
+
+            <Animated.FlatList
+              ref={featuredScrollRef}
+              data={repeatedFeaturedBusinesses}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              snapToInterval={featuredSnapInterval}
+              snapToAlignment="center"
+              decelerationRate="fast"
+              contentContainerStyle={{ paddingHorizontal: featuredSidePadding }}
+              onScrollBeginDrag={() => {
+                isInteracting.current = true;
+                lastInteractionTime.current = Date.now();
+              }}
+              onScrollEndDrag={(event) => {
+                isInteracting.current = false;
+                lastInteractionTime.current = Date.now();
+                let index = Math.round(event.nativeEvent.contentOffset.x / featuredSnapInterval);
+                const listLength = repeatedFeaturedBusinesses.length;
+                const buffer = 10;
+
+                // Same logic as onMomentumScrollEnd for when they let go without throwing (slow drag)
+                if (index >= listLength - buffer || index <= buffer) {
+                  const exactMiddleIndex = INITIAL_INDEX + (index % featuredBusinesses.length);
+                  index = exactMiddleIndex;
+                  featuredScrollRef.current?.scrollToOffset({
+                    offset: index * featuredSnapInterval,
+                    animated: false
+                  });
+                }
+                currentFeaturedIndex.current = index;
+              }}
+              onMomentumScrollEnd={(event) => {
+                isInteracting.current = false;
+                lastInteractionTime.current = Date.now();
+                let index = Math.round(event.nativeEvent.contentOffset.x / featuredSnapInterval);
+                const listLength = repeatedFeaturedBusinesses.length;
+                const buffer = 10;
+                
+                // If they've scrolled near the end of the fake array, silently snap them back smoothly
+                if (index >= listLength - buffer || index <= buffer) {
+                  // Find the exact duplicate offset in the true middle block
+                  const exactMiddleIndex = INITIAL_INDEX + (index % featuredBusinesses.length);
+                  index = exactMiddleIndex;
+                  featuredScrollRef.current?.scrollToOffset({
+                    offset: index * featuredSnapInterval,
+                    animated: false
+                  });
+                }
+                currentFeaturedIndex.current = index;
+              }}
+              onScroll={Animated.event(
+                [{ nativeEvent: { contentOffset: { x: featuredScrollX } } }],
+                { useNativeDriver: true }
+              )}
+              scrollEventThrottle={16}
+              keyExtractor={(item, index) => `${item.id}-${index}`}
+              getItemLayout={(data, index) => ({
+                length: featuredSnapInterval,
+                offset: featuredSnapInterval * index,
+                index,
+              })}
+              initialScrollIndex={INITIAL_INDEX}
+              initialNumToRender={3}
+              maxToRenderPerBatch={3}
+              windowSize={5}
+              renderItem={({ item: business, index }) => {
+                const inputRange = [
+                  (index - 2) * featuredSnapInterval,
+                  (index - 1) * featuredSnapInterval,
+                  index * featuredSnapInterval,
+                  (index + 1) * featuredSnapInterval,
+                  (index + 2) * featuredSnapInterval,
+                ];
+
+                // Make them relatively bigger (scale to 0.95 instead of 0.92/0.85) so they are more prominent
+                const scale = featuredScrollX.interpolate({
+                  inputRange,
+                  outputRange: [0.88, 0.96, 1, 0.96, 0.88],
+                  extrapolate: 'clamp',
+                });
+
+                const translateY = featuredScrollX.interpolate({
+                  inputRange,
+                  outputRange: [15, 5, 0, 5, 15],
+                  extrapolate: 'clamp',
+                });
+
+                // Reduce the intensity of the angle slightly so we see more flat contents of the image
+                const rotateY = featuredScrollX.interpolate({
+                  inputRange,
+                  outputRange: ['30deg', '10deg', '0deg', '-10deg', '-30deg'],
+                  extrapolate: 'clamp',
+                });
+
+                // Push the side cards OUTWARDS rather than inwards to spread the circle out
+                const translateX = featuredScrollX.interpolate({
+                  inputRange,
+                  outputRange: [-10, -5, 0, 5, 10],
+                  extrapolate: 'clamp',
+                });
+
+                const opacity = featuredScrollX.interpolate({
+                  inputRange,
+                  outputRange: [0.5, 0.9, 1, 0.9, 0.5],
+                  extrapolate: 'clamp',
+                });
+
+                return (
+                  <Pressable
+                    className="mr-4"
+                    style={{ width: featuredCardWidth, height: 248, justifyContent: 'center' }}
+                    onPress={() => handleCardPress(business)}
+                  >
+                    <Animated.View
+                      className="relative overflow-hidden rounded-3xl w-full h-full bg-[#0a1535]"
+                      style={{
+                        transform: [
+                          { scale },
+                          { translateX },
+                          { translateY },
+                          { perspective: 900 },
+                          { rotateY },
+                        ],
+                        opacity,
+                      }}
+                    >
+                      <Image
+                        source={business.image}
+                        resizeMode="cover"
+                        className="h-full w-full"
+                      />
+                      <View className="absolute inset-0 bg-black/25" />
+                      <View className="absolute bottom-0 left-0 right-0 p-4">
+                        <View className="rounded-2xl bg-black/55 px-4 py-4">
+                          <Text className="text-2xl font-semibold text-white" numberOfLines={1}>
+                            {business.title}
+                          </Text>
+                          <Text className="mt-1 text-sm text-white/80" numberOfLines={2}>
+                            {business.kortbeskrivning || 'Upptäck detta företag och deras erbjudanden.'}
+                          </Text>
+                        </View>
+                      </View>
+                    </Animated.View>
+                  </Pressable>
+                );
+              }}
+            />
+          </View>
+        ) : null}
+
         <View className="px-4 pt-5">
           <Text className="mb-2 text-lg font-semibold text-white">Erbjudanden</Text>
-          {isLoadingData ? (
+          {activeCategory !== OFFERS_CATEGORY_ID && isLoadingData ? (
             <Text className="text-white/70">Laddar...</Text>
           ) : (
-            <CardRow cards={deals} onCardPress={handleCardPress} />
+            <CardRow cards={filteredDeals} onCardPress={handleCardPress} />
           )}
         </View>
 
-        {filteredSections.map((section) => (
-          <View key={section.id} className="px-4 pt-5">
+        {filteredSections.map((section, index) => (
+          <View key={`${section.id}-${index}`} className="px-4 pt-5">
             <Text className="mb-2 text-lg font-semibold text-white">{section.title}</Text>
             <CardRow cards={section.cards} onCardPress={handleCardPress} />
           </View>
@@ -436,8 +686,8 @@ function CardRow({ cards, onCardPress }: { cards: CardItem[]; onCardPress?: (car
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
       <View className="flex-row gap-3 pb-2">
-        {cards.map((card) => (
-          <Pressable key={card.id} className="w-40 overflow-hidden rounded-2xl bg-[#000b2a]" onPress={() => onCardPress?.(card)}>
+        {cards.map((card, index) => (
+          <Pressable key={`${card.id}-${index}`} className="w-40 overflow-hidden rounded-2xl bg-[#000b2a]" onPress={() => onCardPress?.(card)}>
             <View className="relative h-28 w-full">
               <Image source={card.image} resizeMode="cover" className="h-full w-full" />
               {card.deal ? (
