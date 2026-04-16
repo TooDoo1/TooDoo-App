@@ -1,4 +1,4 @@
-  import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -19,6 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 const ALL_CATEGORIES_ID = 'all';
 const OFFERS_CATEGORY_ID = 'offers';
+const FEATURED_REPEAT_COUNT = 600;
 
 type CardItem = {
   id: string;
@@ -127,11 +128,68 @@ export default function HomeScreen() {
   const repeatedFeaturedBusinesses = useMemo(() => {
     if (featuredBusinesses.length === 0) return [];
     // Repeat the featured businesses many times to create a seamless infinite loop
-    return Array(200).fill(featuredBusinesses).flat();
+    return Array(FEATURED_REPEAT_COUNT).fill(featuredBusinesses).flat();
   }, [featuredBusinesses]);
 
   // Start perfectly in the middle of our massive array so users can comfortably manual-scroll left or right
-  const INITIAL_INDEX = featuredBusinesses.length > 0 ? featuredBusinesses.length * 100 : 0;
+  const INITIAL_INDEX =
+    featuredBusinesses.length > 0 ? featuredBusinesses.length * Math.floor(FEATURED_REPEAT_COUNT / 2) : 0;
+
+  const FEATURED_RECENTER_BUFFER = 10;
+
+  const recenterFeaturedIndexIfNeeded = useCallback(
+    (
+      rawIndex: number,
+      opts?: {
+        animated?: boolean;
+        applyScroll?: boolean;
+      }
+    ) => {
+      const animated = opts?.animated ?? false;
+      const applyScroll = opts?.applyScroll ?? true;
+    const featuredCount = featuredBusinesses.length;
+    if (featuredCount === 0) {
+      return { index: rawIndex, didRecenter: false };
+    }
+
+    const listLength = repeatedFeaturedBusinesses.length;
+    if (listLength === 0) {
+      return { index: rawIndex, didRecenter: false };
+    }
+
+    const nearEnd = rawIndex >= listLength - FEATURED_RECENTER_BUFFER;
+    const nearStart = rawIndex <= FEATURED_RECENTER_BUFFER;
+
+    if (!nearEnd && !nearStart) {
+      return { index: rawIndex, didRecenter: false };
+    }
+
+    // Snap to the equivalent position in the middle block for a seamless wrap.
+    const wrappedIndex =
+      INITIAL_INDEX + ((rawIndex % featuredCount) + featuredCount) % featuredCount;
+
+    if (wrappedIndex !== rawIndex) {
+      if (applyScroll) {
+        featuredScrollRef.current?.scrollToOffset?.({
+          // Account for `contentContainerStyle={{ paddingHorizontal: featuredSidePadding }}`
+          offset: featuredSidePadding + wrappedIndex * featuredSnapInterval,
+          animated,
+        });
+      }
+
+      return { index: wrappedIndex, didRecenter: true };
+    }
+
+    return { index: rawIndex, didRecenter: false };
+    },
+    [
+      featuredBusinesses.length,
+      INITIAL_INDEX,
+      featuredSnapInterval,
+      featuredSidePadding,
+      repeatedFeaturedBusinesses.length,
+    ]
+  );
 
   useEffect(() => {
     if (featuredBusinesses.length === 0) {
@@ -149,22 +207,11 @@ export default function HomeScreen() {
       if (Date.now() - lastInteractionTime.current < 4000) return;
 
       currentFeaturedIndex.current += 1;
-      
-      const maxLength = repeatedFeaturedBusinesses.length;
-      const buffer = 10;
-      
-      if (currentFeaturedIndex.current >= maxLength - buffer) {
-        // Silently snap back to the middle BEFORE we run out of array, seamlessly
-        // We match exactly the position mod the true length so it doesn't shift
-        currentFeaturedIndex.current = INITIAL_INDEX + (currentFeaturedIndex.current % featuredBusinesses.length);
-        if (featuredScrollRef.current?.scrollToOffset) {
-          featuredScrollRef.current.scrollToOffset({ 
-            offset: currentFeaturedIndex.current * featuredSnapInterval, 
-            animated: false 
-          });
-        }
-        return;
-      }
+
+      const { index: wrappedIndex, didRecenter } = recenterFeaturedIndexIfNeeded(currentFeaturedIndex.current);
+      currentFeaturedIndex.current = wrappedIndex;
+
+      if (didRecenter) return;
 
       const nextOffset = currentFeaturedIndex.current * featuredSnapInterval;
       
@@ -175,7 +222,7 @@ export default function HomeScreen() {
     }, 3500);
 
     return () => clearInterval(timer);
-  }, [featuredBusinesses.length, featuredSnapInterval, INITIAL_INDEX, repeatedFeaturedBusinesses.length]);
+  }, [featuredBusinesses.length, featuredSnapInterval, INITIAL_INDEX, repeatedFeaturedBusinesses.length, recenterFeaturedIndexIfNeeded]);
 
   useEffect(() => {
     let cancelled = false;
@@ -325,7 +372,8 @@ export default function HomeScreen() {
           setCategoryFilters(apiCategoryFilters);
           setDeals(dealsList);
           setFeaturedBusinesses(featuredList);
-          currentFeaturedIndex.current = featuredList.length > 0 ? featuredList.length * 100 : 0;
+          currentFeaturedIndex.current =
+            featuredList.length > 0 ? featuredList.length * Math.floor(FEATURED_REPEAT_COUNT / 2) : 0;
           setSections(filteredSections);
         }
       } catch {
@@ -507,39 +555,28 @@ export default function HomeScreen() {
               onScrollEndDrag={(event) => {
                 isInteracting.current = false;
                 lastInteractionTime.current = Date.now();
-                let index = Math.round(event.nativeEvent.contentOffset.x / featuredSnapInterval);
-                const listLength = repeatedFeaturedBusinesses.length;
-                const buffer = 10;
 
-                // Same logic as onMomentumScrollEnd for when they let go without throwing (slow drag)
-                if (index >= listLength - buffer || index <= buffer) {
-                  const exactMiddleIndex = INITIAL_INDEX + (index % featuredBusinesses.length);
-                  index = exactMiddleIndex;
-                  featuredScrollRef.current?.scrollToOffset({
-                    offset: index * featuredSnapInterval,
-                    animated: false
-                  });
-                }
-                currentFeaturedIndex.current = index;
+                const rawIndex = Math.round(
+                  (event.nativeEvent.contentOffset.x - featuredSidePadding) / featuredSnapInterval
+                );
+                const { index: snappedIndex, didRecenter } = recenterFeaturedIndexIfNeeded(rawIndex, {
+                  animated: false,
+                  applyScroll: false,
+                });
+
+                // If we're close to the wrap boundary, FlatList hasn't been re-centered yet.
+                // Keep the animation aligned with what is actually on-screen.
+                currentFeaturedIndex.current = didRecenter ? rawIndex : snappedIndex;
               }}
               onMomentumScrollEnd={(event) => {
-                isInteracting.current = false;
-                lastInteractionTime.current = Date.now();
-                let index = Math.round(event.nativeEvent.contentOffset.x / featuredSnapInterval);
-                const listLength = repeatedFeaturedBusinesses.length;
-                const buffer = 10;
-                
-                // If they've scrolled near the end of the fake array, silently snap them back smoothly
-                if (index >= listLength - buffer || index <= buffer) {
-                  // Find the exact duplicate offset in the true middle block
-                  const exactMiddleIndex = INITIAL_INDEX + (index % featuredBusinesses.length);
-                  index = exactMiddleIndex;
-                  featuredScrollRef.current?.scrollToOffset({
-                    offset: index * featuredSnapInterval,
-                    animated: false
-                  });
-                }
-                currentFeaturedIndex.current = index;
+                const currentOffsetX = event.nativeEvent.contentOffset.x;
+                const rawIndex = Math.round((currentOffsetX - featuredSidePadding) / featuredSnapInterval);
+                // Let FlatList handle snap. Only do wrap-recenter when we hit near edges.
+                const { index: snappedIndex } = recenterFeaturedIndexIfNeeded(rawIndex, {
+                  animated: false,
+                  applyScroll: true,
+                });
+                currentFeaturedIndex.current = snappedIndex;
               }}
               onScroll={Animated.event(
                 [{ nativeEvent: { contentOffset: { x: featuredScrollX } } }],
@@ -549,7 +586,8 @@ export default function HomeScreen() {
               keyExtractor={(item, index) => `${item.id}-${index}`}
               getItemLayout={(data, index) => ({
                 length: featuredSnapInterval,
-                offset: featuredSnapInterval * index,
+                // Account for `contentContainerStyle={{ paddingHorizontal: featuredSidePadding }}`
+                offset: featuredSidePadding + featuredSnapInterval * index,
                 index,
               })}
               initialScrollIndex={INITIAL_INDEX}
@@ -557,44 +595,54 @@ export default function HomeScreen() {
               maxToRenderPerBatch={3}
               windowSize={5}
               renderItem={({ item: business, index }) => {
+                // FlatList `contentContainerStyle` adds horizontal padding, so the "center"
+                // offset for a given card isn't just `index * featuredSnapInterval`.
+                // We shift the interpolation window by `featuredSidePadding` so the 3D transform
+                // matches what the snap actually does while dragging.
                 const inputRange = [
-                  (index - 2) * featuredSnapInterval,
-                  (index - 1) * featuredSnapInterval,
-                  index * featuredSnapInterval,
-                  (index + 1) * featuredSnapInterval,
-                  (index + 2) * featuredSnapInterval,
+                  (index - 2) * featuredSnapInterval + featuredSidePadding,
+                  (index - 1) * featuredSnapInterval + featuredSidePadding,
+                  index * featuredSnapInterval + featuredSidePadding,
+                  (index + 1) * featuredSnapInterval + featuredSidePadding,
+                  (index + 2) * featuredSnapInterval + featuredSidePadding,
                 ];
 
-                // Make them relatively bigger (scale to 0.95 instead of 0.92/0.85) so they are more prominent
+                // Make them more prominent and spread them further out on the "arc".
                 const scale = featuredScrollX.interpolate({
                   inputRange,
-                  outputRange: [0.88, 0.96, 1, 0.96, 0.88],
+                  outputRange: [0.82, 0.95, 1, 0.95, 0.82],
                   extrapolate: 'clamp',
                 });
 
                 const translateY = featuredScrollX.interpolate({
                   inputRange,
-                  outputRange: [15, 5, 0, 5, 15],
+                  outputRange: [30, 6, 0, 6, 30],
                   extrapolate: 'clamp',
                 });
 
                 // Reduce the intensity of the angle slightly so we see more flat contents of the image
                 const rotateY = featuredScrollX.interpolate({
                   inputRange,
-                  outputRange: ['30deg', '10deg', '0deg', '-10deg', '-30deg'],
+                  outputRange: ['55deg', '20deg', '0deg', '-20deg', '-55deg'],
+                  extrapolate: 'clamp',
+                });
+
+                const rotateZ = featuredScrollX.interpolate({
+                  inputRange,
+                  outputRange: ['-8deg', '-3deg', '0deg', '3deg', '8deg'],
                   extrapolate: 'clamp',
                 });
 
                 // Push the side cards OUTWARDS rather than inwards to spread the circle out
                 const translateX = featuredScrollX.interpolate({
                   inputRange,
-                  outputRange: [-10, -5, 0, 5, 10],
+                  outputRange: [-22, -10, 0, 10, 22],
                   extrapolate: 'clamp',
                 });
 
                 const opacity = featuredScrollX.interpolate({
                   inputRange,
-                  outputRange: [0.5, 0.9, 1, 0.9, 0.5],
+                  outputRange: [0.42, 0.84, 1, 0.84, 0.42],
                   extrapolate: 'clamp',
                 });
 
@@ -612,6 +660,7 @@ export default function HomeScreen() {
                           { translateX },
                           { translateY },
                           { perspective: 900 },
+                          { rotateZ },
                           { rotateY },
                         ],
                         opacity,
