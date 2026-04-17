@@ -38,6 +38,13 @@
             "backgroundColor": "#000000"
           }
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Tillåt TooDoo att använda kameran för att skanna QR-koder.",
+          "barcodeScannerEnabled": true
+        }
       ]
     ],
     "experiments": {

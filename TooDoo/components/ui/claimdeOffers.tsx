@@ -1,5 +1,5 @@
-import { Image, Modal, Pressable, ScrollView, Text, View } from 'react-native';
-import { useState, useCallback, useEffect } from 'react';
+import { Animated, Dimensions, Image, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import QRCodeSVG from 'react-native-qrcode-svg';
 
 export type ClaimedOfferItem = {
@@ -20,6 +20,80 @@ export type ClaimedOfferItem = {
 type Props = {
 	items: ClaimedOfferItem[];
 };
+
+const CONFETTI_COUNT = 40;
+const CONFETTI_COLORS = ['#ff3b30', '#007AFF', '#34c759', '#ffcc00', '#af52de', '#ff9500', '#00c7be'];
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+export function ConfettiAnimation({ onDone }: { onDone: () => void }) {
+	const pieces = useRef(
+		Array.from({ length: CONFETTI_COUNT }, () => ({
+			x: Math.random() * SCREEN_WIDTH,
+			delay: Math.random() * 600,
+			duration: 2000 + Math.random() * 1500,
+			size: 6 + Math.random() * 8,
+			color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+			drift: (Math.random() - 0.5) * 120,
+			spin: Math.random() * 720,
+			anim: new Animated.Value(0),
+		}))
+	).current;
+
+	useEffect(() => {
+		const animations = pieces.map((p) =>
+			Animated.sequence([
+				Animated.delay(p.delay),
+				Animated.timing(p.anim, {
+					toValue: 1,
+					duration: p.duration,
+					useNativeDriver: true,
+				}),
+			])
+		);
+
+		Animated.parallel(animations).start(() => onDone());
+	}, []);
+
+	return (
+		<View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none' }}>
+			{pieces.map((p, i) => {
+				const translateY = p.anim.interpolate({
+					inputRange: [0, 1],
+					outputRange: [-20, SCREEN_HEIGHT + 20],
+				});
+				const translateX = p.anim.interpolate({
+					inputRange: [0, 0.5, 1],
+					outputRange: [0, p.drift, p.drift * 0.6],
+				});
+				const rotate = p.anim.interpolate({
+					inputRange: [0, 1],
+					outputRange: ['0deg', `${p.spin}deg`],
+				});
+				const opacity = p.anim.interpolate({
+					inputRange: [0, 0.1, 0.8, 1],
+					outputRange: [0, 1, 1, 0],
+				});
+
+				return (
+					<Animated.View
+						key={i}
+						style={{
+							position: 'absolute',
+							left: p.x,
+							top: 0,
+							width: p.size,
+							height: p.size * 1.4,
+							borderRadius: 2,
+							backgroundColor: p.color,
+							transform: [{ translateY }, { translateX }, { rotate }],
+							opacity,
+						}}
+					/>
+				);
+			})}
+		</View>
+	);
+}
 
 export default function ClaimedOffers({ items }: Props) {
 	const [selectedItem, setSelectedItem] = useState<ClaimedOfferItem | null>(null);

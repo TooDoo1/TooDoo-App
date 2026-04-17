@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Alert, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useAuth } from '@/context/auth-context';
-import ClaimedOffers, { type ClaimedOfferItem } from '@/components/ui/claimdeOffers';
+import ClaimedOffers, { ConfettiAnimation, type ClaimedOfferItem } from '@/components/ui/claimdeOffers';
 
 type ApiOrder = {
 	id?: string;
@@ -104,12 +105,85 @@ const decodeJwtPayload = (token: string) => {
 
 export default function MinaDealsScreen() {
 	const [isLoginOpen, setIsLoginOpen] = useState(false);
-	const [isLoadingClaims, setIsLoadingClaims] = useState(false);
+	const [isLoadingClaims, setIsLoadingClaims] = useState(true);
 	const [claimedOffers, setClaimedOffers] = useState<ClaimedOfferItem[]>([]);
+	const [showCelebration, setShowCelebration] = useState(false);
+	const [celebrationTitle, setCelebrationTitle] = useState('');
+	const prevClaimIdsRef = useRef<Set<string>>(new Set());
+	const prevClaimsRef = useRef<ClaimedOfferItem[]>([]);
+	const hasLoadedOnce = useRef(false);
+	const [scannerOpen, setScannerOpen] = useState(false);
+	const [scanned, setScanned] = useState(false);
+	const [hasWorkerAccess, setHasWorkerAccess] = useState(false);
+	const [manualCode, setManualCode] = useState('');
+	const [isValidating, setIsValidating] = useState(false);
+	const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 	const router = useRouter();
 	const { isLoggedIn, token } = useAuth();
 	const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'https://toodoo-backend-ejml.onrender.com';
 	const visibleOffers = isLoggedIn ? claimedOffers : [];
+
+	useEffect(() => {
+		if (!isLoggedIn || !token) {
+			setHasWorkerAccess(false);
+			return;
+		}
+
+		let cancelled = false;
+		(async () => {
+			try {
+				const res = await fetch(`${apiBaseUrl}/user/me`, {
+					headers: { Authorization: `Bearer ${token}` },
+				});
+				const user = await res.json().catch(() => ({}));
+				if (!cancelled) {
+					setHasWorkerAccess(Boolean(user.businessId));
+				}
+			} catch {
+				if (!cancelled) setHasWorkerAccess(false);
+			}
+		})();
+
+		return () => { cancelled = true; };
+	}, [isLoggedIn, token, apiBaseUrl]);
+
+	const handleBarCodeScanned = useCallback(async ({ data }: { data: string }) => {
+		if (scanned) return;
+		setScanned(true);
+
+		try {
+			const res = await fetch(`${apiBaseUrl}/claim/validate`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({ qrCode: data }),
+			});
+
+			const json = await res.json().catch(() => ({}));
+
+			if (res.ok && json.ok) {
+				const orderTitle = json.order?.title ?? 'Erbjudande';
+				const userName = json.user?.name ?? json.user?.email ?? '';
+				Alert.alert(
+					'Godkänd',
+					`"${orderTitle}" har lösts in.${userName ? `\nKund: ${userName}` : ''}`,
+					[{ text: 'OK', onPress: () => { setScanned(false); setScannerOpen(false); } }],
+				);
+			} else {
+				Alert.alert('Ogiltig', json.reason ?? json.error ?? 'QR-koden kunde inte valideras.', [
+					{ text: 'Försök igen', onPress: () => setScanned(false) },
+					{ text: 'Stäng', onPress: () => { setScanned(false); setScannerOpen(false); } },
+				]);
+			}
+		} catch {
+			Alert.alert('Nätverksfel', 'Kunde inte ansluta till servern.', [
+				{ text: 'Försök igen', onPress: () => setScanned(false) },
+				{ text: 'Stäng', onPress: () => { setScanned(false); setScannerOpen(false); } },
+			]);
+		}
+	}, [scanned, apiBaseUrl, token]);
 
 	const activeClaimCount = useMemo(() => {
 		if (!isLoggedIn) {
@@ -129,7 +203,9 @@ export default function MinaDealsScreen() {
 			return;
 		}
 
-		setIsLoadingClaims(true);
+		if (!hasLoadedOnce.current) {
+			setIsLoadingClaims(true);
+		}
 		try {
 			const claimsRes = await fetch(`${apiBaseUrl}/user/me/claims`, {
 				headers: {
@@ -214,6 +290,22 @@ export default function MinaDealsScreen() {
 			});
 
 			if (!cancelledRef.cancelled) {
+				const newIds = new Set(mapped.map((m) => m.id));
+
+				if (hasLoadedOnce.current && prevClaimIdsRef.current.size > 0) {
+					for (const prevId of prevClaimIdsRef.current) {
+						if (!newIds.has(prevId)) {
+							const item = prevClaimsRef.current.find((c) => c.id === prevId);
+							setCelebrationTitle(item?.title ?? 'Ditt erbjudande');
+							setShowCelebration(true);
+							break;
+						}
+					}
+				}
+
+				prevClaimIdsRef.current = newIds;
+				prevClaimsRef.current = mapped;
+				hasLoadedOnce.current = true;
 				setClaimedOffers(mapped);
 			}
 		} catch {
@@ -241,8 +333,16 @@ export default function MinaDealsScreen() {
 			() => () => {
 				const cancelledRef = { cancelled: false };
 				void loadClaimedOffers(cancelledRef);
+
+				const pollTimer = setInterval(() => {
+					if (!cancelledRef.cancelled) {
+						void loadClaimedOffers(cancelledRef);
+					}
+				}, 5000);
+
 				return () => {
 					cancelledRef.cancelled = true;
+					clearInterval(pollTimer);
 				};
 			},
 			[isLoggedIn, token, apiBaseUrl, router]
@@ -271,6 +371,100 @@ export default function MinaDealsScreen() {
 						) : (
 							<ClaimedOffers items={visibleOffers} />
 						)}
+
+						{hasWorkerAccess ? (
+							<View className="mt-6 rounded-2xl bg-[#0a1535] px-4 py-5">
+								<Text className="text-lg font-semibold text-white">Validera kundernas QR-koder</Text>
+								<Text className="mt-1 text-sm text-white/60">Skanna eller skriv in kundens QR-kod.</Text>
+
+								{!scannerOpen ? (
+									<Pressable
+										className="mt-4 rounded-2xl bg-[#007AFF] px-4 py-3"
+										onPress={async () => {
+											if (!cameraPermission?.granted) {
+												const result = await requestCameraPermission();
+												if (!result.granted) {
+													Alert.alert('Kamerabehörighet', 'Du behöver ge appen tillgång till kameran för att skanna QR-koder.');
+													return;
+												}
+											}
+											setScanned(false);
+											setScannerOpen(true);
+										}}
+									>
+										<Text className="text-center font-medium text-white">Öppna skanner</Text>
+									</Pressable>
+								) : (
+									<View className="mt-4">
+										<View className="h-72 overflow-hidden rounded-2xl">
+											<CameraView
+												style={{ flex: 1 }}
+												facing="back"
+												barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+												onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
+											/>
+										</View>
+										<Pressable
+											className="mt-3 rounded-2xl bg-white/10 px-4 py-3"
+											onPress={() => { setScannerOpen(false); setScanned(false); }}
+										>
+											<Text className="text-center font-medium text-white">Stäng skanner</Text>
+										</Pressable>
+									</View>
+								)}
+
+								<View className="mt-4 border-t border-white/10 pt-4">
+									<Text className="text-sm text-white/60">Eller skriv in koden manuellt:</Text>
+									<TextInput
+										value={manualCode}
+										onChangeText={setManualCode}
+										placeholder="T.ex. 7K9D-M2Q8-TX4R"
+										placeholderTextColor="rgba(255,255,255,0.3)"
+										autoCapitalize="characters"
+										className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
+									/>
+									<Pressable
+										className={`mt-2 rounded-2xl px-4 py-3 ${manualCode.trim() && !isValidating ? 'bg-[#007AFF]' : 'bg-[#007AFF]/40'}`}
+										disabled={!manualCode.trim() || isValidating}
+										onPress={async () => {
+											const code = manualCode.trim();
+											if (!code) return;
+											setIsValidating(true);
+											try {
+												const res = await fetch(`${apiBaseUrl}/claim/validate`, {
+													method: 'POST',
+													headers: {
+														'Content-Type': 'application/json',
+														Authorization: `Bearer ${token}`,
+													},
+													body: JSON.stringify({ qrCode: code }),
+												});
+												const json = await res.json().catch(() => ({}));
+												if (res.ok && json.ok) {
+													const orderTitle = json.order?.title ?? 'Erbjudande';
+													const userName = json.user?.name ?? json.user?.email ?? '';
+													Alert.alert(
+														'Godkänd',
+														`"${orderTitle}" har lösts in.${userName ? `\nKund: ${userName}` : ''}`,
+													);
+													setManualCode('');
+												} else {
+													Alert.alert('Ogiltig', json.reason ?? json.error ?? 'QR-koden kunde inte valideras.');
+												}
+											} catch {
+												Alert.alert('Nätverksfel', 'Kunde inte ansluta till servern.');
+											} finally {
+												setIsValidating(false);
+											}
+										}}
+									>
+										<Text className="text-center font-medium text-white">
+											{isValidating ? 'Validerar...' : 'Bekräfta kod'}
+										</Text>
+									</Pressable>
+								</View>
+							</View>
+						) : null}
 					</>
 				) : (
 					<View className="mt-8 px-4">
@@ -327,6 +521,31 @@ export default function MinaDealsScreen() {
 						<Text className="text-center text-xs leading-5 text-white/50">
 							Genom att logga in godkänner du våra användarvillkor och integritetspolicy.
 						</Text>
+					</View>
+				</View>
+			</Modal>
+
+			<Modal
+				visible={showCelebration}
+				transparent
+				animationType="fade"
+				onRequestClose={() => setShowCelebration(false)}
+			>
+				<View className="flex-1 bg-black/80 items-center justify-center p-6">
+					<ConfettiAnimation onDone={() => {}} />
+					<View className="bg-[#0a1535] rounded-3xl p-8 max-w-sm w-full items-center">
+						<Text style={{ fontSize: 56 }}>🎉</Text>
+						<Text className="mt-4 text-2xl font-bold text-white text-center">Gratulerar!</Text>
+						<Text className="mt-2 text-base text-white/70 text-center">Koden är inlöst</Text>
+						{celebrationTitle ? (
+							<Text className="mt-1 text-sm text-white/50 text-center">"{celebrationTitle}"</Text>
+						) : null}
+						<Pressable
+							className="mt-6 w-full rounded-2xl bg-[#34c759] px-4 py-3"
+							onPress={() => setShowCelebration(false)}
+						>
+							<Text className="text-center font-semibold text-white">Toppen!</Text>
+						</Pressable>
 					</View>
 				</View>
 			</Modal>
