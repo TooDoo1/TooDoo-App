@@ -438,7 +438,26 @@ export default function HomeScreen() {
     ? featuredBusinesses[currentFeaturedIndex.current % featuredBusinesses.length]
     : undefined;
 
+  const isSectionEnlarged = useCallback((sectionTitle: string) => {
+    const now = new Date();
+    const hour = now.getHours();
+    const day = now.getDay(); // 0=Sun, 1=Mon, ..., 5=Fri, 6=Sat
+    const name = sectionTitle.toLowerCase();
 
+    if (name.includes('food') || name.includes('mat') || name.includes('restaurang')) {
+      return hour >= 11 && hour < 13;
+    }
+    if (name.includes('entertainment') || name.includes('underhållning') || name.includes('family') || name.includes('familj')) {
+      return day === 5 || day === 6; // Friday or Saturday
+    }
+    if (name.includes('sport') || name.includes('träning') || name.includes('fitness')) {
+      return hour >= 15;
+    }
+    if (name.includes('shop') || name.includes('shopping') || name.includes('butik')) {
+      return (day === 0 || day === 6) && hour >= 11 && hour < 16; // Sat/Sun 11-16
+    }
+    return false;
+  }, []);
 
   const handleCardPress = (card: CardItem) => {
     const encodeListParam = (value: string | string[] | number | number[] | Date | Date[] | undefined) => {
@@ -695,12 +714,19 @@ export default function HomeScreen() {
           )}
         </View>
 
-        {filteredSections.map((section, index) => (
-          <View key={`${section.id}-${index}`} className="px-4 pt-5">
-            <Text className="mb-2 text-lg font-semibold text-white">{section.title}</Text>
-            <CardRow cards={section.cards} onCardPress={handleCardPress} />
+        {activeCategory !== ALL_CATEGORIES_ID && activeCategory !== OFFERS_CATEGORY_ID && filteredSections.length > 0 ? (
+          <View className="px-4 pt-5">
+            <Text className="mb-2 text-lg font-semibold text-white">{filteredSections[0].title}</Text>
+            <CardGrid cards={filteredSections[0].cards} onCardPress={handleCardPress} />
           </View>
-        ))}
+        ) : (
+          filteredSections.map((section, index) => (
+            <View key={`${section.id}-${index}`} className="px-4 pt-5">
+              <Text className="mb-2 text-lg font-semibold text-white">{section.title}</Text>
+              <CardRow cards={section.cards} onCardPress={handleCardPress} enlarged={isSectionEnlarged(section.title)} />
+            </View>
+          ))
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -746,7 +772,33 @@ const styles = StyleSheet.create({
   },
 });
 
-function CardRow({ cards, onCardPress }: { cards: CardItem[]; onCardPress?: (card: CardItem) => void }) {
+function CardRow({ cards, onCardPress, enlarged }: { cards: CardItem[]; onCardPress?: (card: CardItem) => void; enlarged?: boolean }) {
+  if (enlarged) {
+    return (
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <View className="flex-row gap-3 pb-2">
+          {cards.map((card, index) => (
+            <Pressable key={`${card.id}-${index}`} className="w-64 overflow-hidden rounded-2xl bg-[#0a1535]" onPress={() => onCardPress?.(card)}>
+              <View className="relative h-44 w-full">
+                <Image source={card.image} resizeMode="cover" className="h-full w-full" />
+                <View className="absolute inset-0 bg-black/20" />
+                {card.deal ? <DealTag /> : null}
+                <View className="absolute bottom-0 left-0 right-0 p-3">
+                  <View className="rounded-xl bg-black/50 px-3 py-2">
+                    <Text className="text-lg font-semibold text-white" numberOfLines={1}>{card.title}</Text>
+                    <Text className="mt-0.5 text-xs text-white/80" numberOfLines={2}>
+                      {card.kortbeskrivning || 'Upptäck detta företag och deras erbjudanden.'}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      </ScrollView>
+    );
+  }
+
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
       <View className="flex-row gap-3 pb-2">
@@ -764,6 +816,82 @@ function CardRow({ cards, onCardPress }: { cards: CardItem[]; onCardPress?: (car
       </View>
     </ScrollView>
   );
+}
+
+function CardGrid({ cards, onCardPress }: { cards: CardItem[]; onCardPress?: (card: CardItem) => void }) {
+  const elements: React.ReactNode[] = [];
+  let i = 0;
+  let smallCount = 0;
+
+  while (i < cards.length) {
+    if (smallCount > 0 && smallCount % 8 === 0) {
+      const card = cards[i];
+      elements.push(
+        <Pressable
+          key={`${card.id}-${i}-large`}
+          className="mb-3 w-full overflow-hidden rounded-2xl bg-[#0a1535]"
+          onPress={() => onCardPress?.(card)}
+        >
+          <View className="relative h-52 w-full">
+            <Image source={card.image} resizeMode="cover" className="h-full w-full" />
+            <View className="absolute inset-0 bg-black/20" />
+            {card.deal ? <DealTag /> : null}
+            <View className="absolute bottom-0 left-0 right-0 p-3">
+              <View className="rounded-xl bg-black/50 px-3 py-2">
+                <Text className="text-lg font-semibold text-white" numberOfLines={1}>
+                  {card.title}
+                </Text>
+                <Text className="mt-0.5 text-xs text-white/80" numberOfLines={2}>
+                  {card.kortbeskrivning || 'Upptäck detta företag och deras erbjudanden.'}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </Pressable>
+      );
+      i += 1;
+      smallCount = 0;
+      continue;
+    }
+
+    const left = cards[i];
+    const right = i + 1 < cards.length ? cards[i + 1] : null;
+
+    elements.push(
+      <View key={`row-${i}`} className="mb-3 flex-row gap-3">
+        <Pressable
+          className="flex-1 overflow-hidden rounded-2xl bg-[#0a1535]"
+          onPress={() => onCardPress?.(left)}
+        >
+          <View className="relative h-28 w-full">
+            <Image source={left.image} resizeMode="cover" className="h-full w-full" />
+            {left.deal ? <DealTag /> : null}
+          </View>
+          <Text className="px-2 py-2 text-sm text-white" numberOfLines={1}>{left.title}</Text>
+        </Pressable>
+
+        {right ? (
+          <Pressable
+            className="flex-1 overflow-hidden rounded-2xl bg-[#0a1535]"
+            onPress={() => onCardPress?.(right)}
+          >
+            <View className="relative h-28 w-full">
+              <Image source={right.image} resizeMode="cover" className="h-full w-full" />
+              {right.deal ? <DealTag /> : null}
+            </View>
+            <Text className="px-2 py-2 text-sm text-white" numberOfLines={1}>{right.title}</Text>
+          </Pressable>
+        ) : (
+          <View className="flex-1" />
+        )}
+      </View>
+    );
+
+    smallCount += right ? 2 : 1;
+    i += right ? 2 : 1;
+  }
+
+  return <View>{elements}</View>;
 }
 
 function DealTag() {
