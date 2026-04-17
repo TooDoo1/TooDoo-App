@@ -105,6 +105,8 @@ export default function HomeScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const featuredScrollRef = useRef<any>(null);
   const featuredScrollX = useRef(new Animated.Value(0)).current;
+  const [activeFeaturedDot, setActiveFeaturedDot] = useState(0);
+  const activeFeaturedDotRef = useRef(0);
   const isInteracting = useRef(false);
   const lastInteractionTime = useRef(Date.now());
   const currentFeaturedIndex = useRef(0);
@@ -113,9 +115,9 @@ export default function HomeScreen() {
   const { width: screenWidth } = Dimensions.get('window');
   // Decreased card width ratio to make side cards visibly occupy more space on screen
   const featuredCardWidth = Math.min(screenWidth * 0.68, 300);
-  const featuredCardSpacing = 16;
+  const featuredCardSpacing = 8;
   const featuredSnapInterval = featuredCardWidth + featuredCardSpacing;
-  const featuredSidePadding = Math.max((screenWidth - featuredCardWidth) / 2, 20);
+  const featuredSidePadding = Math.max((screenWidth - featuredSnapInterval) / 2, 0);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -171,8 +173,7 @@ export default function HomeScreen() {
     if (wrappedIndex !== rawIndex) {
       if (applyScroll) {
         featuredScrollRef.current?.scrollToOffset?.({
-          // Account for `contentContainerStyle={{ paddingHorizontal: featuredSidePadding }}`
-          offset: featuredSidePadding + wrappedIndex * featuredSnapInterval,
+          offset: wrappedIndex * featuredSnapInterval,
           animated,
         });
       }
@@ -533,8 +534,8 @@ export default function HomeScreen() {
         </ScrollView>
 
         {featuredBusinesses.length > 0 ? (
-          <View className="px-4 pt-5">
-            <View className="mb-2 flex-row items-center justify-between">
+          <View className="pt-5">
+            <View className="mb-2 px-4 flex-row items-center justify-between">
               <Text className="text-lg font-semibold text-white">Utvalda företag</Text>
               
             </View>
@@ -545,7 +546,7 @@ export default function HomeScreen() {
               horizontal
               showsHorizontalScrollIndicator={false}
               snapToInterval={featuredSnapInterval}
-              snapToAlignment="center"
+              snapToAlignment="start"
               decelerationRate="fast"
               contentContainerStyle={{ paddingHorizontal: featuredSidePadding }}
               onScrollBeginDrag={() => {
@@ -557,7 +558,7 @@ export default function HomeScreen() {
                 lastInteractionTime.current = Date.now();
 
                 const rawIndex = Math.round(
-                  (event.nativeEvent.contentOffset.x - featuredSidePadding) / featuredSnapInterval
+                  event.nativeEvent.contentOffset.x / featuredSnapInterval
                 );
                 const { index: snappedIndex, didRecenter } = recenterFeaturedIndexIfNeeded(rawIndex, {
                   animated: false,
@@ -570,7 +571,7 @@ export default function HomeScreen() {
               }}
               onMomentumScrollEnd={(event) => {
                 const currentOffsetX = event.nativeEvent.contentOffset.x;
-                const rawIndex = Math.round((currentOffsetX - featuredSidePadding) / featuredSnapInterval);
+                const rawIndex = Math.round(currentOffsetX / featuredSnapInterval);
                 // Let FlatList handle snap. Only do wrap-recenter when we hit near edges.
                 const { index: snappedIndex } = recenterFeaturedIndexIfNeeded(rawIndex, {
                   animated: false,
@@ -580,13 +581,25 @@ export default function HomeScreen() {
               }}
               onScroll={Animated.event(
                 [{ nativeEvent: { contentOffset: { x: featuredScrollX } } }],
-                { useNativeDriver: true }
+                {
+                  useNativeDriver: true,
+                  listener: (event: any) => {
+                    const offsetX = event.nativeEvent.contentOffset.x;
+                    const count = featuredBusinesses.length;
+                    if (count === 0) return;
+                    const rawIndex = Math.round(offsetX / featuredSnapInterval);
+                    const dotIndex = ((rawIndex % count) + count) % count;
+                    if (dotIndex !== activeFeaturedDotRef.current) {
+                      activeFeaturedDotRef.current = dotIndex;
+                      setActiveFeaturedDot(dotIndex);
+                    }
+                  },
+                }
               )}
               scrollEventThrottle={16}
               keyExtractor={(item, index) => `${item.id}-${index}`}
               getItemLayout={(data, index) => ({
                 length: featuredSnapInterval,
-                // Account for `contentContainerStyle={{ paddingHorizontal: featuredSidePadding }}`
                 offset: featuredSidePadding + featuredSnapInterval * index,
                 index,
               })}
@@ -595,74 +608,40 @@ export default function HomeScreen() {
               maxToRenderPerBatch={3}
               windowSize={5}
               renderItem={({ item: business, index }) => {
-                // FlatList `contentContainerStyle` adds horizontal padding, so the "center"
-                // offset for a given card isn't just `index * featuredSnapInterval`.
-                // We shift the interpolation window by `featuredSidePadding` so the 3D transform
-                // matches what the snap actually does while dragging.
                 const inputRange = [
-                  (index - 2) * featuredSnapInterval + featuredSidePadding,
-                  (index - 1) * featuredSnapInterval + featuredSidePadding,
-                  index * featuredSnapInterval + featuredSidePadding,
-                  (index + 1) * featuredSnapInterval + featuredSidePadding,
-                  (index + 2) * featuredSnapInterval + featuredSidePadding,
+                  (index - 2) * featuredSnapInterval,
+                  (index - 1) * featuredSnapInterval,
+                  index * featuredSnapInterval,
+                  (index + 1) * featuredSnapInterval,
+                  (index + 2) * featuredSnapInterval,
                 ];
 
-                // Make them more prominent and spread them further out on the "arc".
                 const scale = featuredScrollX.interpolate({
                   inputRange,
-                  outputRange: [0.82, 0.95, 1, 0.95, 0.82],
-                  extrapolate: 'clamp',
-                });
-
-                const translateY = featuredScrollX.interpolate({
-                  inputRange,
-                  outputRange: [30, 6, 0, 6, 30],
-                  extrapolate: 'clamp',
-                });
-
-                // Reduce the intensity of the angle slightly so we see more flat contents of the image
-                const rotateY = featuredScrollX.interpolate({
-                  inputRange,
-                  outputRange: ['55deg', '20deg', '0deg', '-20deg', '-55deg'],
-                  extrapolate: 'clamp',
-                });
-
-                const rotateZ = featuredScrollX.interpolate({
-                  inputRange,
-                  outputRange: ['-8deg', '-3deg', '0deg', '3deg', '8deg'],
-                  extrapolate: 'clamp',
-                });
-
-                // Push the side cards OUTWARDS rather than inwards to spread the circle out
-                const translateX = featuredScrollX.interpolate({
-                  inputRange,
-                  outputRange: [-22, -10, 0, 10, 22],
+                  outputRange: [0.8, 0.88, 1, 0.88, 0.8],
                   extrapolate: 'clamp',
                 });
 
                 const opacity = featuredScrollX.interpolate({
                   inputRange,
-                  outputRange: [0.42, 0.84, 1, 0.84, 0.42],
+                  outputRange: [0.35, 0.55, 1, 0.55, 0.35],
                   extrapolate: 'clamp',
                 });
 
                 return (
                   <Pressable
-                    className="mr-4"
-                    style={{ width: featuredCardWidth, height: 248, justifyContent: 'center' }}
+                    style={{
+                      width: featuredCardWidth,
+                      height: 248,
+                      justifyContent: 'center',
+                      marginHorizontal: featuredCardSpacing / 2,
+                    }}
                     onPress={() => handleCardPress(business)}
                   >
                     <Animated.View
                       className="relative overflow-hidden rounded-3xl w-full h-full bg-[#0a1535]"
                       style={{
-                        transform: [
-                          { scale },
-                          { translateX },
-                          { translateY },
-                          { perspective: 900 },
-                          { rotateZ },
-                          { rotateY },
-                        ],
+                        transform: [{ scale }],
                         opacity,
                       }}
                     >
@@ -672,6 +651,11 @@ export default function HomeScreen() {
                         className="h-full w-full"
                       />
                       <View className="absolute inset-0 bg-black/25" />
+                      {business.deal ? (
+                        <View className="absolute left-3 top-3 rounded-full bg-[#ff3b30] px-3 py-1">
+                          <Text className="text-sm font-semibold text-white">Erbjudande</Text>
+                        </View>
+                      ) : null}
                       <View className="absolute bottom-0 left-0 right-0 p-4">
                         <View className="rounded-2xl bg-black/55 px-4 py-4">
                           <Text className="text-2xl font-semibold text-white" numberOfLines={1}>
@@ -687,6 +671,18 @@ export default function HomeScreen() {
                 );
               }}
             />
+
+            <View style={styles.dotsRow}>
+              {featuredBusinesses.map((_, dotIdx) => (
+                <View
+                  key={dotIdx}
+                  style={[
+                    styles.dot,
+                    dotIdx === activeFeaturedDot && styles.dotActive,
+                  ]}
+                />
+              ))}
+            </View>
           </View>
         ) : null}
 
@@ -728,6 +724,25 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     width: '100%',
     height: '100%',
+  },
+  dotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 12,
+    gap: 8,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+  },
+  dotActive: {
+    backgroundColor: '#ff3b30',
+    width: 10,
+    height: 10,
+    borderRadius: 5,
   },
 });
 
