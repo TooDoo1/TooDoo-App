@@ -17,7 +17,12 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { Button } from "@react-navigation/elements";
 import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
+import { Image as ExpoImage } from "expo-image";
 import { useAuth } from "@/context/auth-context";
+
+const skanetrafikenLogo = require("../../assets/images/Skanetrafiken.png");
+const voiLogo = require("../../assets/images/Voi.png");
+const uberLogo = require("../../assets/images/Uber.png");
 
 const localImagesById: Record<string, ImageSourcePropType> = {
   "event-3": require("../../assets/images/testbild.jpg"),
@@ -25,7 +30,10 @@ const localImagesById: Record<string, ImageSourcePropType> = {
 
 export default function ErbjudandenScreen() {
   const router = useRouter();
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, token } = useAuth();
+  const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'https://toodoo-backend-ejml.onrender.com';
+  const [isClaiming, setIsClaiming] = useState(false);
+  const [claimedOrderIds, setClaimedOrderIds] = useState<Set<string>>(new Set());
   const [geocodedCoordinate, setGeocodedCoordinate] = useState<{ latitude: number; longitude: number; addressText?: string }>();
   const [nowMs, setNowMs] = useState(Date.now());
   const [isLoginOpen, setIsLoginOpen] = useState(false);
@@ -36,12 +44,18 @@ export default function ErbjudandenScreen() {
     deal,
     imageUri,
     Adress,
+    latitude,
+    longitude,
     Telefon,
     Website,
     kortbeskrivning,
     långbeskrivning,
     erbjudande,
+    claimOrderId,
+    claimBusinessId,
+    orderIds,
     erbjudandepris,
+    erbjudandeoriginalpris,
     erbjudandeclaimade,
     erbjudandemängd,
     erbjudandelängd,
@@ -52,12 +66,18 @@ export default function ErbjudandenScreen() {
     deal?: string;
     imageUri?: string;
     Adress?: string;
+    latitude?: string;
+    longitude?: string;
     Telefon?: string;
     Website?: string;
     kortbeskrivning?: string;
     långbeskrivning?: string;
     erbjudande?: string;
+    claimOrderId?: string;
+    claimBusinessId?: string;
+    orderIds?: string;
     erbjudandepris?: string;
+    erbjudandeoriginalpris?: string;
     erbjudandeclaimade?: string;
     erbjudandemängd?: string;
     erbjudandelängd?: string;
@@ -75,16 +95,50 @@ export default function ErbjudandenScreen() {
   const dealFlag = Array.isArray(deal) ? deal[0] : deal;
   const resetNonceText = Array.isArray(mapResetNonce) ? mapResetNonce[0] : mapResetNonce;
 
+  const latitudeParam = Array.isArray(latitude) ? latitude[0] : latitude;
+  const longitudeParam = Array.isArray(longitude) ? longitude[0] : longitude;
+  const paramLatitude = latitudeParam !== undefined ? Number(latitudeParam) : NaN;
+  const paramLongitude = longitudeParam !== undefined ? Number(longitudeParam) : NaN;
+  const paramCoordinate =
+    Number.isFinite(paramLatitude) && Number.isFinite(paramLongitude)
+      ? { latitude: paramLatitude, longitude: paramLongitude }
+      : undefined;
+
   const toParamList = (value?: string | string[]) => {
     if (!value) {
       return [] as string[];
     }
 
-    return Array.isArray(value) ? value : [value];
+    const rawValues = Array.isArray(value) ? value : [value];
+
+    return rawValues.flatMap((raw) => {
+      const trimmed = raw.trim();
+      if (!trimmed) {
+        return [];
+      }
+
+      if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (Array.isArray(parsed)) {
+            return parsed.map((item) => String(item));
+          }
+        } catch {
+          return [trimmed];
+        }
+      }
+
+      return [trimmed];
+    });
   };
 
   const offerTexts = toParamList(erbjudande);
+  const offerOrderIds = toParamList(orderIds);
+  const claimOrderIdText = Array.isArray(claimOrderId) ? claimOrderId[0] : claimOrderId;
+  const claimBusinessIdText = Array.isArray(claimBusinessId) ? claimBusinessId[0] : claimBusinessId;
+  const businessIdFromIdParam = Array.isArray(id) ? id[0] : id;
   const offerPriceTexts = toParamList(erbjudandepris);
+  const offerOriginalPriceTexts = toParamList(erbjudandeoriginalpris);
   const offerClaimedTexts = toParamList(erbjudandeclaimade);
   const offerAmountTexts = toParamList(erbjudandemängd);
   const offerEndTexts = toParamList(erbjudandelängd);
@@ -97,88 +151,329 @@ export default function ErbjudandenScreen() {
   const offers = useMemo(() => {
     const maxLength = Math.max(
       offerTexts.length,
+    offerOrderIds.length,
       offerPriceTexts.length,
+      offerOriginalPriceTexts.length,
       offerClaimedTexts.length,
       offerAmountTexts.length,
-      offerEndTexts.length,
-      1
+      offerEndTexts.length
     );
+
+    if (maxLength === 0) {
+      return [];
+    }
 
     const parsedOffers = Array.from({ length: maxLength }, (_, index) => {
       const text = offerTexts[index] ?? offerTexts[0];
+      const orderId = offerOrderIds[index] ?? offerOrderIds[0] ?? claimOrderIdText;
       const priceText = offerPriceTexts[index] ?? offerPriceTexts[0];
+      const originalPriceText = offerOriginalPriceTexts[index] ?? offerOriginalPriceTexts[0];
       const claimedText = offerClaimedTexts[index] ?? offerClaimedTexts[0];
       const amountText = offerAmountTexts[index] ?? offerAmountTexts[0];
       const endText = offerEndTexts[index] ?? offerEndTexts[0];
       const claimedCount = Number(claimedText ?? 0);
       const totalCount = Number(amountText ?? 0);
       const progressPercent = totalCount > 0 ? Math.min((claimedCount / totalCount) * 100, 100) : 0;
-      const endDate = endText ? new Date(endText) : undefined;
+      const parsedEndDate = endText ? new Date(endText) : undefined;
+      const endDate = parsedEndDate && Number.isFinite(parsedEndDate.getTime()) ? parsedEndDate : undefined;
       const timeLeftMs = endDate ? Math.max(endDate.getTime() - nowMs, 0) : 0;
 
       return {
         id: `${index}-${text ?? "offer"}`,
+        orderId,
         text,
         priceText,
+        originalPriceText,
         claimedCount,
         totalCount,
         progressPercent,
         endDate,
         timeLeftMs,
       };
-    }).filter((offer) => offer.text || offer.priceText || offer.totalCount > 0 || offer.endDate);
+    }).filter((offer) => offer.text || offer.priceText || offer.originalPriceText || offer.totalCount > 0 || offer.endDate);
+    return parsedOffers;
+  }, [offerTexts, offerOrderIds, claimOrderIdText, offerPriceTexts, offerOriginalPriceTexts, offerClaimedTexts, offerAmountTexts, offerEndTexts, nowMs, dealFlag]);
 
-    if (dealFlag !== "1") {
-      return parsedOffers;
+  const isDuplicateClaimConflict = (message: string) => {
+    const normalized = message.toLowerCase();
+    return (
+      normalized.includes('already claimed') ||
+      normalized.includes('already claim') ||
+      normalized.includes('already exists') ||
+      normalized.includes('redan claim') ||
+      normalized.includes('redan registrerad')
+    );
+  };
+
+  const extractClaimedOrderIds = (payload: any) => {
+    const claims = Array.isArray(payload)
+      ? payload
+      : Array.isArray(payload?.claims)
+        ? payload.claims
+        : Array.isArray(payload?.data)
+          ? payload.data
+          : [];
+
+    const ids = new Set<string>();
+    claims.forEach((claim: any) => {
+      const orderId = typeof claim?.orderId === 'string'
+        ? claim.orderId
+        : claim?.orderId?.id ?? claim?.orderId?._id ?? claim?.order?.id ?? claim?.order?._id;
+
+      if (orderId) {
+        ids.add(String(orderId));
+      }
+    });
+
+    return ids;
+  };
+
+  const getApiErrorMessage = (payload: any, status: number) => {
+    const directMessage =
+      payload?.message ??
+      (typeof payload?.error === 'string' ? payload.error : undefined) ??
+      payload?.error?.message ??
+      payload?.details?.message ??
+      (Array.isArray(payload?.details)
+        ? payload.details
+            .map((item: any) => item?.message ?? item?.field ?? String(item))
+            .filter(Boolean)
+            .join(', ')
+        : undefined) ??
+      (Array.isArray(payload?.errors) ? payload.errors.map((item: any) => item?.message ?? String(item)).filter(Boolean).join(', ') : undefined);
+
+    if (typeof directMessage === 'string' && directMessage.trim()) {
+      return directMessage;
     }
 
-    if (parsedOffers.length > 1) {
-      return parsedOffers;
+    return `Kunde inte claima erbjudandet (${status})`;
+  };
+
+  const getApiErrorDetails = (payload: any, fallbackText: string) => {
+    const detailParts: string[] = [];
+
+    const reason = payload?.reason;
+    if (reason) {
+      detailParts.push(`Reason: ${String(reason)}`);
     }
 
-    const seed = parsedOffers[0] ?? {
-      id: "seed-offer",
-      text: "Specialerbjudande",
-      priceText: "99",
-      claimedCount: 12,
-      totalCount: 40,
-      progressPercent: 30,
-      endDate: new Date(nowMs + 1000 * 60 * 60 * 24),
-      timeLeftMs: 1000 * 60 * 60 * 24,
-    };
+    const code = payload?.code ?? payload?.errorCode ?? payload?.error?.code;
+    if (code) {
+      detailParts.push(`Kod: ${String(code)}`);
+    }
 
-    const today = new Date(nowMs);
-    const mockEndOne = new Date(today.getTime() + 1000 * 60 * 60 * 18);
-    const mockEndTwo = new Date(today.getTime() + 1000 * 60 * 60 * 36);
+    const detailsMessage =
+      payload?.details?.message ??
+      (typeof payload?.details === 'string' ? payload.details : undefined);
+    if (detailsMessage) {
+      detailParts.push(`Detalj: ${String(detailsMessage)}`);
+    }
 
-    const mockOffers = [
-      seed,
-      {
-        ...seed,
-        id: "mock-2",
-        text: "2-for-1 efter kl 17:00",
-        priceText: "149",
-        claimedCount: 27,
-        totalCount: 60,
-        progressPercent: 45,
-        endDate: mockEndOne,
-        timeLeftMs: Math.max(mockEndOne.getTime() - nowMs, 0),
-      },
-      {
-        ...seed,
-        id: "mock-3",
-        text: "Familjepaket 30% rabatt",
-        priceText: "199",
-        claimedCount: 8,
-        totalCount: 25,
-        progressPercent: 32,
-        endDate: mockEndTwo,
-        timeLeftMs: Math.max(mockEndTwo.getTime() - nowMs, 0),
-      },
-    ];
+    if (Array.isArray(payload?.details) && payload.details.length > 0) {
+      const detailsText = payload.details
+        .map((item: any) => {
+          const field = item?.field ? `${item.field}: ` : '';
+          const message = item?.message ?? item?.msg ?? String(item);
+          return `${field}${message}`;
+        })
+        .filter(Boolean)
+        .join(', ');
 
-    return mockOffers;
-  }, [offerTexts, offerPriceTexts, offerClaimedTexts, offerAmountTexts, offerEndTexts, nowMs, dealFlag]);
+      if (detailsText) {
+        detailParts.push(`Detaljer: ${detailsText}`);
+      }
+    }
+
+    if (Array.isArray(payload?.errors) && payload.errors.length > 0) {
+      const errorsText = payload.errors
+        .map((item: any) => item?.message ?? item?.msg ?? String(item))
+        .filter(Boolean)
+        .join(', ');
+
+      if (errorsText) {
+        detailParts.push(`Fältfel: ${errorsText}`);
+      }
+    }
+
+    if (detailParts.length === 0 && fallbackText.trim()) {
+      detailParts.push(`Svar: ${fallbackText.trim().slice(0, 220)}`);
+    }
+
+    return detailParts.join('\n');
+  };
+
+  const getOrderNotClaimableMessage = (order: any) => {
+    if (!order) {
+      return 'Ordern går inte att claima just nu.';
+    }
+
+    if (order?.isActive === false) {
+      return 'Ordern är inaktiv.';
+    }
+
+    const now = Date.now();
+    const startValue = order?.validFrom ?? order?.orderTimeFrom;
+    const endValue = order?.validTo ?? order?.orderTimeTo;
+    const startMs = startValue ? new Date(startValue).getTime() : NaN;
+    const endMs = endValue ? new Date(endValue).getTime() : NaN;
+
+    if (Number.isFinite(startMs) && now < startMs) {
+      return 'Ordern har inte startat ännu.';
+    }
+
+    if (Number.isFinite(endMs) && now > endMs) {
+      return 'Ordern har gått ut.';
+    }
+
+    const maxRedemptions = Number(order?.maxRedemptions ?? 0);
+    const claimedCount = Number(order?.claimedCount ?? 0);
+    if (maxRedemptions > 0 && Number.isFinite(claimedCount) && claimedCount >= maxRedemptions) {
+      return 'Ordern är fullclaimad (max antal uppnått).';
+    }
+
+    return 'Ordern går inte att claima just nu.';
+  };
+
+  const claimOffer = async (offer: (typeof offers)[number]) => {
+    if (!isLoggedIn) {
+      setIsLoginOpen(true);
+      return;
+    }
+
+    if (!token) {
+      Alert.alert('Fel', 'Du måste vara inloggad för att claima erbjudandet.');
+      return;
+    }
+
+    if (!offer.orderId) {
+      Alert.alert('Fel', 'Saknar order-id för det här erbjudandet.');
+      return;
+    }
+
+    if (claimedOrderIds.has(offer.orderId)) {
+      Alert.alert('Redan claimad', 'Du har redan claimat det här erbjudandet.');
+      return;
+    }
+
+    setIsClaiming(true);
+
+    try {
+      const orderResponse = await fetch(`${apiBaseUrl}/orders/${encodeURIComponent(offer.orderId)}`);
+      const orderPayload = await orderResponse.json().catch(() => ({}));
+      const order = orderPayload?.order ?? orderPayload?.data ?? orderPayload;
+
+      const claimPayload: { orderId: string } = {
+        orderId: offer.orderId,
+      };
+
+      const response = await fetch(`${apiBaseUrl}/claim`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(claimPayload),
+      });
+
+      const responseText = await response.text();
+      let payload: any = {};
+      const requestId = response.headers.get('x-request-id') ?? response.headers.get('x-correlation-id');
+
+      if (responseText) {
+        try {
+          payload = JSON.parse(responseText);
+        } catch {
+          payload = { message: responseText };
+        }
+      }
+
+      if (!response.ok) {
+        const message = getApiErrorMessage(payload, response.status);
+        const details = getApiErrorDetails(payload, responseText);
+        const contextLines = [
+          `HTTP ${response.status}`,
+          `orderId: ${offer.orderId}`,
+          requestId ? `requestId: ${requestId}` : undefined,
+          details || undefined,
+        ].filter(Boolean);
+
+        if (response.status === 401 || response.status === 403) {
+          Alert.alert(
+            'Sessionen har gått ut',
+            `Logga in igen för att claima erbjudanden.\n\n${contextLines.join('\n')}`
+          );
+          return;
+        }
+
+        if (response.status === 409 && offer.orderId && isDuplicateClaimConflict(String(message))) {
+          setClaimedOrderIds((prev) => {
+            const next = new Set(prev);
+            next.add(offer.orderId as string);
+            return next;
+          });
+          Alert.alert('Redan claimad', `${String(message)}\n\n${contextLines.join('\n')}`);
+          return;
+        }
+
+        if (response.status === 409 && String(payload?.reason ?? '') === 'ORDER_NOT_CLAIMABLE') {
+          const notClaimableMessage = getOrderNotClaimableMessage(order);
+          Alert.alert(
+            'Kunde inte claima',
+            `${notClaimableMessage}\n\n${contextLines.join('\n')}`
+          );
+          return;
+        }
+
+        if (response.status === 409 && offer.orderId) {
+          const claimsResponse = await fetch(`${apiBaseUrl}/user/me/claims`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+          const claimsPayload = await claimsResponse.json().catch(() => ({}));
+          const latestClaimedOrderIds = extractClaimedOrderIds(claimsPayload);
+
+          if (claimsResponse.ok && latestClaimedOrderIds.has(offer.orderId)) {
+            setClaimedOrderIds(latestClaimedOrderIds);
+            Alert.alert('Redan claimad', 'Du har redan claimat det här erbjudandet.');
+            return;
+          }
+        }
+
+        // Log only unexpected claim failures to avoid noisy warnings for known 409 conflicts.
+        console.warn('Unexpected claim request failure', {
+          status: response.status,
+          orderId: offer.orderId,
+          requestId,
+          payload,
+          responseText,
+        });
+
+        Alert.alert('Kunde inte claima', `${String(message)}\n\n${contextLines.join('\n')}`);
+        return;
+      }
+
+      const qrCode =
+        (typeof payload?.qrCode === 'string' ? payload.qrCode : payload?.qrCode?.code) ??
+        payload?.code ??
+        (typeof payload?.claim?.qrCode === 'string' ? payload.claim.qrCode : payload?.claim?.qrCode?.code);
+      if (offer.orderId) {
+        setClaimedOrderIds((prev) => {
+          const next = new Set(prev);
+          next.add(offer.orderId as string);
+          return next;
+        });
+      }
+      Alert.alert(
+        'Erbjudandet är claimat',
+        qrCode ? `Din QR-kod är skapad. Kod: ${qrCode}` : 'Din QR-kod är skapad.'
+      );
+    } catch {
+      Alert.alert('Kunde inte claima', 'Kontrollera din anslutning och försök igen.');
+    } finally {
+      setIsClaiming(false);
+    }
+  };
 
   useEffect(() => {
     if (dealFlag !== "1" || offers.length === 0) {
@@ -236,9 +531,51 @@ export default function ErbjudandenScreen() {
   useEffect(() => {
     let cancelled = false;
 
+    const loadMyClaims = async () => {
+      if (!isLoggedIn || !token) {
+        setClaimedOrderIds(new Set());
+        return;
+      }
+
+      try {
+        const response = await fetch(`${apiBaseUrl}/user/me/claims`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok || cancelled) {
+          return;
+        }
+
+        setClaimedOrderIds(extractClaimedOrderIds(payload));
+      } catch {
+        if (!cancelled) {
+          setClaimedOrderIds(new Set());
+        }
+      }
+    };
+
+    void loadMyClaims();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn, token, apiBaseUrl]);
+
+  useEffect(() => {
+    let cancelled = false;
+
     const geocodeAddress = async () => {
       setGeocodedCoordinate(undefined);
       if (!addressText) {
+        return;
+      }
+
+      if (paramCoordinate) {
+        setGeocodedCoordinate({ ...paramCoordinate, addressText });
         return;
       }
 
@@ -248,6 +585,7 @@ export default function ErbjudandenScreen() {
           {
             headers: {
               Accept: "application/json",
+              "User-Agent": "TooDooApp/1.0 (contact: support@toodoo.app)",
             },
           }
         );
@@ -272,7 +610,7 @@ export default function ErbjudandenScreen() {
     return () => {
       cancelled = true;
     };
-  }, [addressText, resetNonceText]);
+  }, [addressText, resetNonceText, paramCoordinate?.latitude, paramCoordinate?.longitude]);
 
   const formatRemaining = (milliseconds: number) => {
     const totalSeconds = Math.max(Math.floor(milliseconds / 1000), 0);
@@ -341,6 +679,19 @@ export default function ErbjudandenScreen() {
             contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 4 }}
           >
             {offers.map((offer) => (
+              (() => {
+                const isAlreadyClaimed = offer.orderId ? claimedOrderIds.has(offer.orderId) : false;
+                const isClaimDisabled = isClaiming || isAlreadyClaimed;
+
+                const claimLabel = !isLoggedIn
+                  ? "Logga in för att claima!"
+                  : isAlreadyClaimed
+                    ? "Redan claimad"
+                    : isClaiming
+                      ? "Claimar..."
+                      : "Claima";
+
+                return (
               <View key={offer.id} className="mr-3 w-[320px] rounded-2xl bg-[#0a1535] p-4">
                 <View className="flex-row gap-3">
                   <View className="relative h-28 w-28 overflow-hidden rounded-xl bg-[#12214d]">
@@ -366,7 +717,12 @@ export default function ErbjudandenScreen() {
 
                   <View className="flex-1 justify-center">
                     <Text className="text-white/80">{offer.text ?? "-"}</Text>
-                    <Text className="mt-1 font-medium text-white">{offer.priceText ? `${offer.priceText} kr` : "-"}</Text>
+                    <View className="mt-1 flex-row items-center gap-2">
+                      <Text className="font-medium text-white">{offer.priceText ? `${offer.priceText} kr` : "-"}</Text>
+                      {offer.originalPriceText ? (
+                        <Text className="text-blue-300 line-through">{offer.originalPriceText} kr</Text>
+                      ) : null}
+                    </View>
                     <Text className="mt-1 text-white/80">Claimade: {offer.claimedCount} / {offer.totalCount || "-"}</Text>
                     <View className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/20">
                       <View
@@ -381,18 +737,23 @@ export default function ErbjudandenScreen() {
                     <Button
                       variant="filled"
                       color="#ff3b30"
+                      disabled={isClaimDisabled}
                       onPress={() => {
                         if (!isLoggedIn) {
                           setIsLoginOpen(true);
                           return;
                         }
+
+                        void claimOffer(offer);
                       }}
                     >
-                      {isLoggedIn ? "Claima" : "Logga in för att claima!"}
+                      {claimLabel}
                     </Button>
                   </Animated.View>
                 </View>
               </View>
+                );
+              })()
             ))}
           </ScrollView>
         </View>
@@ -441,6 +802,9 @@ export default function ErbjudandenScreen() {
                     kortbeskrivning,
                     långbeskrivning,
                     erbjudande,
+                    claimOrderId,
+                    claimBusinessId,
+                    orderIds,
                     erbjudandepris,
                     erbjudandeclaimade,
                     erbjudandemängd,
@@ -514,6 +878,106 @@ export default function ErbjudandenScreen() {
             >
               <Marker coordinate={mapCoordinate} title={title ?? "Erbjudande"} description={addressText} />
             </MapView>
+          </View>
+
+          <Text className="mt-5 mb-2 text-white text-xl font-medium ml-4">Ta dig hit:</Text>
+          <View className="flex-row items-center justify-between">
+            <Pressable
+              className="rounded-3xl overflow-hidden"
+              style={{ aspectRatio: 1, flex: 1, marginRight: 12 }}
+              onPress={async () => {
+                const to = encodeURIComponent(addressText);
+                const webPath = `www.skanetrafiken.se/sok-resa/?to=${to}`;
+                const universalLink = `https://${webPath}`;
+                const androidIntent =
+                  `intent://${webPath}` +
+                  `#Intent;scheme=https;package=se.skanetrafiken.washington;` +
+                  `S.browser_fallback_url=${encodeURIComponent(universalLink)};end`;
+                try {
+                  if (Platform.OS === "android") {
+                    const ok = await Linking.canOpenURL(androidIntent);
+                    await Linking.openURL(ok ? androidIntent : universalLink);
+                  } else {
+                    await Linking.openURL(universalLink);
+                  }
+                } catch {
+                  try {
+                    await Linking.openURL(universalLink);
+                  } catch {
+                    Alert.alert("Kunde inte öppna", "Skånetrafiken kunde inte öppnas.");
+                  }
+                }
+              }}
+            >
+              <ExpoImage
+                source={skanetrafikenLogo}
+                style={{ width: "100%", height: "100%" }}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                transition={0}
+                accessibilityLabel="Skånetrafiken"
+              />
+            </Pressable>
+
+            <Pressable
+              className="rounded-3xl overflow-hidden"
+              style={{ aspectRatio: 1, flex: 1, marginRight: 12 }}
+              onPress={async () => {
+                const appUrl = "voiapp://";
+                const webUrl = "https://www.voiscooters.com/";
+                try {
+                  const supported = await Linking.canOpenURL(appUrl);
+                  await Linking.openURL(supported ? appUrl : webUrl);
+                } catch {
+                  try {
+                    await Linking.openURL(webUrl);
+                  } catch {
+                    Alert.alert("Kunde inte öppna", "Voi kunde inte öppnas.");
+                  }
+                }
+              }}
+            >
+              <ExpoImage
+                source={voiLogo}
+                style={{ width: "100%", height: "100%" }}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                transition={0}
+                accessibilityLabel="Voi"
+              />
+            </Pressable>
+
+            <Pressable
+              className="rounded-3xl overflow-hidden"
+              style={{ aspectRatio: 1, flex: 1 }}
+              onPress={async () => {
+                const lat = mapCoordinate.latitude;
+                const lng = mapCoordinate.longitude;
+                const nickname = encodeURIComponent(title ?? addressText);
+                const dropoffAddr = encodeURIComponent(addressText);
+                const appUrl = `uber://?action=setPickup&pickup=my_location&dropoff[latitude]=${lat}&dropoff[longitude]=${lng}&dropoff[nickname]=${nickname}&dropoff[formatted_address]=${dropoffAddr}`;
+                const webUrl = `https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff[latitude]=${lat}&dropoff[longitude]=${lng}&dropoff[nickname]=${nickname}&dropoff[formatted_address]=${dropoffAddr}`;
+                try {
+                  const supported = await Linking.canOpenURL(appUrl);
+                  await Linking.openURL(supported ? appUrl : webUrl);
+                } catch {
+                  try {
+                    await Linking.openURL(webUrl);
+                  } catch {
+                    Alert.alert("Kunde inte öppna", "Uber kunde inte öppnas.");
+                  }
+                }
+              }}
+            >
+              <ExpoImage
+                source={uberLogo}
+                style={{ width: "100%", height: "100%" }}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                transition={0}
+                accessibilityLabel="Uber"
+              />
+            </Pressable>
           </View>
         </View>
       ) : null}

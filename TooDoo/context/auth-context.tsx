@@ -5,6 +5,10 @@ type PendingRegistration = {
   password: string;
   accountType: 'user' | 'company';
   companyName?: string;
+  firstName?: string;
+  lastName?: string;
+  gender?: 'MALE' | 'FEMALE' | 'OTHER';
+  interests?: string[];
 };
 
 type AuthContextValue = {

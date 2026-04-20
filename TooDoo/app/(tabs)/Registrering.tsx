@@ -5,13 +5,15 @@ import { useAuth } from '@/context/auth-context';
 
 export default function RegistreringScreen() {
 	const router = useRouter();
-	const { setPendingRegistration } = useAuth();
+	const { setPendingRegistration, signIn } = useAuth();
+	const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'https://toodoo-backend-ejml.onrender.com';
 	const { accountType, returnTo, returnParams } = useLocalSearchParams<{ accountType?: string; returnTo?: string; returnParams?: string }>();
 	const isCompanyRegistration = accountType === 'company';
 	const [email, setEmail] = useState('');
 	const [password, setPassword] = useState('');
 	const [confirmPassword, setConfirmPassword] = useState('');
 	const [companyName, setCompanyName] = useState('');
+    const [isSubmittingRegister, setIsSubmittingRegister] = useState(false);
 
 	const handleBack = () => {
 		if (returnTo === 'erbjudanden') {
@@ -62,16 +64,67 @@ export default function RegistreringScreen() {
 			return;
 		}
 
-		if (isCompanyRegistration && !companyName.trim()) {
-			Alert.alert('Saknad information', 'Fyll i företagsnamn för att registrera ett företagskonto.');
+		if (isCompanyRegistration) {
+			setIsSubmittingRegister(true);
+			try {
+				const registerResponse = await fetch(`${apiBaseUrl}/user/register/manager`, {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+					},
+					body: JSON.stringify({
+						email: email.trim(),
+						password,
+					}),
+				});
+
+				const registerData = (await registerResponse.json().catch(() => ({}))) as { error?: string };
+
+				if (registerResponse.status !== 201) {
+					if (registerResponse.status === 409) {
+						Alert.alert('E-post upptagen', registerData.error ?? 'Email already exists');
+						return;
+					}
+
+					Alert.alert('Fel', registerData.error ?? 'Kunde inte registrera manager-konto just nu.');
+					return;
+				}
+
+				const loginResponse = await fetch(`${apiBaseUrl}/user/login`, {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+					},
+					body: JSON.stringify({
+						email: email.trim(),
+						password,
+					}),
+				});
+
+				const loginData = (await loginResponse.json().catch(() => ({}))) as { token?: string; error?: string };
+
+				if (loginResponse.status === 200 && loginData.token) {
+					signIn(loginData.token);
+					Alert.alert('Konto skapat', 'Manager-kontot skapades och du är nu inloggad.');
+					router.replace('/(tabs)/Profile');
+					return;
+				}
+
+				Alert.alert('Konto skapat', 'Kontot skapades, men automatisk inloggning misslyckades. Logga in manuellt.');
+				router.replace('/(tabs)/Loggain');
+			} catch {
+				Alert.alert('Nätverksfel', 'Kunde inte ansluta till servern.');
+			} finally {
+				setIsSubmittingRegister(false);
+			}
+
 			return;
 		}
 
 		setPendingRegistration({
 			email: email.trim(),
 			password,
-			accountType: isCompanyRegistration ? 'company' : 'user',
-			companyName: isCompanyRegistration ? companyName.trim() : undefined,
+			accountType: 'user',
 		});
 
 		router.push('/(tabs)/Personality');
@@ -131,7 +184,7 @@ export default function RegistreringScreen() {
 						className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
 					/>
 
-					<Pressable className="mt-6 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={handleRegister}>
+					<Pressable className="mt-6 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={handleRegister} disabled={isSubmittingRegister}>
 						<Text className="text-center font-medium text-white">Skapa konto</Text>
 					</Pressable>
 
