@@ -16,6 +16,7 @@ import {
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAppReady } from '@/context/app-ready-context';
 
 const ALL_CATEGORIES_ID = 'all';
 const OFFERS_CATEGORY_ID = 'offers';
@@ -111,6 +112,7 @@ export default function HomeScreen() {
   const lastInteractionTime = useRef(Date.now());
   const currentFeaturedIndex = useRef(0);
   const router = useRouter();
+  const { markDataReady } = useAppReady();
   const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'https://toodoo-backend-ejml.onrender.com';
   const { width: screenWidth } = Dimensions.get('window');
   // Decreased card width ratio to make side cards visibly occupy more space on screen
@@ -388,6 +390,7 @@ export default function HomeScreen() {
       } finally {
         if (!cancelled) {
           setIsLoadingData(false);
+          markDataReady();
         }
       }
     };
@@ -397,7 +400,7 @@ export default function HomeScreen() {
     return () => {
       cancelled = true;
     };
-  }, [apiBaseUrl]);
+  }, [apiBaseUrl, markDataReady]);
 
   const filteredSections = useMemo(() => {
     if (activeCategory === ALL_CATEGORIES_ID) {

@@ -17,7 +17,12 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { Button } from "@react-navigation/elements";
 import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
+import { Image as ExpoImage } from "expo-image";
 import { useAuth } from "@/context/auth-context";
+
+const skanetrafikenLogo = require("../../assets/images/Skanetrafiken.png");
+const voiLogo = require("../../assets/images/Voi.png");
+const uberLogo = require("../../assets/images/Uber.png");
 
 const localImagesById: Record<string, ImageSourcePropType> = {
   "event-3": require("../../assets/images/testbild.jpg"),
@@ -854,6 +859,106 @@ export default function ErbjudandenScreen() {
             >
               <Marker coordinate={mapCoordinate} title={title ?? "Erbjudande"} description={addressText} />
             </MapView>
+          </View>
+
+          <Text className="mt-5 mb-2 text-white text-xl font-medium ml-4">Ta dig hit:</Text>
+          <View className="flex-row items-center justify-between">
+            <Pressable
+              className="rounded-3xl overflow-hidden"
+              style={{ aspectRatio: 1, flex: 1, marginRight: 12 }}
+              onPress={async () => {
+                const to = encodeURIComponent(addressText);
+                const webPath = `www.skanetrafiken.se/sok-resa/?to=${to}`;
+                const universalLink = `https://${webPath}`;
+                const androidIntent =
+                  `intent://${webPath}` +
+                  `#Intent;scheme=https;package=se.skanetrafiken.washington;` +
+                  `S.browser_fallback_url=${encodeURIComponent(universalLink)};end`;
+                try {
+                  if (Platform.OS === "android") {
+                    const ok = await Linking.canOpenURL(androidIntent);
+                    await Linking.openURL(ok ? androidIntent : universalLink);
+                  } else {
+                    await Linking.openURL(universalLink);
+                  }
+                } catch {
+                  try {
+                    await Linking.openURL(universalLink);
+                  } catch {
+                    Alert.alert("Kunde inte öppna", "Skånetrafiken kunde inte öppnas.");
+                  }
+                }
+              }}
+            >
+              <ExpoImage
+                source={skanetrafikenLogo}
+                style={{ width: "100%", height: "100%" }}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                transition={0}
+                accessibilityLabel="Skånetrafiken"
+              />
+            </Pressable>
+
+            <Pressable
+              className="rounded-3xl overflow-hidden"
+              style={{ aspectRatio: 1, flex: 1, marginRight: 12 }}
+              onPress={async () => {
+                const appUrl = "voiapp://";
+                const webUrl = "https://www.voiscooters.com/";
+                try {
+                  const supported = await Linking.canOpenURL(appUrl);
+                  await Linking.openURL(supported ? appUrl : webUrl);
+                } catch {
+                  try {
+                    await Linking.openURL(webUrl);
+                  } catch {
+                    Alert.alert("Kunde inte öppna", "Voi kunde inte öppnas.");
+                  }
+                }
+              }}
+            >
+              <ExpoImage
+                source={voiLogo}
+                style={{ width: "100%", height: "100%" }}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                transition={0}
+                accessibilityLabel="Voi"
+              />
+            </Pressable>
+
+            <Pressable
+              className="rounded-3xl overflow-hidden"
+              style={{ aspectRatio: 1, flex: 1 }}
+              onPress={async () => {
+                const lat = mapCoordinate.latitude;
+                const lng = mapCoordinate.longitude;
+                const nickname = encodeURIComponent(title ?? addressText);
+                const dropoffAddr = encodeURIComponent(addressText);
+                const appUrl = `uber://?action=setPickup&pickup=my_location&dropoff[latitude]=${lat}&dropoff[longitude]=${lng}&dropoff[nickname]=${nickname}&dropoff[formatted_address]=${dropoffAddr}`;
+                const webUrl = `https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff[latitude]=${lat}&dropoff[longitude]=${lng}&dropoff[nickname]=${nickname}&dropoff[formatted_address]=${dropoffAddr}`;
+                try {
+                  const supported = await Linking.canOpenURL(appUrl);
+                  await Linking.openURL(supported ? appUrl : webUrl);
+                } catch {
+                  try {
+                    await Linking.openURL(webUrl);
+                  } catch {
+                    Alert.alert("Kunde inte öppna", "Uber kunde inte öppnas.");
+                  }
+                }
+              }}
+            >
+              <ExpoImage
+                source={uberLogo}
+                style={{ width: "100%", height: "100%" }}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                transition={0}
+                accessibilityLabel="Uber"
+              />
+            </Pressable>
           </View>
         </View>
       ) : null}
