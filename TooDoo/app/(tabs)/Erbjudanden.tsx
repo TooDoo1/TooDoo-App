@@ -44,6 +44,8 @@ export default function ErbjudandenScreen() {
     deal,
     imageUri,
     Adress,
+    latitude,
+    longitude,
     Telefon,
     Website,
     kortbeskrivning,
@@ -64,6 +66,8 @@ export default function ErbjudandenScreen() {
     deal?: string;
     imageUri?: string;
     Adress?: string;
+    latitude?: string;
+    longitude?: string;
     Telefon?: string;
     Website?: string;
     kortbeskrivning?: string;
@@ -90,6 +94,15 @@ export default function ErbjudandenScreen() {
   const phoneText = Array.isArray(Telefon) ? Telefon[0] : Telefon;
   const dealFlag = Array.isArray(deal) ? deal[0] : deal;
   const resetNonceText = Array.isArray(mapResetNonce) ? mapResetNonce[0] : mapResetNonce;
+
+  const latitudeParam = Array.isArray(latitude) ? latitude[0] : latitude;
+  const longitudeParam = Array.isArray(longitude) ? longitude[0] : longitude;
+  const paramLatitude = latitudeParam !== undefined ? Number(latitudeParam) : NaN;
+  const paramLongitude = longitudeParam !== undefined ? Number(longitudeParam) : NaN;
+  const paramCoordinate =
+    Number.isFinite(paramLatitude) && Number.isFinite(paramLongitude)
+      ? { latitude: paramLatitude, longitude: paramLongitude }
+      : undefined;
 
   const toParamList = (value?: string | string[]) => {
     if (!value) {
@@ -561,12 +574,18 @@ export default function ErbjudandenScreen() {
         return;
       }
 
+      if (paramCoordinate) {
+        setGeocodedCoordinate({ ...paramCoordinate, addressText });
+        return;
+      }
+
       try {
         const response = await fetch(
           `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(addressText)}`,
           {
             headers: {
               Accept: "application/json",
+              "User-Agent": "TooDooApp/1.0 (contact: support@toodoo.app)",
             },
           }
         );
@@ -591,7 +610,7 @@ export default function ErbjudandenScreen() {
     return () => {
       cancelled = true;
     };
-  }, [addressText, resetNonceText]);
+  }, [addressText, resetNonceText, paramCoordinate?.latitude, paramCoordinate?.longitude]);
 
   const formatRemaining = (milliseconds: number) => {
     const totalSeconds = Math.max(Math.floor(milliseconds / 1000), 0);

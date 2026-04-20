@@ -661,31 +661,38 @@ export default function HomeScreen() {
                     onPress={() => handleCardPress(business)}
                   >
                     <Animated.View
-                      className="relative overflow-hidden rounded-3xl w-full h-full bg-[#0a1535]"
                       style={{
+                        width: '100%',
+                        height: '100%',
                         transform: [{ scale }],
                         opacity,
                       }}
                     >
-                      <Image
-                        source={business.image}
-                        resizeMode="cover"
-                        className="h-full w-full"
-                      />
-                      <View className="absolute inset-0 bg-black/25" />
-                      {business.deal ? (
-                        <View className="absolute left-3 top-3 rounded-full bg-[#ff3b30] px-3 py-1">
-                          <Text className="text-sm font-semibold text-white">Erbjudande</Text>
-                        </View>
-                      ) : null}
-                      <View className="absolute bottom-0 left-0 right-0 p-4">
-                        <View className="rounded-2xl bg-black/55 px-4 py-4">
-                          <Text className="text-2xl font-semibold text-white" numberOfLines={1}>
-                            {business.title}
-                          </Text>
-                          <Text className="mt-1 text-sm text-white/80" numberOfLines={2}>
-                            {business.kortbeskrivning || 'Upptäck detta företag och deras erbjudanden.'}
-                          </Text>
+                      <View
+                        className="relative w-full h-full bg-[#0a1535]"
+                        style={styles.featuredCardClip}
+                      >
+                        <Image
+                          source={business.image}
+                          resizeMode="cover"
+                          fadeDuration={0}
+                          style={styles.featuredCardImage}
+                        />
+                        <View className="absolute inset-0 bg-black/25" />
+                        {business.deal ? (
+                          <View className="absolute left-3 top-3 rounded-full bg-[#ff3b30] px-3 py-1">
+                            <Text className="text-sm font-semibold text-white">Erbjudande</Text>
+                          </View>
+                        ) : null}
+                        <View className="absolute bottom-0 left-0 right-0 p-4">
+                          <View className="rounded-2xl bg-black/55 px-4 py-4">
+                            <Text className="text-2xl font-semibold text-white" numberOfLines={1}>
+                              {business.title}
+                            </Text>
+                            <Text className="mt-1 text-sm text-white/80" numberOfLines={2}>
+                              {business.kortbeskrivning || 'Upptäck detta företag och deras erbjudanden.'}
+                            </Text>
+                          </View>
                         </View>
                       </View>
                     </Animated.View>
@@ -772,6 +779,14 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
+  },
+  featuredCardClip: {
+    borderRadius: 24,
+    overflow: 'hidden',
+  },
+  featuredCardImage: {
+    width: '100%',
+    height: '100%',
   },
 });
 

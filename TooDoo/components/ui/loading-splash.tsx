@@ -164,6 +164,11 @@ export default function LoadingSplash() {
 		opacity: LAMP_OFF_OPACITY + lampLevel.value * (1 - LAMP_OFF_OPACITY),
 	}));
 
+	const wordmarkGlowStyle = useAnimatedStyle(() => ({
+		textShadowRadius: 6 + lampLevel.value * 14,
+		textShadowColor: `rgba(255, 236, 150, ${0.25 + lampLevel.value * 0.55})`,
+	}));
+
 	return (
 		<View style={styles.container}>
 			<View style={styles.pullChain} pointerEvents="none">
@@ -175,17 +180,18 @@ export default function LoadingSplash() {
 				<Sparkle key={`sparkle-${idx}`} {...spec} />
 			))}
 
-			<Animated.View
-				style={[styles.logoColumn, logoStyle]}
-				renderToHardwareTextureAndroid
-			>
-				<Image
-					source={logoSrc}
-					style={styles.logo}
-					resizeMode="cover"
-					fadeDuration={0}
-				/>
-				<Text style={styles.wordmark}>TooDoo</Text>
+			<Animated.View style={[styles.logoColumn, logoStyle]}>
+				<View style={styles.logoClip}>
+					<Image
+						source={logoSrc}
+						style={styles.logoImage}
+						resizeMode="cover"
+						fadeDuration={0}
+					/>
+				</View>
+				<Animated.Text style={[styles.wordmark, wordmarkGlowStyle]}>
+					TooDoo
+				</Animated.Text>
 			</Animated.View>
 		</View>
 	);
@@ -218,10 +224,15 @@ const styles = StyleSheet.create({
 		backgroundColor: '#f5ecbd',
 		marginTop: -1,
 	},
-	logo: {
+	logoClip: {
 		width: LOGO_SIZE,
 		height: LOGO_SIZE,
 		borderRadius: 36,
+		overflow: 'hidden',
+	},
+	logoImage: {
+		width: LOGO_SIZE,
+		height: LOGO_SIZE,
 	},
 	logoColumn: {
 		alignItems: 'center',
@@ -232,5 +243,8 @@ const styles = StyleSheet.create({
 		fontSize: 36,
 		fontWeight: '700',
 		letterSpacing: 2,
+		textShadowColor: 'rgba(255, 236, 150, 0.6)',
+		textShadowOffset: { width: 0, height: 0 },
+		textShadowRadius: 12,
 	},
 });

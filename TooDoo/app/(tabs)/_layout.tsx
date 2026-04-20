@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import { BlurView } from 'expo-blur';
 
 import { HapticTab } from '@/components/haptic-tab';
@@ -29,17 +29,18 @@ export default function TabLayout() {
         },
         tabBarBackground: () => (
           <>
-            <BlurView
-              tint={isDark ? 'dark' : 'light'}
-              intensity={70}
-              experimentalBlurMethod="dimezisBlurView"
-              style={StyleSheet.absoluteFill}
-            />
+            {Platform.OS === 'ios' ? (
+              <BlurView
+                tint={isDark ? 'dark' : 'light'}
+                intensity={70}
+                style={StyleSheet.absoluteFill}
+              />
+            ) : null}
             <View
               style={[
                 StyleSheet.absoluteFill,
                 {
-                  backgroundColor: isDark ? 'rgba(10, 21, 53, 1)' : 'rgba(0, 11, 42, 0.8)',
+                  backgroundColor: isDark ? 'rgba(10, 21, 53, 1)' : 'rgba(0, 11, 42, 0.95)',
                 },
               ]}
             />
