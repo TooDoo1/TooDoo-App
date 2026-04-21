@@ -10,7 +10,7 @@ import '../global.css';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider } from '@/context/auth-context';
 import { AppReadyProvider, useAppReady } from '@/context/app-ready-context';
-import LoadingSplash from '@/components/ui/loading-splash';
+import LoadingSplash, { SPLASH_EXIT_DURATION_MS } from '@/components/ui/loading-splash';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -26,6 +26,7 @@ function AppShell() {
 	const { isDataReady, markDataReady } = useAppReady();
 	const [hasMinElapsed, setHasMinElapsed] = useState(false);
 	const [hasMaxElapsed, setHasMaxElapsed] = useState(false);
+	const [isSplashMounted, setIsSplashMounted] = useState(true);
 
 	useEffect(() => {
 		SplashScreen.hideAsync().catch(() => {});
@@ -43,6 +44,19 @@ function AppShell() {
 	}, [markDataReady]);
 
 	const showSplash = !hasMaxElapsed && (!hasMinElapsed || !isDataReady);
+	const isExiting = !showSplash;
+
+	useEffect(() => {
+		if (!isExiting || !isSplashMounted) {
+			return;
+		}
+
+		const unmountTimer = setTimeout(() => {
+			setIsSplashMounted(false);
+		}, SPLASH_EXIT_DURATION_MS);
+
+		return () => clearTimeout(unmountTimer);
+	}, [isExiting, isSplashMounted]);
 
 	return (
 		<ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
@@ -51,9 +65,12 @@ function AppShell() {
 				<Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
 			</Stack>
 			<StatusBar style="auto" />
-			{showSplash ? (
-				<View style={StyleSheet.absoluteFill} pointerEvents="auto">
-					<LoadingSplash />
+			{isSplashMounted ? (
+				<View
+					style={StyleSheet.absoluteFill}
+					pointerEvents={isExiting ? 'none' : 'auto'}
+				>
+					<LoadingSplash isExiting={isExiting} />
 				</View>
 			) : null}
 		</ThemeProvider>
