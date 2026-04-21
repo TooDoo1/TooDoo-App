@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Dimensions, Image, StyleSheet, Text, View } from 'react-native';
+import { Dimensions, Image, StyleSheet, View } from 'react-native';
 import Animated, {
 	cancelAnimation,
 	Easing,
@@ -13,7 +13,8 @@ import Animated, {
 import Svg, { Path } from 'react-native-svg';
 
 const logoSrc = require('../../assets/images/TooDoo.jpg');
-const { height: SCREEN_H } = Dimensions.get('window');
+const { height: SCREEN_H, width: SCREEN_W } = Dimensions.get('window');
+const WORDMARK_BOX_WIDTH = Math.min(SCREEN_W - 24, 480);
 
 const LOGO_SIZE = 180;
 const LAMP_OFF_OPACITY = 0;
@@ -226,6 +227,7 @@ export default function LoadingSplash({ isExiting = false }: { isExiting?: boole
 	const wordmarkGlowStyle = useAnimatedStyle(() => ({
 		textShadowRadius: 6 + lampLevel.value * 14,
 		textShadowColor: `rgba(255, 236, 150, ${0.25 + lampLevel.value * 0.55})`,
+		textShadowOffset: { width: 0, height: 0 },
 	}));
 
 	const containerStyle = useAnimatedStyle(() => ({
@@ -252,9 +254,9 @@ export default function LoadingSplash({ isExiting = false }: { isExiting?: boole
 						fadeDuration={0}
 					/>
 				</View>
-				<Animated.Text style={[styles.wordmark, wordmarkGlowStyle]}>
-					TooDoo
-				</Animated.Text>
+				<View style={[styles.wordmarkWrap, { width: WORDMARK_BOX_WIDTH }]}>
+					<Animated.Text style={[styles.wordmark, wordmarkGlowStyle]}>TooDoo</Animated.Text>
+				</View>
 			</Animated.View>
 		</Animated.View>
 	);
@@ -266,6 +268,7 @@ const styles = StyleSheet.create({
 		backgroundColor: '#000b2a',
 		justifyContent: 'center',
 		alignItems: 'center',
+		overflow: 'visible',
 	},
 	pullChain: {
 		position: 'absolute',
@@ -299,13 +302,24 @@ const styles = StyleSheet.create({
 	},
 	logoColumn: {
 		alignItems: 'center',
+		overflow: 'visible',
+	},
+	wordmarkWrap: {
+		marginTop: 18,
+		paddingHorizontal: 40,
+		paddingVertical: 56,
+		alignItems: 'stretch',
+		justifyContent: 'center',
+		overflow: 'visible',
 	},
 	wordmark: {
-		marginTop: 18,
+		width: '100%',
+		minHeight: 52,
 		color: '#fff8cc',
 		fontSize: 36,
 		fontWeight: '700',
 		letterSpacing: 2,
+		textAlign: 'center',
 		textShadowColor: 'rgba(255, 236, 150, 0.6)',
 		textShadowOffset: { width: 0, height: 0 },
 		textShadowRadius: 12,
