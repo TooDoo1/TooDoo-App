@@ -7,7 +7,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import 'react-native-reanimated';
 import '../global.css';
 
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { ThemePreferenceProvider, useThemePreference } from '@/context/theme-preference-context';
 import { AuthProvider } from '@/context/auth-context';
 import { AppReadyProvider, useAppReady } from '@/context/app-ready-context';
 import LoadingSplash, { SPLASH_EXIT_DURATION_MS } from '@/components/ui/loading-splash';
@@ -22,7 +22,7 @@ export const unstable_settings = {
 };
 
 function AppShell() {
-	const colorScheme = useColorScheme();
+	const { effectiveScheme } = useThemePreference();
 	const { isDataReady, markDataReady } = useAppReady();
 	const [hasMinElapsed, setHasMinElapsed] = useState(false);
 	const [hasMaxElapsed, setHasMaxElapsed] = useState(false);
@@ -59,12 +59,12 @@ function AppShell() {
 	}, [isExiting, isSplashMounted]);
 
 	return (
-		<ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+		<ThemeProvider value={effectiveScheme === 'dark' ? DarkTheme : DefaultTheme}>
 			<Stack>
 				<Stack.Screen name="(tabs)" options={{ headerShown: false }} />
 				<Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
 			</Stack>
-			<StatusBar style="auto" />
+			<StatusBar style={effectiveScheme === 'dark' ? 'light' : 'dark'} />
 			{isSplashMounted ? (
 				<View
 					style={StyleSheet.absoluteFill}
@@ -80,9 +80,11 @@ function AppShell() {
 export default function RootLayout() {
 	return (
 		<AppReadyProvider>
-			<AuthProvider>
-				<AppShell />
-			</AuthProvider>
+			<ThemePreferenceProvider>
+				<AuthProvider>
+					<AppShell />
+				</AuthProvider>
+			</ThemePreferenceProvider>
 		</AppReadyProvider>
 	);
 }

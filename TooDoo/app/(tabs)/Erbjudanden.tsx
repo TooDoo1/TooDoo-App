@@ -19,6 +19,7 @@ import { Button } from "@react-navigation/elements";
 import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import { Image as ExpoImage } from "expo-image";
 import { useAuth } from "@/context/auth-context";
+import { apiUrl } from "@/lib/api";
 
 const skanetrafikenLogo = require("../../assets/images/Skanetrafiken.png");
 const voiLogo = require("../../assets/images/Voi.png");
@@ -31,12 +32,12 @@ const localImagesById: Record<string, ImageSourcePropType> = {
 export default function ErbjudandenScreen() {
   const router = useRouter();
   const { isLoggedIn, token } = useAuth();
-  const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'https://toodoo-backend-ejml.onrender.com';
   const [isClaiming, setIsClaiming] = useState(false);
   const [claimedOrderIds, setClaimedOrderIds] = useState<Set<string>>(new Set());
   const [geocodedCoordinate, setGeocodedCoordinate] = useState<{ latitude: number; longitude: number; addressText?: string }>();
   const [nowMs, setNowMs] = useState(Date.now());
   const [isLoginOpen, setIsLoginOpen] = useState(false);
+  const [claimSuccess, setClaimSuccess] = useState<{ title?: string; qrCode?: string } | null>(null);
   const {
     mapResetNonce,
     id,
@@ -190,7 +191,10 @@ export default function ErbjudandenScreen() {
         endDate,
         timeLeftMs,
       };
-    }).filter((offer) => offer.text || offer.priceText || offer.originalPriceText || offer.totalCount > 0 || offer.endDate);
+    })
+      .filter((offer) => offer.text || offer.priceText || offer.originalPriceText || offer.totalCount > 0 || offer.endDate)
+      // Hide offers that have expired (gått ut).
+      .filter((offer) => !offer.endDate || offer.endDate.getTime() > nowMs);
     return parsedOffers;
   }, [offerTexts, offerOrderIds, claimOrderIdText, offerPriceTexts, offerOriginalPriceTexts, offerClaimedTexts, offerAmountTexts, offerEndTexts, nowMs, dealFlag]);
 
@@ -358,7 +362,7 @@ export default function ErbjudandenScreen() {
     setIsClaiming(true);
 
     try {
-      const orderResponse = await fetch(`${apiBaseUrl}/orders/${encodeURIComponent(offer.orderId)}`);
+      const orderResponse = await fetch(apiUrl(`/orders/${encodeURIComponent(offer.orderId)}`));
       const orderPayload = await orderResponse.json().catch(() => ({}));
       const order = orderPayload?.order ?? orderPayload?.data ?? orderPayload;
 
@@ -366,7 +370,7 @@ export default function ErbjudandenScreen() {
         orderId: offer.orderId,
       };
 
-      const response = await fetch(`${apiBaseUrl}/claim`, {
+      const response = await fetch(apiUrl('/claim'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -425,7 +429,7 @@ export default function ErbjudandenScreen() {
         }
 
         if (response.status === 409 && offer.orderId) {
-          const claimsResponse = await fetch(`${apiBaseUrl}/user/me/claims`, {
+          const claimsResponse = await fetch(apiUrl('/user/me/claims'), {
             headers: {
               Authorization: `Bearer ${token}`,
             },
@@ -464,10 +468,7 @@ export default function ErbjudandenScreen() {
           return next;
         });
       }
-      Alert.alert(
-        'Erbjudandet är claimat',
-        qrCode ? `Din QR-kod är skapad. Kod: ${qrCode}` : 'Din QR-kod är skapad.'
-      );
+      setClaimSuccess({ title: offer.text ?? title ?? 'Erbjudande', qrCode });
     } catch {
       Alert.alert('Kunde inte claima', 'Kontrollera din anslutning och försök igen.');
     } finally {
@@ -538,7 +539,7 @@ export default function ErbjudandenScreen() {
       }
 
       try {
-        const response = await fetch(`${apiBaseUrl}/user/me/claims`, {
+        const response = await fetch(apiUrl('/user/me/claims'), {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -563,7 +564,7 @@ export default function ErbjudandenScreen() {
     return () => {
       cancelled = true;
     };
-  }, [isLoggedIn, token, apiBaseUrl]);
+  }, [isLoggedIn, token]);
 
   useEffect(() => {
     let cancelled = false;
@@ -825,6 +826,40 @@ export default function ErbjudandenScreen() {
             <Text className="text-center text-xs leading-5 text-white/50">
               Genom att logga in godkänner du våra användarvillkor och integritetspolicy.
             </Text>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={Boolean(claimSuccess)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setClaimSuccess(null)}
+      >
+        <View className="flex-1 items-center justify-center bg-black/70 px-6">
+          <Pressable className="absolute inset-0" onPress={() => setClaimSuccess(null)} />
+          <View className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0a1535] p-6">
+            <Text className="text-2xl font-semibold text-white text-center">Claimat!</Text>
+            <Text className="mt-2 text-center text-white/70">
+              {claimSuccess?.title ?? 'Erbjudandet är claimat.'}
+            </Text>
+
+            <View className="mt-5 rounded-2xl border border-white/15 bg-white/5 px-4 py-4">
+              <Text className="text-sm text-white/60">Din kod</Text>
+              <Text selectable className="mt-2 text-lg font-semibold text-white">
+                {claimSuccess?.qrCode ?? '-'}
+              </Text>
+              <Text className="mt-2 text-xs text-white/50">
+                Visa koden i kassan eller på plats för att lösa in erbjudandet.
+              </Text>
+            </View>
+
+            <Pressable
+              className="mt-5 rounded-2xl bg-[#007AFF] px-4 py-3"
+              onPress={() => setClaimSuccess(null)}
+            >
+              <Text className="text-center font-medium text-[#061A47]">Stäng</Text>
+            </Pressable>
           </View>
         </View>
       </Modal>

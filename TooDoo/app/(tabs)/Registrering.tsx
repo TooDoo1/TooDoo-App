@@ -2,11 +2,11 @@ import { useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '@/context/auth-context';
+import { apiUrl } from '@/lib/api';
 
 export default function RegistreringScreen() {
 	const router = useRouter();
 	const { setPendingRegistration, signIn } = useAuth();
-	const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'https://toodoo-backend-ejml.onrender.com';
 	const { accountType, returnTo, returnParams } = useLocalSearchParams<{ accountType?: string; returnTo?: string; returnParams?: string }>();
 	const isCompanyRegistration = accountType === 'company';
 	const [email, setEmail] = useState('');
@@ -14,6 +14,26 @@ export default function RegistreringScreen() {
 	const [confirmPassword, setConfirmPassword] = useState('');
 	const [companyName, setCompanyName] = useState('');
     const [isSubmittingRegister, setIsSubmittingRegister] = useState(false);
+
+	const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+
+	const checkEmailAvailability = async (emailToCheck: string) => {
+		// No public "email exists" endpoint; use reset-token behavior:
+		// 200 => user exists, 404 => user missing.
+		try {
+			const res = await fetch(apiUrl('/user/forgot-password/token'), {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ email: emailToCheck }),
+			});
+
+			if (res.status === 404) return { available: true as const };
+			if (res.ok) return { available: false as const };
+			return { available: true as const };
+		} catch {
+			return { available: true as const };
+		}
+	};
 
 	const handleBack = () => {
 		if (returnTo === 'erbjudanden') {
@@ -54,6 +74,11 @@ export default function RegistreringScreen() {
 			return;
 		}
 
+		if (!isValidEmail(email)) {
+			Alert.alert('Ogiltig e-post', 'Skriv in en giltig e-postadress.');
+			return;
+		}
+
 		if (password.length < 8) {
 			Alert.alert('Ogiltigt lösenord', 'Lösenord måste vara minst 8 tecken.');
 			return;
@@ -67,7 +92,7 @@ export default function RegistreringScreen() {
 		if (isCompanyRegistration) {
 			setIsSubmittingRegister(true);
 			try {
-				const registerResponse = await fetch(`${apiBaseUrl}/user/register/manager`, {
+				const registerResponse = await fetch(apiUrl('/user/register/manager'), {
 					method: 'POST',
 					headers: {
 						'Content-Type': 'application/json',
@@ -90,7 +115,7 @@ export default function RegistreringScreen() {
 					return;
 				}
 
-				const loginResponse = await fetch(`${apiBaseUrl}/user/login`, {
+				const loginResponse = await fetch(apiUrl('/user/login/portal'), {
 					method: 'POST',
 					headers: {
 						'Content-Type': 'application/json',
@@ -121,13 +146,25 @@ export default function RegistreringScreen() {
 			return;
 		}
 
-		setPendingRegistration({
-			email: email.trim(),
-			password,
-			accountType: 'user',
-		});
+		setIsSubmittingRegister(true);
+		try {
+			const availability = await checkEmailAvailability(email.trim());
+			if (!availability.available) {
+				Alert.alert('E-post upptagen', 'Det finns redan ett konto med den e-postadressen.');
+				return;
+			}
 
-		router.push('/(tabs)/Personality');
+			setPendingRegistration({
+				email: email.trim(),
+				password,
+				accountType: 'user',
+			});
+
+			router.push('/(tabs)/Personality');
+		} finally {
+			setIsSubmittingRegister(false);
+		}
+
 	};
 
 	return (
