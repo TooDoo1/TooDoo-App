@@ -7,22 +7,22 @@ import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/context/auth-context';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useThemePreference } from '@/context/theme-preference-context';
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
-  const isDark = (colorScheme ?? 'light') === 'dark';
+  const { effectiveScheme } = useThemePreference();
+  const isDark = effectiveScheme === 'dark';
   const { isLoggedIn } = useAuth();
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tabIconSelected,
-        tabBarInactiveTintColor: Colors[colorScheme ?? 'light'].tabIconDefault,
+        tabBarActiveTintColor: Colors[effectiveScheme].tabIconSelected,
+        tabBarInactiveTintColor: Colors[effectiveScheme].tabIconDefault,
         tabBarStyle: {
           position: 'absolute',
           backgroundColor: 'transparent',
-          borderTopColor: Colors[colorScheme ?? 'light'].icon,
+          borderTopColor: Colors[effectiveScheme].icon,
           borderTopWidth: 0,
           elevation: 0,
           overflow: 'hidden',
@@ -32,7 +32,7 @@ export default function TabLayout() {
             {Platform.OS === 'ios' ? (
               <BlurView
                 tint={isDark ? 'dark' : 'light'}
-                intensity={70}
+                intensity={80}
                 style={StyleSheet.absoluteFill}
               />
             ) : null}
@@ -40,7 +40,8 @@ export default function TabLayout() {
               style={[
                 StyleSheet.absoluteFill,
                 {
-                  backgroundColor: isDark ? 'rgba(10, 21, 53, 1)' : 'rgba(0, 11, 42, 0.95)',
+                  // Keep navbar see-through (blur on iOS, translucent fill everywhere).
+                  backgroundColor: isDark ? 'rgba(10, 21, 53, 0.65)' : 'rgba(245, 247, 255, 0.75)',
                 },
               ]}
             />

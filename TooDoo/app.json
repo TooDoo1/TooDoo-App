@@ -45,7 +45,8 @@
           "cameraPermission": "Tillåt TooDoo att använda kameran för att skanna QR-koder.",
           "barcodeScannerEnabled": true
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true,

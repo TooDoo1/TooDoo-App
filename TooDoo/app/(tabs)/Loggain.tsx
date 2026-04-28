@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { View, Text, TextInput, Pressable, Alert, Animated, ScrollView, type StyleProp, type TextStyle } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/auth-context';
+import { apiUrl } from '@/lib/api';
 
 type BounceTextProps = {
 	text: string;
@@ -52,7 +53,6 @@ function BounceText({ text, className, textStyle, trigger }: BounceTextProps) {
 export default function MinaDealsScreen() {
 	const router = useRouter();
 	const { signIn } = useAuth();
-	const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'https://toodoo-backend-ejml.onrender.com';
 	const [selectedType, setSelectedType] = useState<'user' | 'company' | null>('user');
 	const [userBounceTrigger, setUserBounceTrigger] = useState(0);
 	const [companyBounceTrigger, setCompanyBounceTrigger] = useState(0);
@@ -98,7 +98,8 @@ export default function MinaDealsScreen() {
 
 		setIsSubmittingLogin(true);
 		try {
-			const response = await fetch(`${apiBaseUrl}/user/login`, {
+			const endpoint = accountType === 'company' ? '/user/login/portal' : '/user/login';
+			const response = await fetch(apiUrl(endpoint), {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',

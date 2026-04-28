@@ -5,27 +5,82 @@ import {
   View,
   Pressable,
   Alert,
+  Platform,
 } from "react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/context/auth-context";
+import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
+import { apiUrl } from "@/lib/api";
 
 export default function PersonalityScreen() {
   const router = useRouter();
   const { pendingRegistration, clearPendingRegistration, signIn } = useAuth();
-  const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'https://toodoo-backend-ejml.onrender.com';
   const totalCount = 4;
   const [claimedCount, setClaimedCount] = useState(1);
   const [isSubmittingCreate, setIsSubmittingCreate] = useState(false);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [age, setAge] = useState('');
-  const [selectedGender, setSelectedGender] = useState<'MALE' | 'FEMALE' | 'OTHER' | null>(null);
+  const [birthDate, setBirthDate] = useState<Date | null>(null);
+  const [isIosDatePickerVisible, setIsIosDatePickerVisible] = useState(false);
+  const [selectedGender, setSelectedGender] = useState<'MALE' | 'FEMALE' | 'NON_BINARY' | 'OTHER' | null>(null);
   const [categoryOptions, setCategoryOptions] = useState<Array<{ id?: string; name: string }>>([]);
   const [isLoadingCategories, setIsLoadingCategories] = useState(false);
   const [categoryLoadError, setCategoryLoadError] = useState('');
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const progressPercent = totalCount > 0 ? Math.min((claimedCount / totalCount) * 100, 100) : 0;
+  const lastPendingEmailRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const nextEmail = pendingRegistration?.email ?? null;
+    if (!nextEmail) return;
+    if (lastPendingEmailRef.current === nextEmail) return;
+    lastPendingEmailRef.current = nextEmail;
+
+    // Start fresh when a new registration begins (the screen may still be mounted).
+    setClaimedCount(1);
+    setIsSubmittingCreate(false);
+    setFirstName('');
+    setLastName('');
+    setBirthDate(null);
+    setIsIosDatePickerVisible(false);
+    setSelectedGender(null);
+    setSelectedCategoryIds([]);
+  }, [pendingRegistration?.email]);
+
+  const formatBirthDate = (date: Date) => {
+    // Keep a stable YYYY-MM-DD regardless of device locale.
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  const birthDateToIsoDateTime = (date: Date) => {
+    // Backend expects date-time; keep the chosen calendar date stable across timezones.
+    const yyyy = date.getFullYear();
+    const mm = date.getMonth();
+    const dd = date.getDate();
+    return new Date(Date.UTC(yyyy, mm, dd, 0, 0, 0, 0)).toISOString();
+  };
+
+  const openBirthDatePicker = () => {
+    const initialValue = birthDate ?? new Date(2000, 0, 1);
+    if (Platform.OS === 'android') {
+      DateTimePickerAndroid.open({
+        value: initialValue,
+        mode: 'date',
+        is24Hour: true,
+        maximumDate: new Date(),
+        onChange: (_event, selectedDate) => {
+          if (selectedDate) setBirthDate(selectedDate);
+        },
+      });
+      return;
+    }
+
+    setIsIosDatePickerVisible(true);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -35,7 +90,7 @@ export default function PersonalityScreen() {
       setCategoryLoadError('');
 
       try {
-        const response = await fetch(`${apiBaseUrl}/category`);
+        const response = await fetch(apiUrl('/category'));
         const data = await response.json().catch(() => []);
         const categories = Array.isArray(data)
           ? data
@@ -69,11 +124,12 @@ export default function PersonalityScreen() {
     return () => {
       cancelled = true;
     };
-  }, [apiBaseUrl]);
+  }, []);
 
   const genderOptions = [
     { label: 'Man', value: 'MALE' as const },
     { label: 'Kvinna', value: 'FEMALE' as const },
+    { label: 'Ickebinär', value: 'NON_BINARY' as const },
     { label: 'Vill ej ange', value: 'OTHER' as const },
   ];
 
@@ -120,16 +176,38 @@ export default function PersonalityScreen() {
                 autoCapitalize="words"
             className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
           />
-          <Text className="pt-4 text-lg text-white">Ålder:</Text>
-          <TextInput
-                value={age}
-                onChangeText={setAge}
-                placeholder="Ålder"
-            placeholderTextColor="rgba(255,255,255,0.45)"
-            keyboardType="numeric"
-            autoCapitalize="none"
-            className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
-          />
+          <Text className="pt-4 text-lg text-white">Födelsedag:</Text>
+          <Pressable
+            onPress={openBirthDatePicker}
+            className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3"
+          >
+            <Text className={`${birthDate ? 'text-white' : 'text-white/45'}`}>
+              {birthDate ? formatBirthDate(birthDate) : 'Välj datum'}
+            </Text>
+          </Pressable>
+
+          {Platform.OS === 'ios' && isIosDatePickerVisible ? (
+            <View className="mt-3 overflow-hidden rounded-2xl border border-white/20 bg-white/10 px-2 py-2">
+              <DateTimePicker
+                value={birthDate ?? new Date(2000, 0, 1)}
+                mode="date"
+                maximumDate={new Date()}
+                display="spinner"
+                themeVariant="dark"
+                textColor="#ffffff"
+                style={{ height: 190 }}
+                onChange={(_event, selectedDate) => {
+                  if (selectedDate) setBirthDate(selectedDate);
+                }}
+              />
+              <Pressable
+                className="mt-2 rounded-2xl bg-[#007AFF] px-4 py-3"
+                onPress={() => setIsIosDatePickerVisible(false)}
+              >
+                <Text className="text-center font-medium text-[#061A47]">Klar</Text>
+              </Pressable>
+            </View>
+          ) : null}
 
         </View>
         ) : null}
@@ -222,11 +300,15 @@ export default function PersonalityScreen() {
               className=" rounded-2xl bg-[#007AFF] px-4 py-3"
               onPress={async () => {
                 if (claimedCount === 2 && !selectedGender) {
-                  Alert.alert("Välj ett alternativ", "Välj Man, Kvinna, Vill ej ange eller Ickebinär innan du går vidare.");
+                  Alert.alert("Välj ett alternativ", "Välj Man, Kvinna, Ickebinär eller Vill ej ange innan du går vidare.");
                   return;
                 }
                 if (claimedCount === 1 && (!firstName.trim() || !lastName.trim())) {
                   Alert.alert("Saknad information", "Fyll i förnamn och efternamn innan du går vidare.");
+                  return;
+                }
+                if (claimedCount === 1 && !birthDate) {
+                  Alert.alert("Saknad information", "Välj din födelsedag innan du går vidare.");
                   return;
                 }
 
@@ -239,7 +321,7 @@ export default function PersonalityScreen() {
 
                   setIsSubmittingCreate(true);
                   try {
-                    const response = await fetch(`${apiBaseUrl}/user/register`, {
+                    const response = await fetch(apiUrl('/user/register'), {
                       method: 'POST',
                       headers: {
                         'Content-Type': 'application/json',
@@ -248,6 +330,7 @@ export default function PersonalityScreen() {
                         email: pendingRegistration.email,
                         firstName: firstName.trim(),
                         lastName: lastName.trim(),
+                        birthDate: birthDate ? birthDateToIsoDateTime(birthDate) : undefined,
                         gender: selectedGender,
                         password: pendingRegistration.password,
                         interests: selectedCategoryIds,
@@ -260,7 +343,7 @@ export default function PersonalityScreen() {
                       let tokenToUse = data.token;
 
                       if (!tokenToUse) {
-                        const loginResponse = await fetch(`${apiBaseUrl}/user/login`, {
+                        const loginResponse = await fetch(apiUrl('/user/login'), {
                           method: 'POST',
                           headers: {
                             'Content-Type': 'application/json',

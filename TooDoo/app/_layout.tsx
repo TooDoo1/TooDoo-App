@@ -7,10 +7,10 @@ import * as SplashScreen from 'expo-splash-screen';
 import 'react-native-reanimated';
 import '../global.css';
 
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { ThemePreferenceProvider, useThemePreference } from '@/context/theme-preference-context';
 import { AuthProvider } from '@/context/auth-context';
 import { AppReadyProvider, useAppReady } from '@/context/app-ready-context';
-import LoadingSplash from '@/components/ui/loading-splash';
+import LoadingSplash, { SPLASH_EXIT_DURATION_MS } from '@/components/ui/loading-splash';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -22,10 +22,11 @@ export const unstable_settings = {
 };
 
 function AppShell() {
-	const colorScheme = useColorScheme();
+	const { effectiveScheme } = useThemePreference();
 	const { isDataReady, markDataReady } = useAppReady();
 	const [hasMinElapsed, setHasMinElapsed] = useState(false);
 	const [hasMaxElapsed, setHasMaxElapsed] = useState(false);
+	const [isSplashMounted, setIsSplashMounted] = useState(true);
 
 	useEffect(() => {
 		SplashScreen.hideAsync().catch(() => {});
@@ -43,17 +44,33 @@ function AppShell() {
 	}, [markDataReady]);
 
 	const showSplash = !hasMaxElapsed && (!hasMinElapsed || !isDataReady);
+	const isExiting = !showSplash;
+
+	useEffect(() => {
+		if (!isExiting || !isSplashMounted) {
+			return;
+		}
+
+		const unmountTimer = setTimeout(() => {
+			setIsSplashMounted(false);
+		}, SPLASH_EXIT_DURATION_MS);
+
+		return () => clearTimeout(unmountTimer);
+	}, [isExiting, isSplashMounted]);
 
 	return (
-		<ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+		<ThemeProvider value={effectiveScheme === 'dark' ? DarkTheme : DefaultTheme}>
 			<Stack>
 				<Stack.Screen name="(tabs)" options={{ headerShown: false }} />
 				<Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
 			</Stack>
-			<StatusBar style="auto" />
-			{showSplash ? (
-				<View style={StyleSheet.absoluteFill} pointerEvents="auto">
-					<LoadingSplash />
+			<StatusBar style={effectiveScheme === 'dark' ? 'light' : 'dark'} />
+			{isSplashMounted ? (
+				<View
+					style={StyleSheet.absoluteFill}
+					pointerEvents={isExiting ? 'none' : 'auto'}
+				>
+					<LoadingSplash isExiting={isExiting} />
 				</View>
 			) : null}
 		</ThemeProvider>
@@ -63,9 +80,11 @@ function AppShell() {
 export default function RootLayout() {
 	return (
 		<AppReadyProvider>
-			<AuthProvider>
-				<AppShell />
-			</AuthProvider>
+			<ThemePreferenceProvider>
+				<AuthProvider>
+					<AppShell />
+				</AuthProvider>
+			</ThemePreferenceProvider>
 		</AppReadyProvider>
 	);
 }

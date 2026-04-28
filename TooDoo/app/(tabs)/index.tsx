@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
+  Platform,
   Dimensions,
   Image,
   ImageSourcePropType,
@@ -10,17 +11,28 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  UIManager,
   View,
-  FlatList,
 } from 'react-native';
+import { Easing } from 'react-native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppReady } from '@/context/app-ready-context';
+import { apiUrl } from '@/lib/api';
+import { useAuth } from '@/context/auth-context';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { StarryBackground } from '@/components/ui/starry-background';
+import { useThemePreference } from '@/context/theme-preference-context';
+import { uiTheme } from '@/lib/ui-theme';
 
 const ALL_CATEGORIES_ID = 'all';
 const OFFERS_CATEGORY_ID = 'offers';
 const FEATURED_REPEAT_COUNT = 600;
+
+// Starry background extracted to `components/ui/starry-background.tsx`
 
 type CardItem = {
   id: string;
@@ -102,6 +114,14 @@ export default function HomeScreen() {
   const [featuredBusinesses, setFeaturedBusinesses] = useState<CardItem[]>([]);
   const [sections, setSections] = useState<SectionItem[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [firstName, setFirstName] = useState<string | null>(null);
+  const [expandedSection, setExpandedSection] = useState<'nearby' | 'hot' | 'endingSoon' | null>(null);
+  const nearbyAnim = useRef(new Animated.Value(0)).current;
+  const hotAnim = useRef(new Animated.Value(0)).current;
+  const endingSoonAnim = useRef(new Animated.Value(0)).current;
+  const didScrollAfterExpandRef = useRef(false);
+  const didOpenCardRef = useRef(false);
   const tabBarHeight = useBottomTabBarHeight();
   const scrollRef = useRef<ScrollView>(null);
   const featuredScrollRef = useRef<any>(null);
@@ -113,7 +133,9 @@ export default function HomeScreen() {
   const currentFeaturedIndex = useRef(0);
   const router = useRouter();
   const { markDataReady } = useAppReady();
-  const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'https://toodoo-backend-ejml.onrender.com';
+  const { token } = useAuth();
+  const { mode } = useThemePreference();
+  const theme = uiTheme(mode);
   const { width: screenWidth } = Dimensions.get('window');
   // Decreased card width ratio to make side cards visibly occupy more space on screen
   const featuredCardWidth = Math.min(screenWidth * 0.68, 300);
@@ -128,6 +150,56 @@ export default function HomeScreen() {
 
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      UIManager.setLayoutAnimationEnabledExperimental?.(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    const run = (value: Animated.Value, toValue: number) => {
+      Animated.timing(value, {
+        toValue,
+        duration: 650,
+        easing: Easing.inOut(Easing.cubic),
+        useNativeDriver: false,
+      }).start();
+    };
+
+    run(nearbyAnim, expandedSection === 'nearby' ? 1 : 0);
+    run(hotAnim, expandedSection === 'hot' ? 1 : 0);
+    run(endingSoonAnim, expandedSection === 'endingSoon' ? 1 : 0);
+  }, [expandedSection, nearbyAnim, hotAnim, endingSoonAnim]);
+
+  useEffect(() => {
+    if (!expandedSection) {
+      return;
+    }
+
+    didScrollAfterExpandRef.current = false;
+    didOpenCardRef.current = false;
+    const current = expandedSection;
+    const timer = setTimeout(() => {
+      if (expandedSection === current && !didScrollAfterExpandRef.current && !didOpenCardRef.current) {
+        setExpandedSection(null);
+      }
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [expandedSection]);
+
+  useFocusEffect(
+    useCallback(() => {
+      // Reset "opened card" tracking when returning to this screen.
+      didOpenCardRef.current = false;
+      return () => {};
+    }, [])
+  );
+
+  const markExpandedSectionScrolled = () => {
+    didScrollAfterExpandRef.current = true;
+  };
 
   const repeatedFeaturedBusinesses = useMemo(() => {
     if (featuredBusinesses.length === 0) return [];
@@ -234,9 +306,9 @@ export default function HomeScreen() {
       setIsLoadingData(true);
       try {
         const [categoryRes, businessRes, ordersRes] = await Promise.all([
-          fetch(`${apiBaseUrl}/category`),
-          fetch(`${apiBaseUrl}/business?status=APPROVED`),
-          fetch(`${apiBaseUrl}/orders`),
+          fetch(apiUrl('/category')),
+          fetch(apiUrl('/business?status=APPROVED')),
+          fetch(apiUrl('/orders')),
         ]);
 
         const categoryJson = await categoryRes.json().catch(() => []);
@@ -400,7 +472,35 @@ export default function HomeScreen() {
     return () => {
       cancelled = true;
     };
-  }, [apiBaseUrl, markDataReady]);
+  }, [markDataReady]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!token) {
+      setFirstName(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    (async () => {
+      try {
+        const res = await fetch(apiUrl('/user/me'), {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!cancelled) {
+          setFirstName(typeof json?.firstName === 'string' ? json.firstName : null);
+        }
+      } catch {
+        if (!cancelled) setFirstName(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   const filteredSections = useMemo(() => {
     if (activeCategory === ALL_CATEGORIES_ID) {
@@ -462,7 +562,50 @@ export default function HomeScreen() {
     return false;
   }, []);
 
+  const endingSoonDeals = useMemo(() => {
+    const toValues = (value?: string | string[]) => (Array.isArray(value) ? value : value ? [value] : []);
+    const parseEndMs = (card: CardItem) => {
+      const raw = toValues(card.erbjudandelängd);
+      const best = raw
+        .map((item) => new Date(item).getTime())
+        .filter((ms) => Number.isFinite(ms))
+        .sort((a, b) => a - b)[0];
+      return best ?? Number.POSITIVE_INFINITY;
+    };
+
+    return [...filteredDeals]
+      .filter((card) => card.deal)
+      .map((card) => ({ card, endMs: parseEndMs(card) }))
+      .filter((item) => Number.isFinite(item.endMs) && item.endMs !== Number.POSITIVE_INFINITY)
+      .sort((a, b) => a.endMs - b.endMs)
+      .slice(0, 8)
+      .map((item) => item.card);
+  }, [filteredDeals]);
+
+  const searchedDeals = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return filteredDeals;
+    return filteredDeals.filter((card) => {
+      const hay = `${card.title} ${card.kortbeskrivning} ${card.långbeskrivning}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [filteredDeals, searchQuery]);
+
+  const getCategoryIconName = (label: string): React.ComponentProps<typeof Ionicons>['name'] => {
+    const name = label.toLowerCase();
+    if (name.includes('mat') || name.includes('food') || name.includes('restaur')) return 'restaurant-outline';
+    if (name.includes('familj') || name.includes('family') || name.includes('barn')) return 'people-outline';
+    if (name.includes('sport') || name.includes('träning') || name.includes('fitness')) return 'football-outline';
+    if (name.includes('hälsa') || name.includes('health')) return 'heart-outline';
+    if (name.includes('skön') || name.includes('beauty') || name.includes('spa')) return 'sparkles-outline';
+    if (name.includes('nöje') || name.includes('entertain') || name.includes('bio')) return 'film-outline';
+    if (name.includes('kläder') || name.includes('shopping') || name.includes('butik')) return 'bag-outline';
+    if (name.includes('resa') || name.includes('travel')) return 'airplane-outline';
+    return 'grid-outline';
+  };
+
   const handleCardPress = (card: CardItem) => {
+    didOpenCardRef.current = true;
     const encodeListParam = (value: string | string[] | number | number[] | Date | Date[] | undefined) => {
       if (value === undefined || value === null) {
         return undefined;
@@ -509,236 +652,477 @@ export default function HomeScreen() {
     });
   };
 
+  const setExpandedSectionAnimated = (next: typeof expandedSection) => setExpandedSection(next);
+
+  const handleNearbyCardPress = (card: CardItem) => {
+    if (expandedSection !== 'nearby') {
+      setExpandedSectionAnimated('nearby');
+      return;
+    }
+    handleCardPress(card);
+  };
+
+  const handleHotCardPress = (card: CardItem) => {
+    if (expandedSection !== 'hot') {
+      setExpandedSectionAnimated('hot');
+      return;
+    }
+    handleCardPress(card);
+  };
+
+  const handleEndingSoonCardPress = (card: CardItem) => {
+    if (expandedSection !== 'endingSoon') {
+      setExpandedSectionAnimated('endingSoon');
+      return;
+    }
+    handleCardPress(card);
+  };
+
   return (
-    <SafeAreaView edges={['left', 'right']} className="flex-1 bg-[#000b2a]" style={styles.screen}>
-      <ScrollView
-        ref={scrollRef}
-        className="flex-1"
-        style={styles.scroll}
-        contentContainerStyle={{ paddingBottom: tabBarHeight + 16 }}>
-        <View className="relative h-60 overflow-hidden rounded-b-3xl" style={styles.sliderContainer}>
-          {sliderImages.map((imageUri, idx) => (
-            <Image
-              key={imageUri}
-              source={{ uri: imageUri }}
-              resizeMode="cover"
-              style={[styles.sliderImage, { opacity: idx === sliderIndex ? 1 : 0 }]}
-              className="absolute inset-0 h-full w-full"
-            />
-          ))}
-        </View>
-
-        <View className="px-4 pt-4">
-          <TextInput
-            placeholder="Vad vill du göra idag?"
-            placeholderTextColor="#475569"
-            className="w-full rounded-full bg-white px-4 py-4 text-black"
+    <View style={{ flex: 1, backgroundColor: theme.screenBg }}>
+      {theme.isDark ? (
+        <>
+          <LinearGradient
+            colors={['#000b2a', '#061a47', '#000b2a']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
           />
+          <StarryBackground starCount={80} />
+        </>
+      ) : (
+        <LinearGradient
+          colors={['#f5f7ff', '#eef2ff', '#f5f7ff']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+      )}
+      <SafeAreaView
+        edges={['top', 'left', 'right']}
+        className="flex-1"
+        style={[styles.screen, { backgroundColor: 'transparent' }]}
+      >
+        <ScrollView
+          ref={scrollRef}
+          className="flex-1"
+          style={styles.scroll}
+          contentContainerStyle={{ paddingBottom: tabBarHeight + 16 }}>
+        <View className="px-6 pt-3">
+          <View className="relative items-center justify-center">
+            <Text className="text-3xl font-semibold">
+              <Text style={{ color: '#ff4d6d' }}>T</Text>
+              <Text style={{ color: '#ff7a00' }}>o</Text>
+              <Text style={{ color: '#ffd60a' }}>o</Text>
+              <Text style={{ color: '#00d4ff' }}>D</Text>
+              <Text style={{ color: '#3a86ff' }}>o</Text>
+              <Text style={{ color: '#9b5de5' }}>o</Text>
+            </Text>
+            <Pressable
+              onPress={() => router.push('/(tabs)/Profile')}
+              className="absolute right-0 h-10 w-10 items-center justify-center rounded-full"
+              style={{ backgroundColor: theme.cardBgMuted, borderColor: theme.border, borderWidth: 1 }}
+            >
+              <Ionicons name="person" size={20} color={theme.text} />
+            </Pressable>
+          </View>
+          <Text className="mt-1 text-base" style={{ color: theme.textMuted }}>
+            Hej {firstName?.trim() ? firstName.trim() : 'vän'}
+          </Text>
         </View>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-4 px-4">
-          <View className="flex-row gap-2">
-            {categoryOptions.map((category, index) => {
-              const active = category.id === activeCategory;
-
-              return (
-                <Pressable
-                  key={`${category.id}-${index}`}
-                  className={`rounded-full px-4 py-2 ${active ? 'bg-[#ff3b30]' : 'bg-[#eef2ff]'}`}
-                  onPress={() => setActiveCategory(category.id)}>
-                  <Text className={`${active ? 'text-white' : 'text-[#000b2a]'} text-xs font-medium`}>
-                    {category.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
+        <View className="px-6 pt-3">
+          <View
+            className="flex-row items-center rounded-full px-4 py-2.5"
+            style={{ borderWidth: 1, borderColor: theme.isDark ? 'rgba(255,255,255,0.40)' : 'rgba(0,11,42,0.25)', backgroundColor: theme.cardBg }}
+          >
+            <Ionicons name="search" size={18} color={theme.text} style={{ marginRight: 8 }} />
+            <TextInput
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Vad vill du göra idag?"
+              placeholderTextColor={theme.textFaint}
+              className="flex-1"
+              style={{ color: theme.text }}
+              returnKeyType="search"
+            />
+            {searchQuery.trim() ? (
+              <Pressable onPress={() => setSearchQuery('')} className="ml-2 rounded-full px-2 py-1">
+                <Ionicons name="close-circle" size={18} color={theme.text} />
+              </Pressable>
+            ) : null}
           </View>
-        </ScrollView>
+        </View>
 
-        {featuredBusinesses.length > 0 ? (
-          <View className="pt-5">
-            <View className="mb-2 px-4 flex-row items-center justify-between">
-              <Text className="text-lg font-semibold text-white">Utvalda företag</Text>
-              
-            </View>
+        <View className="mt-4 px-6">
+          <View className="mb-3 flex-row items-center justify-between">
+            <Text className="text-lg font-semibold text-white">& Nära dig</Text>
+            <Pressable onPress={() => {}}>
+              <Text className="text-white/60">Se alla →</Text>
+            </Pressable>
+          </View>
 
-            <Animated.FlatList
-              ref={featuredScrollRef}
-              data={repeatedFeaturedBusinesses}
+          {featuredBusinesses.length > 0 ? (
+            <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              snapToInterval={featuredSnapInterval}
-              snapToAlignment="start"
-              decelerationRate="fast"
-              contentContainerStyle={{ paddingHorizontal: featuredSidePadding }}
-              onScrollBeginDrag={() => {
-                isInteracting.current = true;
-                lastInteractionTime.current = Date.now();
-              }}
-              onScrollEndDrag={(event) => {
-                isInteracting.current = false;
-                lastInteractionTime.current = Date.now();
-
-                const rawIndex = Math.round(
-                  event.nativeEvent.contentOffset.x / featuredSnapInterval
-                );
-                const { index: snappedIndex, didRecenter } = recenterFeaturedIndexIfNeeded(rawIndex, {
-                  animated: false,
-                  applyScroll: false,
-                });
-
-                // If we're close to the wrap boundary, FlatList hasn't been re-centered yet.
-                // Keep the animation aligned with what is actually on-screen.
-                currentFeaturedIndex.current = didRecenter ? rawIndex : snappedIndex;
-              }}
-              onMomentumScrollEnd={(event) => {
-                const currentOffsetX = event.nativeEvent.contentOffset.x;
-                const rawIndex = Math.round(currentOffsetX / featuredSnapInterval);
-                // Let FlatList handle snap. Only do wrap-recenter when we hit near edges.
-                const { index: snappedIndex } = recenterFeaturedIndexIfNeeded(rawIndex, {
-                  animated: false,
-                  applyScroll: true,
-                });
-                currentFeaturedIndex.current = snappedIndex;
-              }}
-              onScroll={Animated.event(
-                [{ nativeEvent: { contentOffset: { x: featuredScrollX } } }],
-                {
-                  useNativeDriver: true,
-                  listener: (event: any) => {
-                    const offsetX = event.nativeEvent.contentOffset.x;
-                    const count = featuredBusinesses.length;
-                    if (count === 0) return;
-                    const rawIndex = Math.round(offsetX / featuredSnapInterval);
-                    const dotIndex = ((rawIndex % count) + count) % count;
-                    if (dotIndex !== activeFeaturedDotRef.current) {
-                      activeFeaturedDotRef.current = dotIndex;
-                      setActiveFeaturedDot(dotIndex);
-                    }
-                  },
-                }
-              )}
-              scrollEventThrottle={16}
-              keyExtractor={(item, index) => `${item.id}-${index}`}
-              getItemLayout={(data, index) => ({
-                length: featuredSnapInterval,
-                offset: featuredSidePadding + featuredSnapInterval * index,
-                index,
-              })}
-              initialScrollIndex={INITIAL_INDEX}
-              initialNumToRender={3}
-              maxToRenderPerBatch={3}
-              windowSize={5}
-              renderItem={({ item: business, index }) => {
-                const inputRange = [
-                  (index - 2) * featuredSnapInterval,
-                  (index - 1) * featuredSnapInterval,
-                  index * featuredSnapInterval,
-                  (index + 1) * featuredSnapInterval,
-                  (index + 2) * featuredSnapInterval,
-                ];
-
-                const scale = featuredScrollX.interpolate({
-                  inputRange,
-                  outputRange: [0.8, 0.88, 1, 0.88, 0.8],
-                  extrapolate: 'clamp',
-                });
-
-                const opacity = featuredScrollX.interpolate({
-                  inputRange,
-                  outputRange: [0.35, 0.55, 1, 0.55, 0.35],
-                  extrapolate: 'clamp',
-                });
-
-                return (
-                  <Pressable
+              onScrollBeginDrag={() => expandedSection === 'nearby' && markExpandedSectionScrolled()}
+            >
+              <View className="flex-row gap-3 pb-2">
+                {featuredBusinesses.map((biz, idx) => (
+                  <Animated.View
+                    key={`${biz.id}-${idx}`}
                     style={{
-                      width: featuredCardWidth,
-                      height: 248,
-                      justifyContent: 'center',
-                      marginHorizontal: featuredCardSpacing / 2,
+                      width: nearbyAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [176, 256],
+                      }),
                     }}
-                    onPress={() => handleCardPress(business)}
                   >
-                    <Animated.View
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        transform: [{ scale }],
-                        opacity,
-                      }}
+                    <Pressable
+                      className="overflow-hidden rounded-2xl"
+                      style={{ backgroundColor: theme.cardBg, borderColor: theme.border, borderWidth: 1 }}
+                      onPress={() => handleNearbyCardPress(biz)}
                     >
-                      <View
-                        className="relative w-full h-full bg-[#0a1535]"
-                        style={styles.featuredCardClip}
+                      <Animated.View
+                        className="relative w-full"
+                        style={{
+                          height: nearbyAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [96, 144],
+                          }),
+                        }}
                       >
-                        <Image
-                          source={business.image}
-                          resizeMode="cover"
-                          fadeDuration={0}
-                          style={styles.featuredCardImage}
-                        />
-                        <View className="absolute inset-0 bg-black/25" />
-                        {business.deal ? (
-                          <View className="absolute left-3 top-3 rounded-full bg-[#ff3b30] px-3 py-1">
-                            <Text className="text-sm font-semibold text-white">Erbjudande</Text>
-                          </View>
-                        ) : null}
-                        <View className="absolute bottom-0 left-0 right-0 p-4">
-                          <View className="rounded-2xl bg-black/55 px-4 py-4">
-                            <Text className="text-2xl font-semibold text-white" numberOfLines={1}>
-                              {business.title}
-                            </Text>
-                            <Text className="mt-1 text-sm text-white/80" numberOfLines={2}>
-                              {business.kortbeskrivning || 'Upptäck detta företag och deras erbjudanden.'}
-                            </Text>
-                          </View>
-                        </View>
+                      <Image source={biz.image} resizeMode="cover" className="h-full w-full" />
+                      <View className="absolute inset-0 bg-black/25" />
+                      <View className="absolute left-2 top-2 rounded-full px-2 py-1" style={{ backgroundColor: theme.isDark ? 'rgba(0,0,0,0.55)' : 'rgba(0,11,42,0.55)' }}>
+                        <Text className="text-[10px] font-medium text-white">0.{(idx % 9) + 1} km</Text>
                       </View>
-                    </Animated.View>
-                  </Pressable>
-                );
-              }}
-            />
-
-            <View style={styles.dotsRow}>
-              {featuredBusinesses.map((_, dotIdx) => (
-                <View
-                  key={dotIdx}
-                  style={[
-                    styles.dot,
-                    dotIdx === activeFeaturedDot && styles.dotActive,
-                  ]}
-                />
-              ))}
-            </View>
-          </View>
-        ) : null}
-
-        <View className="px-4 pt-5">
-          <Text className="mb-2 text-lg font-semibold text-white">Erbjudanden</Text>
-          {activeCategory !== OFFERS_CATEGORY_ID && isLoadingData ? (
-            <Text className="text-white/70">Laddar...</Text>
+                      <LinearGradient
+                        colors={
+                          theme.isDark
+                            ? ['rgba(0,11,42,0.00)', 'rgba(0,11,42,0.92)', 'rgba(0,11,42,0.92)']
+                            : ['rgba(245,247,255,0.00)', 'rgba(245,247,255,0.92)', 'rgba(245,247,255,0.92)']
+                        }
+                        locations={[0, 0.28, 1]}
+                        start={{ x: 0.5, y: 0 }}
+                        end={{ x: 0.5, y: 1 }}
+                        style={{
+                          position: 'absolute',
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          height: '55%',
+                          paddingHorizontal: 12,
+                          paddingBottom: 10,
+                          paddingTop: 14,
+                          justifyContent: 'flex-end',
+                        }}
+                      >
+                        <Text className="font-semibold" numberOfLines={1} style={{ color: theme.text }}>
+                          {biz.title}
+                        </Text>
+                        <Text className="mt-0.5 text-xs" numberOfLines={1} style={{ color: theme.textMuted }}>
+                          {biz.categoryName ?? 'Nära dig'}
+                        </Text>
+                        <Animated.View
+                          style={{
+                            height: nearbyAnim.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [0, 30],
+                            }),
+                            opacity: nearbyAnim,
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <Animated.Text
+                            className="mt-1 text-[11px]"
+                            numberOfLines={2}
+                            style={{
+                              transform: [
+                                {
+                                  translateY: nearbyAnim.interpolate({
+                                    inputRange: [0, 1],
+                                    outputRange: [6, 0],
+                                  }),
+                                },
+                              ],
+                            }}
+                          >
+                            {biz.kortbeskrivning || 'Upptäck detta företag och deras erbjudanden.'}
+                          </Animated.Text>
+                        </Animated.View>
+                      </LinearGradient>
+                      </Animated.View>
+                    </Pressable>
+                  </Animated.View>
+                ))}
+              </View>
+            </ScrollView>
           ) : (
-            <CardRow cards={filteredDeals} onCardPress={handleCardPress} />
+            <Text className="text-white/60">{isLoadingData ? 'Laddar...' : 'Inget att visa just nu.'}</Text>
           )}
         </View>
 
-        {activeCategory !== ALL_CATEGORIES_ID && activeCategory !== OFFERS_CATEGORY_ID && filteredSections.length > 0 ? (
-          <View className="px-4 pt-5">
-            <Text className="mb-2 text-lg font-semibold text-white">{filteredSections[0].title}</Text>
-            <CardGrid cards={filteredSections[0].cards} onCardPress={handleCardPress} />
+        <View className="mt-4 px-6">
+          <View className="flex-row items-center">
+            <Ionicons name="flame" size={18} color="#ff3b30" />
+            <Text className="ml-2 text-lg font-semibold text-white">Heta erbjudanden</Text>
           </View>
-        ) : (
-          filteredSections.map((section, index) => (
-            <View key={`${section.id}-${index}`} className="px-4 pt-5">
-              <Text className="mb-2 text-lg font-semibold text-white">{section.title}</Text>
-              <CardRow cards={section.cards} onCardPress={handleCardPress} enlarged={isSectionEnlarged(section.title)} />
+          <View className="mt-3">
+            {isLoadingData ? (
+              <Text className="text-white/60">Laddar...</Text>
+            ) : (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                onScrollBeginDrag={() => expandedSection === 'hot' && markExpandedSectionScrolled()}
+              >
+                <View className="flex-row gap-3 pb-2">
+                  {searchedDeals
+                    .filter((c) => c.deal)
+                    .slice(0, 10)
+                    .map((card, idx) => (
+                      <Animated.View
+                        key={`${card.id}-${idx}`}
+                        style={{
+                          width: hotAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [256, 320],
+                          }),
+                        }}
+                      >
+                        <Pressable
+                          className="overflow-hidden rounded-2xl bg-[#0a1535] border border-white/5"
+                          onPress={() => handleHotCardPress(card)}
+                        >
+                          <Animated.View
+                            className="relative w-full"
+                            style={{
+                              height: hotAnim.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [128, 176],
+                              }),
+                            }}
+                          >
+                          <Image source={card.image} resizeMode="cover" className="h-full w-full" />
+                          <View className="absolute inset-0 bg-black/20" />
+                          {card.deal ? <DealTag /> : null}
+                          <LinearGradient
+                            colors={[
+                              'rgba(0,11,42,0.00)',
+                              'rgba(0,11,42,0.92)',
+                              'rgba(0,11,42,0.92)',
+                            ]}
+                            locations={[0, 0.28, 1]}
+                            start={{ x: 0.5, y: 0 }}
+                            end={{ x: 0.5, y: 1 }}
+                            style={{
+                              position: 'absolute',
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              height: '55%',
+                              paddingHorizontal: 12,
+                              paddingBottom: 12,
+                              paddingTop: 16,
+                              justifyContent: 'flex-end',
+                            }}
+                          >
+                            <Text className="text-lg font-semibold text-white" numberOfLines={1}>
+                              {card.title}
+                            </Text>
+                            <Text className="mt-0.5 text-xs text-white/80" numberOfLines={2}>
+                              {card.kortbeskrivning || 'Upptäck detta företag och deras erbjudanden.'}
+                            </Text>
+                          </LinearGradient>
+                          </Animated.View>
+                        </Pressable>
+                      </Animated.View>
+                    ))}
+                </View>
+              </ScrollView>
+            )}
+          </View>
+        </View>
+
+        <View className="mt-4 px-6">
+          <View className="flex-row items-center">
+            <Ionicons name="time" size={18} color="#ffffff" />
+            <Text className="ml-2 text-lg font-semibold text-white">Slutar snart</Text>
+          </View>
+          <View className="mt-3">
+            {endingSoonDeals.length > 0 ? (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                onScrollBeginDrag={() => expandedSection === 'endingSoon' && markExpandedSectionScrolled()}
+              >
+                <View className="flex-row gap-3 pb-2">
+                  {endingSoonDeals.map((card, idx) => (
+                    <Animated.View
+                      key={`${card.id}-${idx}`}
+                      style={{
+                        width: endingSoonAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [160, 256],
+                        }),
+                      }}
+                    >
+                      <Pressable
+                        className="overflow-hidden rounded-2xl bg-[#0a1535] border border-white/5"
+                        onPress={() => handleEndingSoonCardPress(card)}
+                      >
+                        <Animated.View
+                          className="relative w-full"
+                          style={{
+                            height: endingSoonAnim.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [88, 140],
+                            }),
+                          }}
+                        >
+                          <Image source={card.image} resizeMode="cover" className="h-full w-full" />
+                          <View className="absolute inset-0 bg-black/20" />
+                          {card.deal ? <DealTag /> : null}
+                          <LinearGradient
+                            colors={[
+                              'rgba(0,11,42,0.00)',
+                              'rgba(0,11,42,0.92)',
+                              'rgba(0,11,42,0.92)',
+                            ]}
+                            locations={[0, 0.28, 1]}
+                            start={{ x: 0.5, y: 0 }}
+                            end={{ x: 0.5, y: 1 }}
+                            style={{
+                              position: 'absolute',
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              height: '58%',
+                              paddingHorizontal: 10,
+                              paddingBottom: 10,
+                              paddingTop: 14,
+                              justifyContent: 'flex-end',
+                            }}
+                          >
+                            <Text className="text-sm font-semibold text-white" numberOfLines={1}>
+                              {card.title}
+                            </Text>
+                            <Animated.View
+                              style={{
+                                height: endingSoonAnim.interpolate({
+                                  inputRange: [0, 1],
+                                  outputRange: [0, 28],
+                                }),
+                                opacity: endingSoonAnim,
+                                overflow: 'hidden',
+                              }}
+                            >
+                              <Animated.Text
+                                className="mt-0.5 text-[11px] text-white/80"
+                                numberOfLines={2}
+                                style={{
+                                  transform: [
+                                    {
+                                      translateY: endingSoonAnim.interpolate({
+                                        inputRange: [0, 1],
+                                        outputRange: [6, 0],
+                                      }),
+                                    },
+                                  ],
+                                }}
+                              >
+                                {card.kortbeskrivning || 'Upptäck detta företag och deras erbjudanden.'}
+                              </Animated.Text>
+                            </Animated.View>
+                          </LinearGradient>
+                        </Animated.View>
+                      </Pressable>
+                    </Animated.View>
+                  ))}
+                </View>
+              </ScrollView>
+            ) : (
+              <Text className="text-white/60">{isLoadingData ? 'Laddar...' : 'Inga tidsbegränsade erbjudanden hittades.'}</Text>
+            )}
+          </View>
+        </View>
+
+        <View className="mt-4 px-6">
+          <View className="flex-row items-center">
+            <Ionicons name="apps" size={18} color="rgba(255,255,255,0.8)" />
+            <Text className="ml-2 text-lg font-semibold text-white">Bläddra kategorier</Text>
+          </View>
+          <View className="mt-3 rounded-3xl border border-white/10 bg-[#0a1535] px-4 py-4">
+            <View className="flex-row flex-wrap justify-between">
+              {categoryFilters.map((cat, idx) => {
+                // More vibrant ("screaming") palette for category bubbles.
+                const palette = ['#FFB703', '#00D4FF', '#FF4D6D', '#9B5DE5', '#00E676', '#FF5ACD', '#3A86FF', '#FFD60A'];
+                const bg = palette[idx % palette.length];
+                return (
+                  <Pressable
+                    key={cat.id}
+                    className="mb-3 w-[23%] items-center"
+                    onPress={() => setActiveCategory(cat.id)}
+                  >
+                    <View
+                      className="h-14 w-14 overflow-hidden rounded-2xl"
+                      style={{
+                        backgroundColor: bg,
+                        shadowColor: '#000',
+                        shadowOpacity: 0.25,
+                        shadowRadius: 10,
+                        shadowOffset: { width: 0, height: 6 },
+                        elevation: 6,
+                      }}
+                    >
+                      {/* Frost layer (what makes it "glass") */}
+                      <View
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          backgroundColor: 'rgba(255,255,255,0.04)',
+                        }}
+                      />
+
+                      {/* Specular highlight */}
+                      <LinearGradient
+                        colors={['rgba(255,255,255,0.40)', 'rgba(255,255,255,0.08)', 'rgba(255,255,255,0.00)']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                      />
+
+                      {/* Subtle bottom shadow for depth */}
+                      <LinearGradient
+                        colors={['rgba(0,0,0,0.00)', 'rgba(0,0,0,0.015)']}
+                        start={{ x: 0.5, y: 0 }}
+                        end={{ x: 0.5, y: 1 }}
+                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                      />
+                      <View className="flex-1 items-center justify-center">
+                        <Ionicons name={getCategoryIconName(cat.label)} size={22} color="#ffffff" />
+                      </View>
+                      {/* Glass edges */}
+                      <View className="absolute inset-0 rounded-2xl border border-white/45" />
+                      <View className="absolute inset-[1px] rounded-[15px] border border-white/15" />
+                    </View>
+                    <Text className="mt-2 text-xs text-white/70" numberOfLines={1}>
+                      {cat.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
-          ))
-        )}
-      </ScrollView>
-    </SafeAreaView>
+          </View>
+        </View>
+        </ScrollView>
+      </SafeAreaView>
+    </View>
   );
 }
 

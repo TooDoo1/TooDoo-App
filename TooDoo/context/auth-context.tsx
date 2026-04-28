@@ -7,7 +7,7 @@ type PendingRegistration = {
   companyName?: string;
   firstName?: string;
   lastName?: string;
-  gender?: 'MALE' | 'FEMALE' | 'OTHER';
+  gender?: 'MALE' | 'FEMALE' | 'NON_BINARY' | 'OTHER';
   interests?: string[];
 };
 

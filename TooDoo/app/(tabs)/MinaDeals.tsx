@@ -5,6 +5,11 @@ import { useFocusEffect } from '@react-navigation/native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useAuth } from '@/context/auth-context';
 import ClaimedOffers, { ConfettiAnimation, type ClaimedOfferItem } from '@/components/ui/claimdeOffers';
+import { apiUrl } from '@/lib/api';
+import { StarrySkyScreenBackground } from '@/components/ui/starry-background';
+import { useThemePreference } from '@/context/theme-preference-context';
+import { uiTheme } from '@/lib/ui-theme';
+import { LinearGradient } from 'expo-linear-gradient';
 
 type ApiOrder = {
 	id?: string;
@@ -120,7 +125,8 @@ export default function MinaDealsScreen() {
 	const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 	const router = useRouter();
 	const { isLoggedIn, token } = useAuth();
-	const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'https://toodoo-backend-ejml.onrender.com';
+	const { mode } = useThemePreference();
+	const theme = uiTheme(mode);
 	const visibleOffers = isLoggedIn ? claimedOffers : [];
 
 	useEffect(() => {
@@ -132,7 +138,7 @@ export default function MinaDealsScreen() {
 		let cancelled = false;
 		(async () => {
 			try {
-				const res = await fetch(`${apiBaseUrl}/user/me`, {
+				const res = await fetch(apiUrl('/user/me'), {
 					headers: { Authorization: `Bearer ${token}` },
 				});
 				const user = await res.json().catch(() => ({}));
@@ -145,14 +151,14 @@ export default function MinaDealsScreen() {
 		})();
 
 		return () => { cancelled = true; };
-	}, [isLoggedIn, token, apiBaseUrl]);
+	}, [isLoggedIn, token]);
 
 	const handleBarCodeScanned = useCallback(async ({ data }: { data: string }) => {
 		if (scanned) return;
 		setScanned(true);
 
 		try {
-			const res = await fetch(`${apiBaseUrl}/claim/validate`, {
+			const res = await fetch(apiUrl('/claim/validate'), {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
@@ -183,7 +189,7 @@ export default function MinaDealsScreen() {
 				{ text: 'Stäng', onPress: () => { setScanned(false); setScannerOpen(false); } },
 			]);
 		}
-	}, [scanned, apiBaseUrl, token]);
+	}, [scanned, token]);
 
 	const activeClaimCount = useMemo(() => {
 		if (!isLoggedIn) {
@@ -207,7 +213,7 @@ export default function MinaDealsScreen() {
 			setIsLoadingClaims(true);
 		}
 		try {
-			const claimsRes = await fetch(`${apiBaseUrl}/user/me/claims`, {
+			const claimsRes = await fetch(apiUrl('/user/me/claims'), {
 				headers: {
 					Authorization: `Bearer ${token}`,
 				},
@@ -326,7 +332,7 @@ export default function MinaDealsScreen() {
 		return () => {
 			cancelledRef.cancelled = true;
 		};
-	}, [isLoggedIn, token, apiBaseUrl, router]);
+	}, [isLoggedIn, token, router]);
 
 	useFocusEffect(
 		useMemo(
@@ -345,7 +351,7 @@ export default function MinaDealsScreen() {
 					clearInterval(pollTimer);
 				};
 			},
-			[isLoggedIn, token, apiBaseUrl, router]
+			[isLoggedIn, token, router]
 		)
 	);
 
@@ -357,25 +363,38 @@ export default function MinaDealsScreen() {
 	};
 
 	return (
-		<ScrollView className="flex-1 bg-[#000b2a]" contentContainerStyle={{ paddingBottom: 48 }}>
-			<View className="px-6 pt-24 min-h-full">
-				<Text className="text-3xl text-center font-semibold text-white">Mina Erbjudanden</Text>
+		<View className="flex-1" style={{ backgroundColor: theme.screenBg }}>
+			{theme.isDark ? (
+				<StarrySkyScreenBackground />
+			) : (
+				<LinearGradient
+					colors={['#f5f7ff', '#eef2ff', '#f5f7ff']}
+					start={{ x: 0, y: 0 }}
+					end={{ x: 1, y: 1 }}
+					style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+				/>
+			)}
+			<ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 48 }}>
+				<View className="px-6 pt-24 min-h-full">
+				<Text className="text-3xl text-center font-semibold" style={{ color: theme.text }}>Mina Erbjudanden</Text>
 				{/* <Text className="mt-2 text-center text-white/70">Här visas dina sparade deals.</Text> */}
 				{isLoggedIn ? (
 					<>
-						<Text className="mt-2 pt-4 text-xl text-center text-white/70">{activeClaimCount} aktiva erbjudanden</Text>
+						<Text className="mt-2 pt-4 text-xl text-center" style={{ color: theme.textMuted }}>
+							{activeClaimCount} aktiva erbjudanden
+						</Text>
 						{isLoadingClaims ? (
-							<View className="mt-4 rounded-2xl bg-[#0a1535] px-4 py-4">
-								<Text className="text-center text-white/80">Uppdaterar dina claimade erbjudanden...</Text>
+							<View className="mt-4 rounded-2xl px-4 py-4" style={{ backgroundColor: theme.cardBg }}>
+								<Text className="text-center" style={{ color: theme.textMuted }}>Uppdaterar dina claimade erbjudanden...</Text>
 							</View>
 						) : (
 							<ClaimedOffers items={visibleOffers} />
 						)}
 
 						{hasWorkerAccess ? (
-							<View className="mt-6 rounded-2xl bg-[#0a1535] px-4 py-5">
-								<Text className="text-lg font-semibold text-white">Validera kundernas QR-koder</Text>
-								<Text className="mt-1 text-sm text-white/60">Skanna eller skriv in kundens QR-kod.</Text>
+							<View className="mt-6 rounded-2xl px-4 py-5" style={{ backgroundColor: theme.cardBg }}>
+								<Text className="text-lg font-semibold" style={{ color: theme.text }}>Validera kundernas QR-koder</Text>
+								<Text className="mt-1 text-sm" style={{ color: theme.textMuted }}>Skanna eller skriv in kundens QR-kod.</Text>
 
 								{!scannerOpen ? (
 									<Pressable
@@ -414,14 +433,15 @@ export default function MinaDealsScreen() {
 								)}
 
 								<View className="mt-4 border-t border-white/10 pt-4">
-									<Text className="text-sm text-white/60">Eller skriv in koden manuellt:</Text>
+									<Text className="text-sm" style={{ color: theme.textMuted }}>Eller skriv in koden manuellt:</Text>
 									<TextInput
 										value={manualCode}
 										onChangeText={setManualCode}
 										placeholder="T.ex. 7K9D-M2Q8-TX4R"
-										placeholderTextColor="rgba(255,255,255,0.3)"
+										placeholderTextColor={theme.textFaint}
 										autoCapitalize="characters"
-										className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
+										className="mt-2 rounded-2xl border px-4 py-3"
+										style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
 									/>
 									<Pressable
 										className={`mt-2 rounded-2xl px-4 py-3 ${manualCode.trim() && !isValidating ? 'bg-[#007AFF]' : 'bg-[#007AFF]/40'}`}
@@ -431,7 +451,7 @@ export default function MinaDealsScreen() {
 											if (!code) return;
 											setIsValidating(true);
 											try {
-												const res = await fetch(`${apiBaseUrl}/claim/validate`, {
+												const res = await fetch(apiUrl('/claim/validate'), {
 													method: 'POST',
 													headers: {
 														'Content-Type': 'application/json',
@@ -538,7 +558,11 @@ export default function MinaDealsScreen() {
 						<Text className="mt-4 text-2xl font-bold text-white text-center">Gratulerar!</Text>
 						<Text className="mt-2 text-base text-white/70 text-center">Koden är inlöst</Text>
 						{celebrationTitle ? (
-							<Text className="mt-1 text-sm text-white/50 text-center">"{celebrationTitle}"</Text>
+							<Text className="mt-1 text-sm text-white/50 text-center">
+								{'\u201C'}
+								{celebrationTitle}
+								{'\u201D'}
+							</Text>
 						) : null}
 						<Pressable
 							className="mt-6 w-full rounded-2xl bg-[#34c759] px-4 py-3"
@@ -549,7 +573,8 @@ export default function MinaDealsScreen() {
 					</View>
 				</View>
 			</Modal>
-			</View>
-		</ScrollView>
+				</View>
+			</ScrollView>
+		</View>
 	);
 }
