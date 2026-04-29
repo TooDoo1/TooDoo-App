@@ -14,10 +14,9 @@ export function uiTheme(mode: ThemeMode) {
     textMuted: isDark ? 'rgba(255,255,255,0.70)' : 'rgba(0,11,42,0.65)',
     textFaint: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,11,42,0.45)',
     // Accents
-    // Matches light-mode star pink (#EBBBD0)
-    primary: '#EBBBD0',
-    // Matches light-mode star green (#BADBC2)
-    accentGreen: '#BADBC2',
+    // Light mode: match star colors. Dark mode: keep original blue/orange accents.
+    primary: isDark ? '#007AFF' : '#EBBBD0', // blue -> pink (light only)
+    accentGreen: isDark ? '#ff9b46' : '#BADBC2', // orange -> green (light only)
     danger: '#ff3b30',
   };
 }

@@ -965,7 +965,7 @@ export default function HomeScreen() {
                             className="overflow-hidden rounded-2xl border"
                             style={{
                               backgroundColor: theme.cardBg,
-                              borderColor: theme.isDark ? theme.border : 'rgba(255,255,255,0.65)',
+                              borderColor: theme.border,
                               borderWidth: 1,
                             }}
                             onPress={() => handleHotCardPress(card)}
@@ -1060,7 +1060,7 @@ export default function HomeScreen() {
                           className="overflow-hidden rounded-2xl border"
                           style={{
                             backgroundColor: theme.cardBg,
-                            borderColor: theme.isDark ? theme.border : 'rgba(255,255,255,0.65)',
+                            borderColor: theme.border,
                             borderWidth: 1,
                           }}
                           onPress={() => handleEndingSoonCardPress(card)}

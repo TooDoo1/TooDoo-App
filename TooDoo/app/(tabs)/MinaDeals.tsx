@@ -440,7 +440,7 @@ export default function MinaDealsScreen() {
 											backgroundColor:
 												manualCode.trim() && !isValidating
 													? theme.accentGreen
-													: 'rgba(186, 219, 194, 0.40)',
+													: (theme.isDark ? 'rgba(255, 155, 70, 0.40)' : 'rgba(186, 219, 194, 0.40)'),
 										}}
 										disabled={!manualCode.trim() || isValidating}
 										onPress={async () => {

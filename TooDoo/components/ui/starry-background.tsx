@@ -25,11 +25,12 @@ export function StarryBackground({ starCount = 80, variant = 'dark' }: { starCou
   const [layout, setLayout] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
 
   const stars = useMemo<Star[]>(() => {
+    const darkBlue = 'rgba(80, 170, 255, 1)';
+    const darkOrange = 'rgba(255, 155, 70, 1)';
     const lightPink = 'rgba(235, 187, 208, 0.9)'; // lighter matte pink
     const lightGreen = 'rgba(186, 219, 194, 0.9)'; // lighter matte green
-    // Global accent remap: always use pink + green stars for both modes.
-    const primary = lightPink;
-    const secondary = lightGreen;
+    const primary = variant === 'light' ? lightPink : darkBlue;
+    const secondary = variant === 'light' ? lightGreen : darkOrange;
     return Array.from({ length: starCount }, (_, i) => {
       const pickSecondary = i % 3 === 0;
       return {

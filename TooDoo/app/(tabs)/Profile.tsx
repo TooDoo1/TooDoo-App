@@ -226,7 +226,9 @@ export default function ProfileScreen() {
 											onPress={handleSave}
 											disabled={isSaving}
 											style={{
-												backgroundColor: isSaving ? 'rgba(186, 219, 194, 0.40)' : theme.accentGreen,
+												backgroundColor: isSaving
+													? (theme.isDark ? 'rgba(255, 155, 70, 0.40)' : 'rgba(186, 219, 194, 0.40)')
+													: theme.accentGreen,
 											}}
 										>
 											<Text className="text-center font-medium text-white">
