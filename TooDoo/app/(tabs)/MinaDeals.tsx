@@ -9,7 +9,6 @@ import { apiUrl } from '@/lib/api';
 import { StarrySkyScreenBackground } from '@/components/ui/starry-background';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { uiTheme } from '@/lib/ui-theme';
-import { LinearGradient } from 'expo-linear-gradient';
 
 type ApiOrder = {
 	id?: string;
@@ -364,17 +363,8 @@ export default function MinaDealsScreen() {
 
 	return (
 		<View className="flex-1" style={{ backgroundColor: theme.screenBg }}>
-			{theme.isDark ? (
-				<StarrySkyScreenBackground />
-			) : (
-				<LinearGradient
-					colors={['#f5f7ff', '#eef2ff', '#f5f7ff']}
-					start={{ x: 0, y: 0 }}
-					end={{ x: 1, y: 1 }}
-					style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-				/>
-			)}
-			<ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 48 }}>
+			<StarrySkyScreenBackground variant={theme.isDark ? 'dark' : 'light'} />
+			<ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 160 }}>
 				<View className="px-6 pt-24 min-h-full">
 				<Text className="text-3xl text-center font-semibold" style={{ color: theme.text }}>Mina Erbjudanden</Text>
 				{/* <Text className="mt-2 text-center text-white/70">Här visas dina sparade deals.</Text> */}
@@ -388,7 +378,7 @@ export default function MinaDealsScreen() {
 								<Text className="text-center" style={{ color: theme.textMuted }}>Uppdaterar dina claimade erbjudanden...</Text>
 							</View>
 						) : (
-							<ClaimedOffers items={visibleOffers} />
+							<ClaimedOffers items={visibleOffers} scrollEnabled={false} />
 						)}
 
 						{hasWorkerAccess ? (
@@ -398,7 +388,8 @@ export default function MinaDealsScreen() {
 
 								{!scannerOpen ? (
 									<Pressable
-										className="mt-4 rounded-2xl bg-[#007AFF] px-4 py-3"
+										className="mt-4 rounded-2xl px-4 py-3"
+										style={{ backgroundColor: theme.accentGreen }}
 										onPress={async () => {
 											if (!cameraPermission?.granted) {
 												const result = await requestCameraPermission();
@@ -444,7 +435,13 @@ export default function MinaDealsScreen() {
 										style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
 									/>
 									<Pressable
-										className={`mt-2 rounded-2xl px-4 py-3 ${manualCode.trim() && !isValidating ? 'bg-[#007AFF]' : 'bg-[#007AFF]/40'}`}
+										className="mt-2 rounded-2xl px-4 py-3"
+										style={{
+											backgroundColor:
+												manualCode.trim() && !isValidating
+													? theme.accentGreen
+													: 'rgba(186, 219, 194, 0.40)',
+										}}
 										disabled={!manualCode.trim() || isValidating}
 										onPress={async () => {
 											const code = manualCode.trim();
@@ -488,7 +485,7 @@ export default function MinaDealsScreen() {
 					</>
 				) : (
 					<View className="mt-8 px-4">
-						<Text className="mb-4 text-center text-white/70">Logga in för att se dina claimade erbjudanden.</Text>
+						<Text className="mb-4 text-center" style={{ color: theme.textMuted }}>Logga in för att se dina claimade erbjudanden.</Text>
 						<Pressable onPress={() => setIsLoginOpen(true)} className="rounded-xl bg-[#ff3b30] px-4 py-3">
 							<Text className="text-center font-semibold text-white">Logga in för att säkra erbjudanden!</Text>
 						</Pressable>
@@ -496,30 +493,34 @@ export default function MinaDealsScreen() {
 				)}
 
 			<Modal visible={isLoginOpen} transparent animationType="slide" onRequestClose={() => setIsLoginOpen(false)}>
-				<View className="flex-1 justify-end bg-black/70">
+				<View
+					className="flex-1 justify-end"
+					style={{ backgroundColor: theme.isDark ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.25)' }}
+				>
 					<Pressable className="flex-1" onPress={() => setIsLoginOpen(false)} />
-					<View className="rounded-t-3xl bg-[#0a1535] px-6 pb-9 pt-6">
+					<View className="rounded-t-3xl px-6 pb-9 pt-6" style={{ backgroundColor: theme.cardBg }}>
 						<View className="mb-4 h-1 w-10 self-center rounded-full bg-white/30" />
-						<Text className="text-2xl font-semibold text-white">Välkommen!</Text>
-						<Text className="mb-5 mt-1 text-sm text-white/50">Logga in för att se dina deals och favoriter</Text>
+						<Text className="text-2xl font-semibold" style={{ color: theme.text }}>Välkommen!</Text>
+						<Text className="mb-5 mt-1 text-sm" style={{ color: theme.textFaint }}>Logga in för att se dina deals och favoriter</Text>
 
-						<Pressable className="mb-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3" onPress={() => socialLogin('Google')}>
-							<Text className="text-center font-medium text-white">Fortsätt med Google</Text>
+						<Pressable className="mb-2 rounded-2xl border px-4 py-3" style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted }} onPress={() => socialLogin('Google')}>
+							<Text className="text-center font-medium" style={{ color: theme.text }}>Fortsätt med Google</Text>
 						</Pressable>
 
 						{/* <Pressable className="mb-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3" onPress={() => socialLogin('Facebook')}>
 							<Text className="text-center font-medium text-white">Fortsätt med Facebook</Text>
 						</Pressable> */}
 
-						<Pressable className="mb-4 rounded-2xl border border-white/20 bg-white/10 px-4 py-3" onPress={() => socialLogin('Apple')}>
-							<Text className="text-center font-medium text-white">Fortsätt med Apple</Text>
+						<Pressable className="mb-4 rounded-2xl border px-4 py-3" style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted }} onPress={() => socialLogin('Apple')}>
+							<Text className="text-center font-medium" style={{ color: theme.text }}>Fortsätt med Apple</Text>
 						</Pressable>
 
 						<TextInput
 							placeholder="Din e-postadress"
-							placeholderTextColor="rgba(255,255,255,0.45)"
+							placeholderTextColor={theme.textFaint}
 							keyboardType="email-address"
-							className="mb-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
+							className="mb-2 rounded-2xl border px-4 py-3"
+							style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
 						/>
 
 						<Pressable className="mb-4 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={() => Alert.alert('E-post', 'Fortsätt med e-post')}>
@@ -527,7 +528,7 @@ export default function MinaDealsScreen() {
 						</Pressable>
 
 						<View className="mb-4 flex-row justify-center">
-							<Text className="text-white/70 text-md">Har du inget konto? </Text>
+							<Text className="text-md" style={{ color: theme.textMuted }}>Har du inget konto? </Text>
 							<Pressable
 								onPress={() => {
 									setIsLoginOpen(false);
@@ -538,7 +539,7 @@ export default function MinaDealsScreen() {
 							</Pressable>
 						</View>
 
-						<Text className="text-center text-xs leading-5 text-white/50">
+						<Text className="text-center text-xs leading-5" style={{ color: theme.textFaint }}>
 							Genom att logga in godkänner du våra användarvillkor och integritetspolicy.
 						</Text>
 					</View>
@@ -551,14 +552,17 @@ export default function MinaDealsScreen() {
 				animationType="fade"
 				onRequestClose={() => setShowCelebration(false)}
 			>
-				<View className="flex-1 bg-black/80 items-center justify-center p-6">
+				<View
+					className="flex-1 items-center justify-center p-6"
+					style={{ backgroundColor: theme.isDark ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.30)' }}
+				>
 					<ConfettiAnimation onDone={() => {}} />
-					<View className="bg-[#0a1535] rounded-3xl p-8 max-w-sm w-full items-center">
+					<View className="rounded-3xl p-8 max-w-sm w-full items-center" style={{ backgroundColor: theme.cardBg }}>
 						<Text style={{ fontSize: 56 }}>🎉</Text>
-						<Text className="mt-4 text-2xl font-bold text-white text-center">Gratulerar!</Text>
-						<Text className="mt-2 text-base text-white/70 text-center">Koden är inlöst</Text>
+						<Text className="mt-4 text-2xl font-bold text-center" style={{ color: theme.text }}>Gratulerar!</Text>
+						<Text className="mt-2 text-base text-center" style={{ color: theme.textMuted }}>Koden är inlöst</Text>
 						{celebrationTitle ? (
-							<Text className="mt-1 text-sm text-white/50 text-center">
+							<Text className="mt-1 text-sm text-center" style={{ color: theme.textFaint }}>
 								{'\u201C'}
 								{celebrationTitle}
 								{'\u201D'}

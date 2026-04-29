@@ -61,14 +61,14 @@ export default function TabLayout() {
         name="MinaDeals"
         options={{
           title: 'Mina Erbjudanden',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="ticket.fill" color={color} />,
         }}
       />
       <Tabs.Screen
         name="Loggain"
         options={{
           title: 'Logga In',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.fill" color={color} />,
           href: isLoggedIn ? null : undefined,
         }}
       />

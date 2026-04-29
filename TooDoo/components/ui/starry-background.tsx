@@ -13,31 +13,36 @@ type Star = {
   twinkleMs: number;
 };
 
+type StarryVariant = 'dark' | 'light';
+
 const buildSparklePath = (size: number) => {
   const outer = size / 2;
   const inner = size / 7;
   return `M 0,-${outer} L ${inner},-${inner} L ${outer},0 L ${inner},${inner} L 0,${outer} L -${inner},${inner} L -${outer},0 L -${inner},-${inner} Z`;
 };
 
-export function StarryBackground({ starCount = 80 }: { starCount?: number }) {
+export function StarryBackground({ starCount = 80, variant = 'dark' }: { starCount?: number; variant?: StarryVariant }) {
   const [layout, setLayout] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
 
   const stars = useMemo<Star[]>(() => {
-    const blue = 'rgba(80, 170, 255, 1)';
-    const orange = 'rgba(255, 155, 70, 1)';
+    const lightPink = 'rgba(235, 187, 208, 0.9)'; // lighter matte pink
+    const lightGreen = 'rgba(186, 219, 194, 0.9)'; // lighter matte green
+    // Global accent remap: always use pink + green stars for both modes.
+    const primary = lightPink;
+    const secondary = lightGreen;
     return Array.from({ length: starCount }, (_, i) => {
-      const isOrange = i % 3 === 0;
+      const pickSecondary = i % 3 === 0;
       return {
         id: `star-${i}`,
         x: Math.random(),
         y: Math.random(),
         size: 4 + Math.random() * 6,
-        color: isOrange ? orange : blue,
+        color: pickSecondary ? secondary : primary,
         baseOpacity: 0.12 + Math.random() * 0.25,
         twinkleMs: 1200 + Math.floor(Math.random() * 2200),
       };
     });
-  }, [starCount]);
+  }, [starCount, variant]);
 
   const opacities = useRef(stars.map(() => new Animated.Value(0))).current;
 
@@ -103,16 +108,21 @@ export function StarryBackground({ starCount = 80 }: { starCount?: number }) {
   );
 }
 
-export function StarrySkyScreenBackground() {
+export function StarrySkyScreenBackground({ variant = 'dark' }: { variant?: StarryVariant }) {
+  const gradientColors =
+    variant === 'light'
+      ? ['#f9fbff', '#eef4ff', '#f7faff']
+      : ['#000b2a', '#061a47', '#000b2a'];
+
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <LinearGradient
-        colors={['#000b2a', '#061a47', '#000b2a']}
+        colors={gradientColors}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
-      <StarryBackground starCount={80} />
+      <StarryBackground starCount={80} variant={variant} />
     </View>
   );
 }

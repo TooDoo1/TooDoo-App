@@ -20,6 +20,8 @@ import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import { Image as ExpoImage } from "expo-image";
 import { useAuth } from "@/context/auth-context";
 import { apiUrl } from "@/lib/api";
+import { useThemePreference } from "@/context/theme-preference-context";
+import { uiTheme } from "@/lib/ui-theme";
 
 const skanetrafikenLogo = require("../../assets/images/Skanetrafiken.png");
 const voiLogo = require("../../assets/images/Voi.png");
@@ -32,6 +34,8 @@ const localImagesById: Record<string, ImageSourcePropType> = {
 export default function ErbjudandenScreen() {
   const router = useRouter();
   const { isLoggedIn, token } = useAuth();
+  const { mode } = useThemePreference();
+  const theme = uiTheme(mode);
   const [isClaiming, setIsClaiming] = useState(false);
   const [claimedOrderIds, setClaimedOrderIds] = useState<Set<string>>(new Set());
   const [geocodedCoordinate, setGeocodedCoordinate] = useState<{ latitude: number; longitude: number; addressText?: string }>();
@@ -624,7 +628,8 @@ export default function ErbjudandenScreen() {
 
   return (
     <ScrollView
-      className="flex-1 bg-[#000b2a]"
+      className="flex-1"
+      style={{ backgroundColor: theme.screenBg }}
       contentContainerStyle={{ paddingBottom: 140 }}
       keyboardShouldPersistTaps="handled"
     >
@@ -632,7 +637,7 @@ export default function ErbjudandenScreen() {
         <View className="relative h-72 w-full overflow-hidden rounded-xl">
           <Image source={imageSource} className="h-full w-full" />
           <LinearGradient
-            colors={["rgba(0, 11, 42, 0)", "#000b2a"]}
+            colors={mode === "dark" ? ["rgba(0, 11, 42, 0)", "#000b2a"] : ["rgba(245, 247, 255, 0)", "#f5f7ff"]}
             start={{ x: 0, y: 0 }}
             end={{ x: 0, y: 1 }}
             style={{
@@ -646,7 +651,7 @@ export default function ErbjudandenScreen() {
         </View>
       ) : null}
       {title ? (
-      <Text className="text-3xl font-semibold text-white px-6 mt-4">
+      <Text className="text-3xl font-semibold px-6 mt-4" style={{ color: theme.text }}>
         {title}
       </Text>) : null}
 
@@ -670,7 +675,7 @@ export default function ErbjudandenScreen() {
       {dealFlag === "1" && offers.length > 0 ? (
         <View className="mt-2">
           {offers.length > 1 ? (
-            <Text className="mb-2 px-6 text-sm text-white/70">Svep sidledes för fler erbjudanden</Text>
+            <Text className="mb-2 px-6 text-sm" style={{ color: theme.textMuted }}>Svep sidledes för fler erbjudanden</Text>
           ) : null}
 
           <ScrollView
@@ -693,9 +698,9 @@ export default function ErbjudandenScreen() {
                       : "Claima";
 
                 return (
-              <View key={offer.id} className="mr-3 w-[320px] rounded-2xl bg-[#0a1535] p-4">
+              <View key={offer.id} className="mr-3 w-[320px] rounded-2xl p-4" style={{ backgroundColor: theme.cardBg }}>
                 <View className="flex-row gap-3">
-                  <View className="relative h-28 w-28 overflow-hidden rounded-xl bg-[#12214d]">
+                  <View className="relative h-28 w-28 overflow-hidden rounded-xl" style={{ backgroundColor: theme.cardBgMuted }}>
                     {imageSource ? <Image source={imageSource} className="h-full w-full" /> : null}
                     <LinearGradient
                       colors={["rgba(0, 11, 42, 0)", "rgba(0, 11, 42, 0.9)"]}
@@ -709,23 +714,29 @@ export default function ErbjudandenScreen() {
                         height: 40,
                       }}
                     />
-                    <View className="absolute bottom-1 left-2 rounded-full border border-white/15 bg-black/60 px-2 py-1">
-                      <Text className="text-[10px] font-medium text-white">
+                    <View
+                      className="absolute bottom-1 left-2 rounded-full border px-2 py-1"
+                      style={{
+                        backgroundColor: theme.isDark ? "rgba(0,0,0,0.6)" : "rgba(10, 21, 53, 0.06)",
+                        borderColor: theme.isDark ? "rgba(255,255,255,0.15)" : theme.border,
+                      }}
+                    >
+                      <Text className="text-[10px] font-medium" style={{ color: theme.text }}>
                         {offer.endDate ? formatRemaining(offer.timeLeftMs) : "--:--:--"}
                       </Text>
                     </View>
                   </View>
 
                   <View className="flex-1 justify-center">
-                    <Text className="text-white/80">{offer.text ?? "-"}</Text>
+                    <Text style={{ color: theme.textMuted }}>{offer.text ?? "-"}</Text>
                     <View className="mt-1 flex-row items-center gap-2">
-                      <Text className="font-medium text-white">{offer.priceText ? `${offer.priceText} kr` : "-"}</Text>
+                      <Text className="font-medium" style={{ color: theme.text }}>{offer.priceText ? `${offer.priceText} kr` : "-"}</Text>
                       {offer.originalPriceText ? (
                         <Text className="text-blue-300 line-through">{offer.originalPriceText} kr</Text>
                       ) : null}
                     </View>
-                    <Text className="mt-1 text-white/80">Claimade: {offer.claimedCount} / {offer.totalCount || "-"}</Text>
-                    <View className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/20">
+                    <Text className="mt-1" style={{ color: theme.textMuted }}>Claimade: {offer.claimedCount} / {offer.totalCount || "-"}</Text>
+                    <View className="mt-2 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: theme.cardBgMuted }}>
                       <View
                         className="h-full rounded-full bg-[#ff3b30]"
                         style={{ width: `${offer.progressPercent}%` }}
@@ -761,26 +772,49 @@ export default function ErbjudandenScreen() {
       ) : null}
 
       <Modal visible={isLoginOpen} transparent animationType="slide" onRequestClose={() => setIsLoginOpen(false)}>
-        <View className="flex-1 justify-end bg-black/70">
+        <View
+          className="flex-1 justify-end"
+          style={{ backgroundColor: theme.isDark ? "rgba(0,0,0,0.7)" : "rgba(0,0,0,0.25)" }}
+        >
           <Pressable className="flex-1" onPress={() => setIsLoginOpen(false)} />
-          <View className="rounded-t-3xl bg-[#0a1535] px-6 pb-9 pt-6">
-            <View className="mb-4 h-1 w-10 self-center rounded-full bg-white/30" />
-            <Text className="text-2xl font-semibold text-white">Välkommen!</Text>
-            <Text className="mb-5 mt-1 text-sm text-white/50">Logga in för att se dina deals och favoriter</Text>
+          <View className="rounded-t-3xl px-6 pb-9 pt-6" style={{ backgroundColor: theme.cardBg }}>
+            <View
+              className="mb-4 h-1 w-10 self-center rounded-full"
+              style={{ backgroundColor: theme.isDark ? "rgba(255,255,255,0.30)" : "rgba(0,11,42,0.10)" }}
+            />
+            <Text className="text-2xl font-semibold" style={{ color: theme.text }}>
+              Välkommen!
+            </Text>
+            <Text className="mb-5 mt-1 text-sm" style={{ color: theme.textFaint }}>
+              Logga in för att se dina deals och favoriter
+            </Text>
 
-            <Pressable className="mb-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3" onPress={() => socialLogin('Google')}>
-              <Text className="text-center font-medium text-white">Fortsätt med Google</Text>
+            <Pressable
+              className="mb-2 rounded-2xl border px-4 py-3"
+              style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted }}
+              onPress={() => socialLogin('Google')}
+            >
+              <Text className="text-center font-medium" style={{ color: theme.text }}>
+                Fortsätt med Google
+              </Text>
             </Pressable>
 
-            <Pressable className="mb-4 rounded-2xl border border-white/20 bg-white/10 px-4 py-3" onPress={() => socialLogin('Apple')}>
-              <Text className="text-center font-medium text-white">Fortsätt med Apple</Text>
+            <Pressable
+              className="mb-4 rounded-2xl border px-4 py-3"
+              style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted }}
+              onPress={() => socialLogin('Apple')}
+            >
+              <Text className="text-center font-medium" style={{ color: theme.text }}>
+                Fortsätt med Apple
+              </Text>
             </Pressable>
 
             <TextInput
               placeholder="Din e-postadress"
-              placeholderTextColor="rgba(255,255,255,0.45)"
+              placeholderTextColor={theme.textFaint}
               keyboardType="email-address"
-              className="mb-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
+              className="mb-2 rounded-2xl border px-4 py-3"
+              style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
             />
 
             <Pressable className="mb-4 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={() => Alert.alert('E-post', 'Fortsätt med e-post')}>
@@ -788,7 +822,9 @@ export default function ErbjudandenScreen() {
             </Pressable>
 
             <View className="mb-4 flex-row justify-center">
-              <Text className="text-white/70 text-md">Har du inget konto? </Text>
+              <Text className="text-md" style={{ color: theme.textFaint }}>
+                Har du inget konto?{" "}
+              </Text>
               <Pressable
                 onPress={() => {
                   const returnParams = JSON.stringify({
@@ -823,7 +859,7 @@ export default function ErbjudandenScreen() {
               </Pressable>
             </View>
 
-            <Text className="text-center text-xs leading-5 text-white/50">
+            <Text className="text-center text-xs leading-5" style={{ color: theme.textFaint }}>
               Genom att logga in godkänner du våra användarvillkor och integritetspolicy.
             </Text>
           </View>
@@ -836,46 +872,62 @@ export default function ErbjudandenScreen() {
         animationType="fade"
         onRequestClose={() => setClaimSuccess(null)}
       >
-        <View className="flex-1 items-center justify-center bg-black/70 px-6">
+        <View
+          className="flex-1 items-center justify-center px-6"
+          style={{ backgroundColor: theme.isDark ? "rgba(0,0,0,0.7)" : "rgba(0,0,0,0.25)" }}
+        >
           <Pressable className="absolute inset-0" onPress={() => setClaimSuccess(null)} />
-          <View className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0a1535] p-6">
-            <Text className="text-2xl font-semibold text-white text-center">Claimat!</Text>
-            <Text className="mt-2 text-center text-white/70">
+          <View
+            className="w-full max-w-md rounded-3xl border p-6"
+            style={{ backgroundColor: theme.cardBg, borderColor: theme.border }}
+          >
+            <Text className="text-2xl font-semibold text-center" style={{ color: theme.text }}>
+              Claimat!
+            </Text>
+            <Text className="mt-2 text-center" style={{ color: theme.textMuted }}>
               {claimSuccess?.title ?? 'Erbjudandet är claimat.'}
             </Text>
 
-            <View className="mt-5 rounded-2xl border border-white/15 bg-white/5 px-4 py-4">
-              <Text className="text-sm text-white/60">Din kod</Text>
-              <Text selectable className="mt-2 text-lg font-semibold text-white">
+            <View
+              className="mt-5 rounded-2xl border px-4 py-4"
+              style={{ backgroundColor: theme.cardBgMuted, borderColor: theme.border }}
+            >
+              <Text className="text-sm" style={{ color: theme.textFaint }}>
+                Din kod
+              </Text>
+              <Text selectable className="mt-2 text-lg font-semibold" style={{ color: theme.text }}>
                 {claimSuccess?.qrCode ?? '-'}
               </Text>
-              <Text className="mt-2 text-xs text-white/50">
+              <Text className="mt-2 text-xs" style={{ color: theme.textFaint }}>
                 Visa koden i kassan eller på plats för att lösa in erbjudandet.
               </Text>
             </View>
 
             <Pressable
-              className="mt-5 rounded-2xl bg-[#007AFF] px-4 py-3"
+              className="mt-5 rounded-2xl px-4 py-3"
+              style={{ backgroundColor: theme.primary }}
               onPress={() => setClaimSuccess(null)}
             >
-              <Text className="text-center font-medium text-[#061A47]">Stäng</Text>
+              <Text className="text-center font-medium" style={{ color: theme.isDark ? '#ffffff' : '#061A47' }}>
+                Stäng
+              </Text>
             </Pressable>
           </View>
         </View>
       </Modal>
 
       {title ? (
-        <View className=" mt-6 overflow-hidden rounded-2xl bg-[#0a1535] p-4 mx-6">
-          <Text className=" text-xl font-semibold text-white">Om oss:</Text>
+        <View className=" mt-6 overflow-hidden rounded-2xl p-4 mx-6" style={{ backgroundColor: theme.cardBg }}>
+          <Text className=" text-xl font-semibold" style={{ color: theme.text }}>Om oss:</Text>
           {långbeskrivning ? (
-            <Text className="mt-2 text-white/70">{långbeskrivning}</Text>
+            <Text className="mt-2" style={{ color: theme.textMuted }}>{långbeskrivning}</Text>
           ) : null}
 
           {addressText ? (
-            <Text className=" mt-6 text-white ">Adress: {addressText}</Text>
+            <Text className=" mt-6" style={{ color: theme.text }}>Adress: {addressText}</Text>
           ) : null}
           {phoneText && phoneUrl ? (
-            <Text className=" mt-2 text-white ">
+            <Text className=" mt-2" style={{ color: theme.text }}>
               Telefon:{" "}
               <Text
                 className="text-blue-400 underline"
@@ -887,15 +939,15 @@ export default function ErbjudandenScreen() {
           ) : null}
         </View>
       ) : (
-        <Text className="mt-4 text-white/70">
+        <Text className="mt-4" style={{ color: theme.textMuted }}>
           Välj ett kort från startsidan för att se detaljer här.
         </Text>
       )}
 
       {addressText && mapCoordinate && mapCoordinate.addressText === addressText ? (
         <View className="mt-6 mx-6 mb-2">
-          <Text className="mb-2 text-white text-xl font-medium ml-4">Karta:</Text>
-          <View className="overflow-hidden rounded-2xl border border-white/10">
+          <Text className="mb-2 text-xl font-medium ml-4" style={{ color: theme.text }}>Karta:</Text>
+          <View className="overflow-hidden rounded-2xl border" style={{ borderColor: theme.border }}>
             <MapView
               key={mapResetKey}
               provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
@@ -915,7 +967,7 @@ export default function ErbjudandenScreen() {
             </MapView>
           </View>
 
-          <Text className="mt-5 mb-2 text-white text-xl font-medium ml-4">Ta dig hit:</Text>
+          <Text className="mt-5 mb-2 text-xl font-medium ml-4" style={{ color: theme.text }}>Ta dig hit:</Text>
           <View className="flex-row items-center justify-between">
             <Pressable
               className="rounded-3xl overflow-hidden"

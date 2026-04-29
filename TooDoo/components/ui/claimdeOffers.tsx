@@ -1,6 +1,8 @@
 import { Animated, Dimensions, Image, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import QRCodeSVG from 'react-native-qrcode-svg';
+import { useThemePreference } from '@/context/theme-preference-context';
+import { uiTheme } from '@/lib/ui-theme';
 
 export type ClaimedOfferItem = {
 	id: string;
@@ -19,10 +21,18 @@ export type ClaimedOfferItem = {
 
 type Props = {
 	items: ClaimedOfferItem[];
+	/**
+	 * When this component is rendered inside another scroll container,
+	 * we can disable its own scroll so the parent handles gestures.
+	 */
+	scrollEnabled?: boolean;
 };
 
 const CONFETTI_COUNT = 40;
-const CONFETTI_COLORS = ['#ff3b30', '#007AFF', '#34c759', '#ffcc00', '#af52de', '#ff9500', '#00c7be'];
+// Global accent remap:
+// - "blue" -> star pink
+// - "orange/yellow" -> star green
+const CONFETTI_COLORS = ['#ff3b30', '#EBBBD0', '#BADBC2', '#BADBC2', '#af52de', '#BADBC2', '#BADBC2'];
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export function ConfettiAnimation({ onDone }: { onDone: () => void }) {
@@ -95,7 +105,9 @@ export function ConfettiAnimation({ onDone }: { onDone: () => void }) {
 	);
 }
 
-export default function ClaimedOffers({ items }: Props) {
+export default function ClaimedOffers({ items, scrollEnabled = true }: Props) {
+	const { mode } = useThemePreference();
+	const theme = uiTheme(mode);
 	const [selectedItem, setSelectedItem] = useState<ClaimedOfferItem | null>(null);
 	const [modalVisible, setModalVisible] = useState(false);
 	const [nowMs, setNowMs] = useState(Date.now());
@@ -140,83 +152,199 @@ export default function ClaimedOffers({ items }: Props) {
 
 	if (activeItems.length === 0) {
 		return (
-			<View className="mt-6 rounded-2xl bg-[#0a1535] px-4 py-5">
-				<Text className="text-center text-white/70">Du har inga aktiva erbjudanden just nu.</Text>
+			<View className="mt-6 rounded-2xl px-4 py-5" style={{ backgroundColor: theme.cardBg }}>
+				<Text className="text-center" style={{ color: theme.textMuted }}>
+					Du har inga aktiva erbjudanden just nu.
+				</Text>
 			</View>
 		);
 	}
 
 	return (
 		<>
-			<ScrollView className="mt-6" contentContainerStyle={{ gap: 12, paddingBottom: 24 }}>
-				{activeItems.map((item) => (
-					<Pressable
-						key={item.id}
-						className="rounded-2xl bg-[#0a1535] px-4 py-4"
-						onPress={() => handleItemPress(item)}
-					>
-						<View className="flex-row items-start gap-3">
-							<View className="relative h-28 w-28 overflow-hidden rounded-xl mt-1 bg-[#12214d] items-center justify-center">
-								{item.code ? (
-									<View className="h-full w-full items-center justify-center bg-white p-1">
-										<QRCodeSVG
-											value={item.code}
-											size={100}
-											color="#000000"
-											backgroundColor="#ffffff"
+			{scrollEnabled ? (
+				<ScrollView className="mt-6" contentContainerStyle={{ paddingBottom: 24 }}>
+					{activeItems.map((item, idx) => (
+						<Pressable
+							key={item.id}
+							className="rounded-2xl px-4 py-4"
+							style={{
+								backgroundColor: theme.cardBg,
+								marginBottom: idx === activeItems.length - 1 ? 0 : 12,
+							}}
+							onPress={() => handleItemPress(item)}
+						>
+							<View className="flex-row items-start gap-3">
+								<View
+									className="relative h-28 w-28 overflow-hidden rounded-xl mt-1 items-center justify-center"
+									style={{ backgroundColor: theme.cardBgMuted }}
+								>
+									{item.code ? (
+										<View className="h-full w-full items-center justify-center bg-white p-1">
+											<QRCodeSVG
+												value={item.code}
+												size={100}
+												color="#000000"
+												backgroundColor="#ffffff"
+											/>
+										</View>
+									) : (
+										<Image
+											source={{ uri: item.imageUri ?? `https://picsum.photos/seed/${encodeURIComponent(item.id)}/240/240` }}
+											className="h-full w-full"
+											resizeMode="cover"
 										/>
-									</View>
-								) : (
-									<Image
-										source={{ uri: item.imageUri ?? `https://picsum.photos/seed/${encodeURIComponent(item.id)}/240/240` }}
-										className="h-full w-full"
-										resizeMode="cover"
-									/>
-								)}
-							</View>
+									)}
+								</View>
 
-							<View className="flex-1 min-w-0">
-								<View className="flex-row items-start justify-between gap-3">
-									<View className="flex-1 min-w-0">
-										{getShortDescription(item.descriptionText) ? (
-												<Text className="text-lg font-semibold text-white" numberOfLines={2}>
-												{getShortDescription(item.descriptionText)}
-											</Text>
-										) : null}
-											<Text className="mt-1 text-white/70" numberOfLines={1}>
+								<View className="flex-1 min-w-0">
+									<View className="flex-row items-start justify-between gap-3">
+										<View className="flex-1 min-w-0">
+											{getShortDescription(item.descriptionText) ? (
+												<Text className="text-lg font-semibold" style={{ color: theme.text }} numberOfLines={2}>
+													{getShortDescription(item.descriptionText)}
+												</Text>
+											) : null}
+											<Text className="mt-1" style={{ color: theme.textMuted }} numberOfLines={1}>
 												{item.title}
 											</Text>
+										</View>
+										<View className="w-24 items-end">
+											{item.expiresAt ? (
+												(() => {
+													const expiresAtMs = new Date(item.expiresAt as string).getTime();
+													if (!Number.isFinite(expiresAtMs)) return null;
+													const remainingMs = expiresAtMs - nowMs;
+													return (
+														<View
+															className="mb-1 rounded-full border px-2 py-1"
+															style={{
+																backgroundColor: theme.isDark ? 'rgba(0,0,0,0.7)' : 'rgba(10,21,53,0.06)',
+																borderColor: theme.isDark ? 'rgba(255,255,255,0.20)' : theme.border,
+															}}
+														>
+															<Text className="text-[10px] font-medium" style={{ color: theme.text }}>
+																{formatRemaining(remainingMs)}
+															</Text>
+														</View>
+													);
+												})()
+											) : null}
+											<Text className="text-xs text-right" style={{ color: theme.textFaint }}>
+												{item.statusText ?? 'Claimad'}
+											</Text>
+										</View>
 									</View>
-									<View className="w-24 items-end">
-										{item.expiresAt ? (
-											(() => {
-												const expiresAtMs = new Date(item.expiresAt as string).getTime();
-												if (!Number.isFinite(expiresAtMs)) return null;
-												const remainingMs = expiresAtMs - nowMs;
-												return (
-													<View className="mb-1 rounded-full border border-white/20 bg-black/70 px-2 py-1">
-														<Text className="text-[10px] font-medium text-white">{formatRemaining(remainingMs)}</Text>
-													</View>
-												);
-											})()
+									<View className="mt-3 flex-row items-center gap-2">
+										<Text style={{ color: theme.text }}>{item.priceText ?? '-'}</Text>
+										{item.originalPriceText ? (
+											<Text style={{ color: '#8cc7ff' }} className="line-through">
+												{item.originalPriceText}
+											</Text>
 										) : null}
-										<Text className="text-xs text-white/60 text-right">{item.statusText ?? 'Claimad'}</Text>
 									</View>
-								</View>
-								<View className="mt-3 flex-row items-center gap-2">
-									<Text className="text-white/90">{item.priceText ?? '-'}</Text>
-									{item.originalPriceText ? (
-										<Text className="text-blue-300 line-through">{item.originalPriceText}</Text>
+									{item.claimedAtText ? (
+										<Text className="mt-2 text-xs" style={{ color: theme.textFaint }}>
+											Claimad: {item.claimedAtText}
+										</Text>
 									) : null}
 								</View>
-								{item.claimedAtText ? (
-									<Text className="mt-2 text-xs text-white/50">Claimad: {item.claimedAtText}</Text>
-								) : null}
 							</View>
-						</View>
-					</Pressable>
-				))}
-			</ScrollView>
+						</Pressable>
+					))}
+				</ScrollView>
+			) : (
+				<View className="mt-6" style={{ paddingBottom: 24 }}>
+					{activeItems.map((item, idx) => (
+						<Pressable
+							key={item.id}
+							className="rounded-2xl px-4 py-4"
+							style={{
+								backgroundColor: theme.cardBg,
+								marginBottom: idx === activeItems.length - 1 ? 0 : 12,
+							}}
+							onPress={() => handleItemPress(item)}
+						>
+							<View className="flex-row items-start gap-3">
+								<View
+									className="relative h-28 w-28 overflow-hidden rounded-xl mt-1 items-center justify-center"
+									style={{ backgroundColor: theme.cardBgMuted }}
+								>
+									{item.code ? (
+										<View className="h-full w-full items-center justify-center bg-white p-1">
+											<QRCodeSVG
+												value={item.code}
+												size={100}
+												color="#000000"
+												backgroundColor="#ffffff"
+											/>
+										</View>
+									) : (
+										<Image
+											source={{ uri: item.imageUri ?? `https://picsum.photos/seed/${encodeURIComponent(item.id)}/240/240` }}
+											className="h-full w-full"
+											resizeMode="cover"
+										/>
+									)}
+								</View>
+
+								<View className="flex-1 min-w-0">
+									<View className="flex-row items-start justify-between gap-3">
+										<View className="flex-1 min-w-0">
+											{getShortDescription(item.descriptionText) ? (
+												<Text className="text-lg font-semibold" style={{ color: theme.text }} numberOfLines={2}>
+													{getShortDescription(item.descriptionText)}
+												</Text>
+											) : null}
+											<Text className="mt-1" style={{ color: theme.textMuted }} numberOfLines={1}>
+												{item.title}
+											</Text>
+										</View>
+										<View className="w-24 items-end">
+											{item.expiresAt ? (
+												(() => {
+													const expiresAtMs = new Date(item.expiresAt as string).getTime();
+													if (!Number.isFinite(expiresAtMs)) return null;
+													const remainingMs = expiresAtMs - nowMs;
+													return (
+														<View
+															className="mb-1 rounded-full border px-2 py-1"
+															style={{
+																backgroundColor: theme.isDark ? 'rgba(0,0,0,0.7)' : 'rgba(10,21,53,0.06)',
+																borderColor: theme.isDark ? 'rgba(255,255,255,0.20)' : theme.border,
+															}}
+														>
+															<Text className="text-[10px] font-medium" style={{ color: theme.text }}>
+																{formatRemaining(remainingMs)}
+															</Text>
+														</View>
+													);
+												})()
+											) : null}
+											<Text className="text-xs text-right" style={{ color: theme.textFaint }}>
+												{item.statusText ?? 'Claimad'}
+											</Text>
+										</View>
+									</View>
+									<View className="mt-3 flex-row items-center gap-2">
+										<Text style={{ color: theme.text }}>{item.priceText ?? '-'}</Text>
+										{item.originalPriceText ? (
+											<Text style={{ color: '#8cc7ff' }} className="line-through">
+												{item.originalPriceText}
+											</Text>
+										) : null}
+									</View>
+									{item.claimedAtText ? (
+										<Text className="mt-2 text-xs" style={{ color: theme.textFaint }}>
+											Claimad: {item.claimedAtText}
+										</Text>
+									) : null}
+								</View>
+							</View>
+						</Pressable>
+					))}
+				</View>
+			)}
 
 			<Modal
 				visible={modalVisible}
@@ -224,12 +352,18 @@ export default function ClaimedOffers({ items }: Props) {
 				animationType="fade"
 				onRequestClose={() => setModalVisible(false)}
 			>
-				<View className="flex-1 bg-black/80 items-center justify-center p-4">
-					<View className="bg-[#0a1535] rounded-2xl p-6 max-w-sm w-full max-h-[90%]">
+				<View
+					className="flex-1 items-center justify-center p-4"
+					style={{ backgroundColor: theme.isDark ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.35)' }}
+				>
+					<View className="rounded-2xl p-6 max-w-sm w-full" style={{ backgroundColor: theme.cardBg }}>
 						<ScrollView showsVerticalScrollIndicator={false}>
 							{selectedItem && (
 								<>
-									<View className="w-full aspect-square overflow-hidden rounded-xl bg-[#12214d] mb-6">
+									<View
+										className="w-full aspect-square overflow-hidden rounded-xl mb-6"
+										style={{ backgroundColor: theme.cardBgMuted }}
+									>
 										{selectedItem.code ? (
 											<View className="h-full w-full items-center justify-center bg-white p-3">
 												<QRCodeSVG
@@ -252,12 +386,16 @@ export default function ClaimedOffers({ items }: Props) {
 										)}
 									</View>
 
-									<Text className="text-xl font-semibold text-white mb-4">{selectedItem.title}</Text>
+									<Text className="text-xl font-semibold mb-4" style={{ color: theme.text }}>
+										{selectedItem.title}
+									</Text>
 
 									{selectedItem.code ? (
-										<View className="bg-[#12214d] rounded-lg p-4 mb-6">
-											<Text className="text-white/60 text-xs mb-2">Kod:</Text>
-											<Text className="text-white text-2xl font-bold tracking-widest mb-4">
+										<View className="rounded-lg p-4 mb-6" style={{ backgroundColor: theme.cardBgMuted }}>
+											<Text className="text-xs mb-2" style={{ color: theme.textMuted }}>
+												Kod:
+											</Text>
+											<Text className="text-2xl font-bold tracking-widest mb-4" style={{ color: theme.text }}>
 												{selectedItem.code}
 											</Text>
 										</View>

@@ -14,7 +14,10 @@ export function uiTheme(mode: ThemeMode) {
     textMuted: isDark ? 'rgba(255,255,255,0.70)' : 'rgba(0,11,42,0.65)',
     textFaint: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,11,42,0.45)',
     // Accents
-    primary: '#007AFF',
+    // Matches light-mode star pink (#EBBBD0)
+    primary: '#EBBBD0',
+    // Matches light-mode star green (#BADBC2)
+    accentGreen: '#BADBC2',
     danger: '#ff3b30',
   };
 }

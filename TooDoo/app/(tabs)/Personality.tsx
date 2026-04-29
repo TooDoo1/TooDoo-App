@@ -12,10 +12,14 @@ import { useRouter } from "expo-router";
 import { useAuth } from "@/context/auth-context";
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { apiUrl } from "@/lib/api";
+import { useThemePreference } from "@/context/theme-preference-context";
+import { uiTheme } from "@/lib/ui-theme";
 
 export default function PersonalityScreen() {
   const router = useRouter();
   const { pendingRegistration, clearPendingRegistration, signIn } = useAuth();
+  const { mode } = useThemePreference();
+  const theme = uiTheme(mode);
   const totalCount = 4;
   const [claimedCount, setClaimedCount] = useState(1);
   const [isSubmittingCreate, setIsSubmittingCreate] = useState(false);
@@ -135,73 +139,81 @@ export default function PersonalityScreen() {
 
   return (
     <ScrollView
-      className="flex-1 bg-[#000b2a]"
+      className="flex-1"
+      style={{ backgroundColor: theme.screenBg }}
       contentContainerStyle={{ paddingBottom: 48, flexGrow: 1 }}
     >
       <View className="flex-1 justify-between px-6 pt-12">
         <View>
-        <Text className="pt-10 text-3xl font-semibold text-white">
+        <Text className="pt-10 text-3xl font-semibold" style={{ color: theme.text }}>
           Skapa konto🎉
         </Text>
-        <Text className="pt-5 text-md font-semibold text-white/70">
+        <Text className="pt-5 text-md font-semibold" style={{ color: theme.textMuted }}>
           Steg {claimedCount} av {totalCount}
         </Text>
-        <View className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/20">
+        <View className="mt-2 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: theme.cardBgMuted }}>
                   <View
-                    className="h-full rounded-full bg-[#007AFF]"
-                    style={{ width: `${progressPercent}%` }}
+                    className="h-full rounded-full"
+                    style={{ width: `${progressPercent}%`, backgroundColor: theme.accentGreen }}
                   />
         </View>
 
         {claimedCount === 1? (
 
-        <View className="mt-20 rounded-2xl bg-[#0a1535] px-4 py-5">
-          <Text className="text-2xl text-white">Berätta om dig själv</Text>
+        <View className="mt-20 rounded-2xl px-4 py-5" style={{ backgroundColor: theme.cardBgMuted }}>
+          <Text className="text-2xl" style={{ color: theme.text }}>Berätta om dig själv</Text>
 
-          <Text className="pt-4 text-lg text-white">Förnamn:</Text>
+          <Text className="pt-4 text-lg" style={{ color: theme.text }}>Förnamn:</Text>
           <TextInput
                 value={firstName}
                 onChangeText={setFirstName}
                 placeholder="Förnamn"
-            placeholderTextColor="rgba(255,255,255,0.45)"
+            placeholderTextColor={theme.textFaint}
                 autoCapitalize="words"
-            className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
+            className="mt-2 rounded-2xl border px-4 py-3"
+            style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
           />
-          <Text className="pt-4 text-lg text-white">Efternamn:</Text>
+          <Text className="pt-4 text-lg" style={{ color: theme.text }}>Efternamn:</Text>
           <TextInput
                 value={lastName}
                 onChangeText={setLastName}
                 placeholder="Efternamn"
-            placeholderTextColor="rgba(255,255,255,0.45)"
+            placeholderTextColor={theme.textFaint}
                 autoCapitalize="words"
-            className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
+            className="mt-2 rounded-2xl border px-4 py-3"
+            style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
           />
-          <Text className="pt-4 text-lg text-white">Födelsedag:</Text>
+          <Text className="pt-4 text-lg" style={{ color: theme.text }}>Födelsedag:</Text>
           <Pressable
             onPress={openBirthDatePicker}
-            className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3"
+            className="mt-2 rounded-2xl border px-4 py-3"
+            style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted }}
           >
-            <Text className={`${birthDate ? 'text-white' : 'text-white/45'}`}>
+            <Text style={{ color: birthDate ? theme.text : theme.textFaint }}>
               {birthDate ? formatBirthDate(birthDate) : 'Välj datum'}
             </Text>
           </Pressable>
 
           {Platform.OS === 'ios' && isIosDatePickerVisible ? (
-            <View className="mt-3 overflow-hidden rounded-2xl border border-white/20 bg-white/10 px-2 py-2">
+            <View
+              className="mt-3 overflow-hidden rounded-2xl px-2 py-2"
+              style={{ borderColor: theme.border, borderWidth: 1, backgroundColor: theme.cardBgMuted }}
+            >
               <DateTimePicker
                 value={birthDate ?? new Date(2000, 0, 1)}
                 mode="date"
                 maximumDate={new Date()}
                 display="spinner"
-                themeVariant="dark"
-                textColor="#ffffff"
+                themeVariant={theme.isDark ? 'dark' : 'light'}
+                textColor={theme.text}
                 style={{ height: 190 }}
                 onChange={(_event, selectedDate) => {
                   if (selectedDate) setBirthDate(selectedDate);
                 }}
               />
               <Pressable
-                className="mt-2 rounded-2xl bg-[#007AFF] px-4 py-3"
+                className="mt-2 rounded-2xl px-4 py-3"
+                style={{ backgroundColor: theme.accentGreen }}
                 onPress={() => setIsIosDatePickerVisible(false)}
               >
                 <Text className="text-center font-medium text-[#061A47]">Klar</Text>
@@ -214,8 +226,13 @@ export default function PersonalityScreen() {
 
         {claimedCount === 2 ? (
             <View className="">
-              <View className="mt-20 pt-20 rounded-2xl px-2 py-5 ">
-              <Text className="text-2xl text-white">Välj kön</Text>
+            <View
+              className="mt-20 pt-20 rounded-2xl px-2 py-5 "
+              style={{ backgroundColor: 'transparent' }}
+            >
+              <Text className="text-2xl" style={{ color: theme.text }}>
+                Välj kön
+              </Text>
               </View>
 
               <View className=" flex-row flex-wrap justify-between">
@@ -224,10 +241,17 @@ export default function PersonalityScreen() {
                   return (
                     <Pressable
                       key={option.value}
-                      className={`mb-3 w-[48%] rounded-2xl border px-4 py-3 ${isSelected ? "border-[#061A47] bg-[#007AFF]" : "border-[#007AFF] bg-[#061A47]"}`}
+                      className="mb-3 w-[48%] rounded-2xl border px-4 py-3"
+                      style={{
+                        backgroundColor: isSelected ? theme.accentGreen : '#061A47',
+                        borderColor: isSelected ? '#061A47' : theme.accentGreen,
+                      }}
                       onPress={() => setSelectedGender(option.value)}
                     >
-                      <Text className={`text-center text-lg font-medium ${isSelected ? "text-[#061A47]" : "text-[#66adff]"}`}>
+                      <Text
+                        className="text-center text-lg font-medium"
+                        style={{ color: isSelected ? '#061A47' : theme.accentGreen }}
+                      >
                         {option.label}
                       </Text>
                     </Pressable>
@@ -241,16 +265,23 @@ export default function PersonalityScreen() {
 
         {claimedCount === 3 ? (
            <View className="">
-              <View className="mt-20 pt-20 rounded-2xl px-2 py-5 ">
-              <Text className="text-2xl text-white">Vad tycker du om?</Text>
-                    <Text className="pt-2 text-white/70">Välj en eller flera kategorier.</Text>
+              <View
+                className="mt-20 pt-20 rounded-2xl px-2 py-5 "
+                style={{ backgroundColor: 'transparent' }}
+              >
+                <Text className="text-2xl" style={{ color: theme.text }}>
+                  Vad tycker du om?
+                </Text>
+                <Text className="pt-2" style={{ color: theme.textMuted }}>
+                  Välj en eller flera kategorier.
+                </Text>
               </View>
 
               {isLoadingCategories ? (
-                <Text className="text-white/70">Laddar kategorier...</Text>
+                <Text style={{ color: theme.textFaint }}>Laddar kategorier...</Text>
               ) : null}
               {categoryLoadError ? (
-                <Text className="text-white/70">{categoryLoadError}</Text>
+                <Text style={{ color: theme.textFaint }}>{categoryLoadError}</Text>
               ) : null}
 
                     <View className="mb-20 flex-row flex-wrap gap-3">
@@ -259,7 +290,11 @@ export default function PersonalityScreen() {
                   return (
                     <Pressable
                     key={option.id ?? option.name}
-                      className={`rounded-2xl border px-5 py-3 ${isSelected ? "border-[#061A47] bg-[#007AFF]" : "border-[#007AFF] bg-[#061A47]"}`}
+                      className="rounded-2xl border px-5 py-3"
+                      style={{
+                        backgroundColor: isSelected ? theme.accentGreen : '#061A47',
+                        borderColor: isSelected ? '#061A47' : theme.accentGreen,
+                      }}
                       onPress={() => {
                         setSelectedCategoryIds((prev) =>
                         prev.includes(option.id ?? '')
@@ -268,7 +303,10 @@ export default function PersonalityScreen() {
                         );
                       }}
                     >
-                      <Text className={`text-center text-lg font-medium ${isSelected ? "text-[#061A47]" : "text-[#66adff]"}`}>
+                      <Text
+                        className="text-center text-lg font-medium"
+                        style={{ color: isSelected ? '#061A47' : theme.accentGreen }}
+                      >
                       {option.name}
                       </Text>
                     </Pressable>
@@ -281,23 +319,33 @@ export default function PersonalityScreen() {
         ):null}
 
         {claimedCount === 4 ? (
-          <View className="mt-20 rounded-2xl bg-[#0a1535] px-4 py-8">
-            <Text className="text-center text-2xl font-semibold text-white">Börja upptäck platser nära dig!</Text>
+          <View
+            className="mt-20 rounded-2xl px-4 py-8"
+            style={{ backgroundColor: theme.cardBgMuted }}
+          >
+            <Text className="text-center text-2xl font-semibold" style={{ color: theme.text }}>
+              Börja upptäck platser nära dig!
+            </Text>
           </View>
         ) : null}
 
         </View>
 
         {claimedCount === 4 ? (
-          <View className="mt-8 rounded-2xl bg-[#0a1535] px-4 py-5">
-            <Pressable className="rounded-2xl bg-[#007AFF] px-4 py-3" onPress={() => router.replace('/')}>
+          <View className="mt-8 rounded-2xl px-4 py-5" style={{ backgroundColor: theme.cardBgMuted }}>
+            <Pressable
+              className="rounded-2xl px-4 py-3"
+              style={{ backgroundColor: theme.accentGreen }}
+              onPress={() => router.replace('/')}
+            >
               <Text className="text-center font-medium text-[#061A47]">Fortsätt</Text>
             </Pressable>
           </View>
         ) : (
-          <View className="mt-8 rounded-2xl bg-[#0a1535] px-4 py-5">
+          <View className="mt-8 rounded-2xl px-4 py-5" style={{ backgroundColor: theme.cardBgMuted }}>
             <Pressable
-              className=" rounded-2xl bg-[#007AFF] px-4 py-3"
+              className="rounded-2xl px-4 py-3"
+              style={{ backgroundColor: theme.accentGreen }}
               onPress={async () => {
                 if (claimedCount === 2 && !selectedGender) {
                   Alert.alert("Välj ett alternativ", "Välj Man, Kvinna, Ickebinär eller Vill ej ange innan du går vidare.");
@@ -392,7 +440,7 @@ export default function PersonalityScreen() {
             </Pressable>
 
             <Pressable
-              className="mt-3 rounded-2xl bg-[#061A47] px-4 py-3"
+              className="mt-3 rounded-2xl px-4 py-3"
               onPress={() => {
                 if (claimedCount >= 2) {
                   setClaimedCount((prev) => Math.max(prev - 1, 1));
@@ -400,8 +448,9 @@ export default function PersonalityScreen() {
                 }
                 router.push("/(tabs)/Registrering");
               }}
+              style={{ backgroundColor: theme.primary, borderWidth: 0 }}
             >
-              <Text className="text-center font-medium text-[#007AFF]">
+              <Text className="text-center font-medium" style={{ color: '#ffffff' }}>
                 Tillbaka
               </Text>
             </Pressable>

@@ -3,10 +3,14 @@ import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-nativ
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '@/context/auth-context';
 import { apiUrl } from '@/lib/api';
+import { useThemePreference } from '@/context/theme-preference-context';
+import { uiTheme } from '@/lib/ui-theme';
 
 export default function RegistreringScreen() {
 	const router = useRouter();
 	const { setPendingRegistration, signIn } = useAuth();
+	const { mode } = useThemePreference();
+	const theme = uiTheme(mode);
 	const { accountType, returnTo, returnParams } = useLocalSearchParams<{ accountType?: string; returnTo?: string; returnParams?: string }>();
 	const isCompanyRegistration = accountType === 'company';
 	const [email, setEmail] = useState('');
@@ -168,57 +172,61 @@ export default function RegistreringScreen() {
 	};
 
 	return (
-		<ScrollView className="flex-1 bg-[#000b2a]" contentContainerStyle={{ paddingBottom: 48 }}>
+		<ScrollView className="flex-1" style={{ backgroundColor: theme.screenBg }} contentContainerStyle={{ paddingBottom: 48 }}>
 			<View className="px-6 pt-12">
-				<Text className="pt-10 text-3xl font-semibold text-white">Registrering:</Text>
-				<Text className="mt-2 text-white/70">Skapa ett konto för att spara och använda dina erbjudanden.</Text>
+				<Text className="pt-10 text-3xl font-semibold" style={{ color: theme.text }}>Registrering:</Text>
+				<Text className="mt-2" style={{ color: theme.textMuted }}>Skapa ett konto för att spara och använda dina erbjudanden.</Text>
 
-				<View className="mt-8 rounded-2xl bg-[#0a1535] px-4 py-5">
-					<Text className="text-lg text-white">Skapa konto:</Text>
-                    <Text className="text-white/70 text-xs">Säkra dina erbjudanden idag genom att registrera dig!</Text>
+				<View className="mt-8 rounded-2xl px-4 py-5" style={{ backgroundColor: theme.cardBg }}>
+					<Text className="text-lg" style={{ color: theme.text }}>Skapa konto:</Text>
+                    <Text className="text-xs" style={{ color: theme.textMuted }}>Säkra dina erbjudanden idag genom att registrera dig!</Text>
 
-					<Text className="pt-4 text-xl text-white">E-post:</Text>
+					<Text className="pt-4 text-xl" style={{ color: theme.text }}>E-post:</Text>
 					<TextInput
 						value={email}
 						onChangeText={setEmail}
 						placeholder="Din e-postadress"
-						placeholderTextColor="rgba(255,255,255,0.45)"
+						placeholderTextColor={theme.textFaint}
 						keyboardType="email-address"
 						autoCapitalize="none"
-						className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
+						className="mt-2 rounded-2xl border px-4 py-3"
+						style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
 					/>
 
 					{isCompanyRegistration ? (
 						<>
-							<Text className="pt-4 text-xl text-white">Företagsnamn:</Text>
+							<Text className="pt-4 text-xl" style={{ color: theme.text }}>Företagsnamn:</Text>
 							<TextInput
 								value={companyName}
 								onChangeText={setCompanyName}
 								placeholder="Ange företagsnamn"
-								placeholderTextColor="rgba(255,255,255,0.45)"
-								className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
+								placeholderTextColor={theme.textFaint}
+								className="mt-2 rounded-2xl border px-4 py-3"
+								style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
 							/>
 						</>
 					) : null}
 
-					<Text className="pt-4 text-xl text-white">Lösenord:</Text>
+					<Text className="pt-4 text-xl" style={{ color: theme.text }}>Lösenord:</Text>
 					<TextInput
 						value={password}
 						onChangeText={setPassword}
 						placeholder="Välj lösenord"
-						placeholderTextColor="rgba(255,255,255,0.45)"
+						placeholderTextColor={theme.textFaint}
 						secureTextEntry
-						className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
+						className="mt-2 rounded-2xl border px-4 py-3"
+						style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
 					/>
 
-					<Text className="pt-4 text-xl text-white">Bekräfta lösenord:</Text>
+					<Text className="pt-4 text-xl" style={{ color: theme.text }}>Bekräfta lösenord:</Text>
 					<TextInput
 						value={confirmPassword}
 						onChangeText={setConfirmPassword}
 						placeholder="Bekräfta lösenord"
-						placeholderTextColor="rgba(255,255,255,0.45)"
+						placeholderTextColor={theme.textFaint}
 						secureTextEntry
-						className="mt-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-white"
+						className="mt-2 rounded-2xl border px-4 py-3"
+						style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
 					/>
 
 					<Pressable className="mt-6 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={handleRegister} disabled={isSubmittingRegister}>
@@ -226,10 +234,11 @@ export default function RegistreringScreen() {
 					</Pressable>
 
 					<Pressable
-						className="mt-3 rounded-2xl bg-[#061A47] px-4 py-3"
+						className="mt-3 rounded-2xl px-4 py-3"
 						onPress={handleBack}
+						style={{ backgroundColor: theme.primary, borderWidth: 0 }}
 					>
-						<Text className="text-center font-medium text-[#007AFF]">Tillbaka</Text>
+						<Text className="text-center font-medium" style={{ color: '#ffffff' }}>Tillbaka</Text>
 					</Pressable>
 				</View>
 			</View>

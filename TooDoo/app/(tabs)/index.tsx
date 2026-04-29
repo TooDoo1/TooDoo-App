@@ -24,7 +24,7 @@ import { apiUrl } from '@/lib/api';
 import { useAuth } from '@/context/auth-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { StarryBackground } from '@/components/ui/starry-background';
+import { StarrySkyScreenBackground } from '@/components/ui/starry-background';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { uiTheme } from '@/lib/ui-theme';
 
@@ -120,6 +120,9 @@ export default function HomeScreen() {
   const nearbyAnim = useRef(new Animated.Value(0)).current;
   const hotAnim = useRef(new Animated.Value(0)).current;
   const endingSoonAnim = useRef(new Animated.Value(0)).current;
+  const tooDooLetters = ['T', 'o', 'o', 'D', 'o', 'o'] as const;
+  const tooDooColors = ['#ff4d6d', '#ff7a00', '#ffd60a', '#00d4ff', '#3a86ff', '#9b5de5'] as const;
+  const tooDooBounceValues = useRef(tooDooLetters.map(() => new Animated.Value(0))).current;
   const didScrollAfterExpandRef = useRef(false);
   const didOpenCardRef = useRef(false);
   const tabBarHeight = useBottomTabBarHeight();
@@ -193,8 +196,20 @@ export default function HomeScreen() {
     useCallback(() => {
       // Reset "opened card" tracking when returning to this screen.
       didOpenCardRef.current = false;
+      // Play the same "bounce letters" feel as the login screen.
+      tooDooBounceValues.forEach((value) => value.setValue(0));
+      const bounceOneLetter = Animated.stagger(
+        80,
+        tooDooBounceValues.map((value) =>
+          Animated.sequence([
+            Animated.timing(value, { toValue: -10, duration: 140, useNativeDriver: true }),
+            Animated.timing(value, { toValue: 0, duration: 140, useNativeDriver: true }),
+          ])
+        )
+      );
+      bounceOneLetter.start();
       return () => {};
-    }, [])
+    }, [tooDooBounceValues])
   );
 
   const markExpandedSectionScrolled = () => {
@@ -680,24 +695,7 @@ export default function HomeScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.screenBg }}>
-      {theme.isDark ? (
-        <>
-          <LinearGradient
-            colors={['#000b2a', '#061a47', '#000b2a']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
-          <StarryBackground starCount={80} />
-        </>
-      ) : (
-        <LinearGradient
-          colors={['#f5f7ff', '#eef2ff', '#f5f7ff']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
-      )}
+      <StarrySkyScreenBackground variant={theme.isDark ? 'dark' : 'light'} />
       <SafeAreaView
         edges={['top', 'left', 'right']}
         className="flex-1"
@@ -710,14 +708,22 @@ export default function HomeScreen() {
           contentContainerStyle={{ paddingBottom: tabBarHeight + 16 }}>
         <View className="px-6 pt-3">
           <View className="relative items-center justify-center">
-            <Text className="text-3xl font-semibold">
-              <Text style={{ color: '#ff4d6d' }}>T</Text>
-              <Text style={{ color: '#ff7a00' }}>o</Text>
-              <Text style={{ color: '#ffd60a' }}>o</Text>
-              <Text style={{ color: '#00d4ff' }}>D</Text>
-              <Text style={{ color: '#3a86ff' }}>o</Text>
-              <Text style={{ color: '#9b5de5' }}>o</Text>
-            </Text>
+            <View style={{ flexDirection: 'row' }}>
+              {tooDooLetters.map((letter, idx) => (
+                <Animated.Text
+                  key={`${letter}-${idx}`}
+                  style={{
+                    color: tooDooColors[idx],
+                    fontSize: 30,
+                    fontWeight: '600',
+                    transform: [{ translateY: tooDooBounceValues[idx] }],
+                    lineHeight: 36,
+                  }}
+                >
+                  {letter}
+                </Animated.Text>
+              ))}
+            </View>
             <Pressable
               onPress={() => router.push('/(tabs)/Profile')}
               className="absolute right-0 h-10 w-10 items-center justify-center rounded-full"
@@ -756,9 +762,9 @@ export default function HomeScreen() {
 
         <View className="mt-4 px-6">
           <View className="mb-3 flex-row items-center justify-between">
-            <Text className="text-lg font-semibold text-white">& Nära dig</Text>
+            <Text className="text-lg font-semibold" style={{ color: theme.text }}>& Nära dig</Text>
             <Pressable onPress={() => {}}>
-              <Text className="text-white/60">Se alla →</Text>
+              <Text style={{ color: theme.textMuted }}>Se alla →</Text>
             </Pressable>
           </View>
 
@@ -766,6 +772,7 @@ export default function HomeScreen() {
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 10 }}
               onScrollBeginDrag={() => expandedSection === 'nearby' && markExpandedSectionScrolled()}
             >
               <View className="flex-row gap-3 pb-2">
@@ -777,105 +784,156 @@ export default function HomeScreen() {
                         inputRange: [0, 1],
                         outputRange: [176, 256],
                       }),
+                      overflow: 'visible',
                     }}
                   >
-                    <Pressable
-                      className="overflow-hidden rounded-2xl"
-                      style={{ backgroundColor: theme.cardBg, borderColor: theme.border, borderWidth: 1 }}
-                      onPress={() => handleNearbyCardPress(biz)}
+                    <View
+                      style={{
+                        shadowColor: '#000',
+                        shadowOpacity: theme.isDark ? 0.16 : 0.06,
+                        shadowRadius: theme.isDark ? 10 : 6,
+                        shadowOffset: { width: 0, height: theme.isDark ? 5 : 1 },
+                        elevation: theme.isDark ? 3 : 1,
+                        overflow: 'visible',
+                      }}
                     >
-                      <Animated.View
-                        className="relative w-full"
+                      <Pressable
+                        className="overflow-hidden rounded-2xl"
                         style={{
-                          height: nearbyAnim.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [96, 144],
-                          }),
+                          backgroundColor: theme.cardBg,
+                          borderColor: theme.border,
+                          borderWidth: 1,
                         }}
+                        onPress={() => handleNearbyCardPress(biz)}
                       >
-                      <Image source={biz.image} resizeMode="cover" className="h-full w-full" />
-                      <View className="absolute inset-0 bg-black/25" />
-                      <View className="absolute left-2 top-2 rounded-full px-2 py-1" style={{ backgroundColor: theme.isDark ? 'rgba(0,0,0,0.55)' : 'rgba(0,11,42,0.55)' }}>
-                        <Text className="text-[10px] font-medium text-white">0.{(idx % 9) + 1} km</Text>
-                      </View>
-                      <LinearGradient
-                        colors={
-                          theme.isDark
-                            ? ['rgba(0,11,42,0.00)', 'rgba(0,11,42,0.92)', 'rgba(0,11,42,0.92)']
-                            : ['rgba(245,247,255,0.00)', 'rgba(245,247,255,0.92)', 'rgba(245,247,255,0.92)']
-                        }
-                        locations={[0, 0.28, 1]}
-                        start={{ x: 0.5, y: 0 }}
-                        end={{ x: 0.5, y: 1 }}
-                        style={{
-                          position: 'absolute',
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          height: '55%',
-                          paddingHorizontal: 12,
-                          paddingBottom: 10,
-                          paddingTop: 14,
-                          justifyContent: 'flex-end',
-                        }}
-                      >
-                        <Text className="font-semibold" numberOfLines={1} style={{ color: theme.text }}>
-                          {biz.title}
-                        </Text>
-                        <Text className="mt-0.5 text-xs" numberOfLines={1} style={{ color: theme.textMuted }}>
-                          {biz.categoryName ?? 'Nära dig'}
-                        </Text>
                         <Animated.View
+                          className="relative w-full"
                           style={{
                             height: nearbyAnim.interpolate({
                               inputRange: [0, 1],
-                              outputRange: [0, 30],
+                              outputRange: [96, 144],
                             }),
-                            opacity: nearbyAnim,
-                            overflow: 'hidden',
                           }}
                         >
-                          <Animated.Text
-                            className="mt-1 text-[11px]"
-                            numberOfLines={2}
+                          <Image source={biz.image} resizeMode="cover" className="h-full w-full" />
+                          <View className="absolute inset-0 bg-black/25" />
+                          <View
+                            className="absolute left-2 top-2 rounded-full px-2 py-1"
                             style={{
-                              transform: [
-                                {
-                                  translateY: nearbyAnim.interpolate({
-                                    inputRange: [0, 1],
-                                    outputRange: [6, 0],
-                                  }),
-                                },
-                              ],
+                              backgroundColor: theme.isDark ? 'rgba(0,0,0,0.55)' : 'rgba(0,11,42,0.55)',
                             }}
                           >
-                            {biz.kortbeskrivning || 'Upptäck detta företag och deras erbjudanden.'}
-                          </Animated.Text>
+                            <Text className="text-[10px] font-medium text-white">0.{(idx % 9) + 1} km</Text>
+                          </View>
+                          <Animated.View
+                            style={{
+                              position: 'absolute',
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              // Animated wrapper is safe; keep `LinearGradient` static to avoid render crashes.
+                              height: nearbyAnim.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [56, 104],
+                              }),
+                              overflow: 'hidden',
+                            }}
+                          >
+                            <LinearGradient
+                              colors={
+                                theme.isDark
+                                  ? [
+                                      'rgba(0,11,42,0.00)',
+                                      'rgba(0,11,42,0.92)',
+                                      'rgba(0,11,42,0.92)',
+                                    ]
+                                  : [
+                                      'rgba(245,247,255,0.00)',
+                                      'rgba(245,247,255,0.98)',
+                                      'rgba(245,247,255,0.98)',
+                                    ]
+                              }
+                              locations={[0, 0.28, 1]}
+                              start={{ x: 0.5, y: 0 }}
+                              end={{ x: 0.5, y: 1 }}
+                              style={{
+                                flex: 1,
+                                paddingHorizontal: 12,
+                                // Tune spacing so title/category sit nicely within the gradient
+                                // in both collapsed and enlarged states.
+                                paddingBottom: 8,
+                                paddingTop: 10,
+                                justifyContent: 'flex-end',
+                              }}
+                            >
+                              <Text
+                                className="font-semibold"
+                                numberOfLines={1}
+                                style={{ color: theme.text, lineHeight: 18 }}
+                              >
+                                {biz.title}
+                              </Text>
+                              <Text
+                                className="text-xs"
+                                numberOfLines={1}
+                                style={{ color: theme.textMuted, lineHeight: 16 }}
+                              >
+                                {biz.categoryName ?? 'Nära dig'}
+                              </Text>
+                              <Animated.View
+                                style={{
+                                  height: nearbyAnim.interpolate({
+                                    inputRange: [0, 1],
+                                    outputRange: [0, 30],
+                                  }),
+                                  opacity: nearbyAnim,
+                                  overflow: 'hidden',
+                                }}
+                              >
+                                <Animated.Text
+                                  className="mt-1 text-[11px]"
+                                  numberOfLines={2}
+                                  style={{
+                                    transform: [
+                                      {
+                                        translateY: nearbyAnim.interpolate({
+                                          inputRange: [0, 1],
+                                          outputRange: [6, 0],
+                                        }),
+                                      },
+                                    ],
+                                  }}
+                                >
+                                  {biz.kortbeskrivning || 'Upptäck detta företag och deras erbjudanden.'}
+                                </Animated.Text>
+                              </Animated.View>
+                            </LinearGradient>
+                          </Animated.View>
                         </Animated.View>
-                      </LinearGradient>
-                      </Animated.View>
-                    </Pressable>
+                      </Pressable>
+                    </View>
                   </Animated.View>
                 ))}
               </View>
             </ScrollView>
           ) : (
-            <Text className="text-white/60">{isLoadingData ? 'Laddar...' : 'Inget att visa just nu.'}</Text>
+            <Text style={{ color: theme.textMuted }}>{isLoadingData ? 'Laddar...' : 'Inget att visa just nu.'}</Text>
           )}
         </View>
 
         <View className="mt-4 px-6">
           <View className="flex-row items-center">
             <Ionicons name="flame" size={18} color="#ff3b30" />
-            <Text className="ml-2 text-lg font-semibold text-white">Heta erbjudanden</Text>
+            <Text className="ml-2 text-lg font-semibold" style={{ color: theme.text }}>Heta erbjudanden</Text>
           </View>
           <View className="mt-3">
             {isLoadingData ? (
-              <Text className="text-white/60">Laddar...</Text>
+              <Text style={{ color: theme.textMuted }}>Laddar...</Text>
             ) : (
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 10 }}
                 onScrollBeginDrag={() => expandedSection === 'hot' && markExpandedSectionScrolled()}
               >
                 <View className="flex-row gap-3 pb-2">
@@ -890,12 +948,28 @@ export default function HomeScreen() {
                             inputRange: [0, 1],
                             outputRange: [256, 320],
                           }),
+                      overflow: 'visible',
                         }}
                       >
-                        <Pressable
-                          className="overflow-hidden rounded-2xl bg-[#0a1535] border border-white/5"
-                          onPress={() => handleHotCardPress(card)}
+                        <View
+                          style={{
+                            shadowColor: '#000',
+                          shadowOpacity: theme.isDark ? 0.16 : 0.06,
+                          shadowRadius: theme.isDark ? 10 : 6,
+                          shadowOffset: { width: 0, height: theme.isDark ? 5 : 1 },
+                          elevation: theme.isDark ? 3 : 1,
+                        overflow: 'visible',
+                          }}
                         >
+                          <Pressable
+                            className="overflow-hidden rounded-2xl border"
+                            style={{
+                              backgroundColor: theme.cardBg,
+                              borderColor: theme.isDark ? theme.border : 'rgba(255,255,255,0.65)',
+                              borderWidth: 1,
+                            }}
+                            onPress={() => handleHotCardPress(card)}
+                          >
                           <Animated.View
                             className="relative w-full"
                             style={{
@@ -909,11 +983,11 @@ export default function HomeScreen() {
                           <View className="absolute inset-0 bg-black/20" />
                           {card.deal ? <DealTag /> : null}
                           <LinearGradient
-                            colors={[
-                              'rgba(0,11,42,0.00)',
-                              'rgba(0,11,42,0.92)',
-                              'rgba(0,11,42,0.92)',
-                            ]}
+                            colors={
+                              theme.isDark
+                                ? ['rgba(0,11,42,0.00)', 'rgba(0,11,42,0.92)', 'rgba(0,11,42,0.92)']
+                            : ['rgba(245,247,255,0.00)', 'rgba(245,247,255,0.98)', 'rgba(245,247,255,0.98)']
+                            }
                             locations={[0, 0.28, 1]}
                             start={{ x: 0.5, y: 0 }}
                             end={{ x: 0.5, y: 1 }}
@@ -929,15 +1003,16 @@ export default function HomeScreen() {
                               justifyContent: 'flex-end',
                             }}
                           >
-                            <Text className="text-lg font-semibold text-white" numberOfLines={1}>
+                            <Text className="text-lg font-semibold" style={{ color: theme.text }} numberOfLines={1}>
                               {card.title}
                             </Text>
-                            <Text className="mt-0.5 text-xs text-white/80" numberOfLines={2}>
+                            <Text className="mt-0.5 text-xs" style={{ color: theme.textMuted }} numberOfLines={2}>
                               {card.kortbeskrivning || 'Upptäck detta företag och deras erbjudanden.'}
                             </Text>
                           </LinearGradient>
                           </Animated.View>
-                        </Pressable>
+                          </Pressable>
+                        </View>
                       </Animated.View>
                     ))}
                 </View>
@@ -948,14 +1023,15 @@ export default function HomeScreen() {
 
         <View className="mt-4 px-6">
           <View className="flex-row items-center">
-            <Ionicons name="time" size={18} color="#ffffff" />
-            <Text className="ml-2 text-lg font-semibold text-white">Slutar snart</Text>
+            <Ionicons name="time" size={18} color={theme.text} />
+            <Text className="ml-2 text-lg font-semibold" style={{ color: theme.text }}>Slutar snart</Text>
           </View>
           <View className="mt-3">
             {endingSoonDeals.length > 0 ? (
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 10 }}
                 onScrollBeginDrag={() => expandedSection === 'endingSoon' && markExpandedSectionScrolled()}
               >
                 <View className="flex-row gap-3 pb-2">
@@ -967,12 +1043,28 @@ export default function HomeScreen() {
                           inputRange: [0, 1],
                           outputRange: [160, 256],
                         }),
+                        overflow: 'visible',
                       }}
                     >
-                      <Pressable
-                        className="overflow-hidden rounded-2xl bg-[#0a1535] border border-white/5"
-                        onPress={() => handleEndingSoonCardPress(card)}
+                      <View
+                        style={{
+                          shadowColor: '#000',
+                          shadowOpacity: theme.isDark ? 0.16 : 0.06,
+                          shadowRadius: theme.isDark ? 10 : 6,
+                          shadowOffset: { width: 0, height: theme.isDark ? 5 : 1 },
+                          elevation: theme.isDark ? 3 : 1,
+                          overflow: 'visible',
+                        }}
                       >
+                        <Pressable
+                          className="overflow-hidden rounded-2xl border"
+                          style={{
+                            backgroundColor: theme.cardBg,
+                            borderColor: theme.isDark ? theme.border : 'rgba(255,255,255,0.65)',
+                            borderWidth: 1,
+                          }}
+                          onPress={() => handleEndingSoonCardPress(card)}
+                        >
                         <Animated.View
                           className="relative w-full"
                           style={{
@@ -986,11 +1078,11 @@ export default function HomeScreen() {
                           <View className="absolute inset-0 bg-black/20" />
                           {card.deal ? <DealTag /> : null}
                           <LinearGradient
-                            colors={[
-                              'rgba(0,11,42,0.00)',
-                              'rgba(0,11,42,0.92)',
-                              'rgba(0,11,42,0.92)',
-                            ]}
+                            colors={
+                              theme.isDark
+                                ? ['rgba(0,11,42,0.00)', 'rgba(0,11,42,0.92)', 'rgba(0,11,42,0.92)']
+                            : ['rgba(245,247,255,0.00)', 'rgba(245,247,255,0.98)', 'rgba(245,247,255,0.98)']
+                            }
                             locations={[0, 0.28, 1]}
                             start={{ x: 0.5, y: 0 }}
                             end={{ x: 0.5, y: 1 }}
@@ -1006,7 +1098,7 @@ export default function HomeScreen() {
                               justifyContent: 'flex-end',
                             }}
                           >
-                            <Text className="text-sm font-semibold text-white" numberOfLines={1}>
+                            <Text className="text-sm font-semibold" style={{ color: theme.text }} numberOfLines={1}>
                               {card.title}
                             </Text>
                             <Animated.View
@@ -1020,9 +1112,11 @@ export default function HomeScreen() {
                               }}
                             >
                               <Animated.Text
-                                className="mt-0.5 text-[11px] text-white/80"
+                                className="mt-0.5 text-[11px]"
                                 numberOfLines={2}
+                                // keep a small slide-in while respecting themed text color
                                 style={{
+                                  color: theme.textMuted,
                                   transform: [
                                     {
                                       translateY: endingSoonAnim.interpolate({
@@ -1038,23 +1132,37 @@ export default function HomeScreen() {
                             </Animated.View>
                           </LinearGradient>
                         </Animated.View>
-                      </Pressable>
+                        </Pressable>
+                      </View>
                     </Animated.View>
                   ))}
                 </View>
               </ScrollView>
             ) : (
-              <Text className="text-white/60">{isLoadingData ? 'Laddar...' : 'Inga tidsbegränsade erbjudanden hittades.'}</Text>
+              <Text style={{ color: theme.textMuted }}>{isLoadingData ? 'Laddar...' : 'Inga tidsbegränsade erbjudanden hittades.'}</Text>
             )}
           </View>
         </View>
 
         <View className="mt-4 px-6">
           <View className="flex-row items-center">
-            <Ionicons name="apps" size={18} color="rgba(255,255,255,0.8)" />
-            <Text className="ml-2 text-lg font-semibold text-white">Bläddra kategorier</Text>
+            <Ionicons name="apps" size={18} color={theme.textMuted} />
+            <Text className="ml-2 text-lg font-semibold" style={{ color: theme.text }}>Bläddra kategorier</Text>
           </View>
-          <View className="mt-3 rounded-3xl border border-white/10 bg-[#0a1535] px-4 py-4">
+          <View
+            className="mt-3 rounded-3xl border px-4 py-4"
+            style={{
+              borderColor: theme.isDark ? theme.border : 'rgba(255,255,255,0.55)',
+              // In light mode, match the cards' "text area" overlay tone.
+              backgroundColor: theme.isDark ? theme.cardBg : 'rgba(245,247,255,0.98)',
+              borderWidth: 1,
+              shadowColor: '#000',
+              shadowOpacity: theme.isDark ? 0.22 : 0.10,
+              shadowRadius: theme.isDark ? 14 : 10,
+              shadowOffset: { width: 0, height: theme.isDark ? 8 : 4 },
+              elevation: theme.isDark ? 6 : 2,
+            }}
+          >
             <View className="flex-row flex-wrap justify-between">
               {categoryFilters.map((cat, idx) => {
                 // More vibrant ("screaming") palette for category bubbles.
@@ -1070,8 +1178,9 @@ export default function HomeScreen() {
                       className="h-14 w-14 overflow-hidden rounded-2xl"
                       style={{
                         backgroundColor: bg,
+                        // Use dark shadow in both modes for a consistent "lifted" look.
                         shadowColor: '#000',
-                        shadowOpacity: 0.25,
+                        shadowOpacity: theme.isDark ? 0.25 : 0.22,
                         shadowRadius: 10,
                         shadowOffset: { width: 0, height: 6 },
                         elevation: 6,
@@ -1108,10 +1217,16 @@ export default function HomeScreen() {
                         <Ionicons name={getCategoryIconName(cat.label)} size={22} color="#ffffff" />
                       </View>
                       {/* Glass edges */}
-                      <View className="absolute inset-0 rounded-2xl border border-white/45" />
-                      <View className="absolute inset-[1px] rounded-[15px] border border-white/15" />
+                      <View
+                        className="absolute inset-0 rounded-2xl border"
+                        style={{ borderWidth: 1, borderColor: theme.isDark ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.70)' }}
+                      />
+                      <View
+                        className="absolute inset-[1px] rounded-[15px] border"
+                        style={{ borderWidth: 1, borderColor: theme.isDark ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.30)' }}
+                      />
                     </View>
-                    <Text className="mt-2 text-xs text-white/70" numberOfLines={1}>
+                    <Text className="mt-2 text-xs" style={{ color: theme.textMuted }} numberOfLines={1}>
                       {cat.label}
                     </Text>
                   </Pressable>
@@ -1175,26 +1290,49 @@ const styles = StyleSheet.create({
 });
 
 function CardRow({ cards, onCardPress, enlarged }: { cards: CardItem[]; onCardPress?: (card: CardItem) => void; enlarged?: boolean }) {
+  const { mode } = useThemePreference();
+  const theme = uiTheme(mode);
+
   if (enlarged) {
     return (
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <View className="flex-row gap-3 pb-2">
           {cards.map((card, index) => (
-            <Pressable key={`${card.id}-${index}`} className="w-64 overflow-hidden rounded-2xl bg-[#0a1535]" onPress={() => onCardPress?.(card)}>
+            <View
+              key={`${card.id}-${index}-shadow`}
+              style={{
+                shadowColor: '#000',
+                shadowOpacity: theme.isDark ? 0.22 : 0.14,
+                shadowRadius: theme.isDark ? 14 : 12,
+                shadowOffset: { width: 0, height: theme.isDark ? 8 : 6 },
+                elevation: theme.isDark ? 6 : 4,
+              }}
+            >
+              <Pressable
+                key={`${card.id}-${index}`}
+                className="w-64 overflow-hidden rounded-2xl"
+                style={{
+                  backgroundColor: theme.cardBg,
+                  borderWidth: 1,
+                  borderColor: theme.isDark ? theme.border : 'rgba(255,255,255,0.60)',
+                }}
+                onPress={() => onCardPress?.(card)}
+              >
               <View className="relative h-44 w-full">
                 <Image source={card.image} resizeMode="cover" className="h-full w-full" />
                 <View className="absolute inset-0 bg-black/20" />
                 {card.deal ? <DealTag /> : null}
                 <View className="absolute bottom-0 left-0 right-0 p-3">
                   <View className="rounded-xl bg-black/50 px-3 py-2">
-                    <Text className="text-lg font-semibold text-white" numberOfLines={1}>{card.title}</Text>
-                    <Text className="mt-0.5 text-xs text-white/80" numberOfLines={2}>
+                    <Text className="text-lg font-semibold" style={{ color: theme.text }} numberOfLines={1}>{card.title}</Text>
+                    <Text className="mt-0.5 text-xs" style={{ color: theme.textMuted }} numberOfLines={2}>
                       {card.kortbeskrivning || 'Upptäck detta företag och deras erbjudanden.'}
                     </Text>
                   </View>
                 </View>
               </View>
-            </Pressable>
+              </Pressable>
+            </View>
           ))}
         </View>
       </ScrollView>
@@ -1205,15 +1343,33 @@ function CardRow({ cards, onCardPress, enlarged }: { cards: CardItem[]; onCardPr
     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
       <View className="flex-row gap-3 pb-2">
         {cards.map((card, index) => (
-          <Pressable key={`${card.id}-${index}`} className="w-40 overflow-hidden rounded-2xl bg-[#000b2a]" onPress={() => onCardPress?.(card)}>
-            <View className="relative h-28 w-full">
-              <Image source={card.image} resizeMode="cover" className="h-full w-full" />
-              {card.deal ? (
-                <DealTag />
-              ) : null}
-            </View>
-            <Text className="px-2 py-2 text-sm text-white">{card.title}</Text>
-          </Pressable>
+          <View
+            key={`${card.id}-${index}-shadow`}
+            style={{
+              shadowColor: '#000',
+              shadowOpacity: theme.isDark ? 0.22 : 0.14,
+              shadowRadius: theme.isDark ? 14 : 12,
+              shadowOffset: { width: 0, height: theme.isDark ? 8 : 6 },
+              elevation: theme.isDark ? 6 : 4,
+            }}
+          >
+            <Pressable
+              key={`${card.id}-${index}`}
+              className="w-40 overflow-hidden rounded-2xl"
+              style={{
+                backgroundColor: theme.cardBg,
+                borderWidth: 1,
+                borderColor: theme.isDark ? theme.border : 'rgba(255,255,255,0.60)',
+              }}
+              onPress={() => onCardPress?.(card)}
+            >
+              <View className="relative h-28 w-full">
+                <Image source={card.image} resizeMode="cover" className="h-full w-full" />
+                {card.deal ? <DealTag /> : null}
+              </View>
+              <Text className="px-2 py-2 text-sm" style={{ color: theme.text }}>{card.title}</Text>
+            </Pressable>
+          </View>
         ))}
       </View>
     </ScrollView>
@@ -1221,6 +1377,8 @@ function CardRow({ cards, onCardPress, enlarged }: { cards: CardItem[]; onCardPr
 }
 
 function CardGrid({ cards, onCardPress }: { cards: CardItem[]; onCardPress?: (card: CardItem) => void }) {
+  const { mode } = useThemePreference();
+  const theme = uiTheme(mode);
   const elements: React.ReactNode[] = [];
   let i = 0;
   let smallCount = 0;
@@ -1229,27 +1387,43 @@ function CardGrid({ cards, onCardPress }: { cards: CardItem[]; onCardPress?: (ca
     if (smallCount > 0 && smallCount % 8 === 0) {
       const card = cards[i];
       elements.push(
-        <Pressable
-          key={`${card.id}-${i}-large`}
-          className="mb-3 w-full overflow-hidden rounded-2xl bg-[#0a1535]"
-          onPress={() => onCardPress?.(card)}
-        >
-          <View className="relative h-52 w-full">
-            <Image source={card.image} resizeMode="cover" className="h-full w-full" />
-            <View className="absolute inset-0 bg-black/20" />
-            {card.deal ? <DealTag /> : null}
-            <View className="absolute bottom-0 left-0 right-0 p-3">
-              <View className="rounded-xl bg-black/50 px-3 py-2">
-                <Text className="text-lg font-semibold text-white" numberOfLines={1}>
-                  {card.title}
-                </Text>
-                <Text className="mt-0.5 text-xs text-white/80" numberOfLines={2}>
-                  {card.kortbeskrivning || 'Upptäck detta företag och deras erbjudanden.'}
-                </Text>
+          <View
+            key={`${card.id}-${i}-large-shadow`}
+            style={{
+              shadowColor: '#000',
+              shadowOpacity: theme.isDark ? 0.22 : 0.14,
+              shadowRadius: theme.isDark ? 14 : 12,
+              shadowOffset: { width: 0, height: theme.isDark ? 8 : 6 },
+              elevation: theme.isDark ? 6 : 4,
+            }}
+          >
+            <Pressable
+              key={`${card.id}-${i}-large`}
+              className="mb-3 w-full overflow-hidden rounded-2xl"
+              style={{
+                backgroundColor: theme.cardBg,
+                borderWidth: 1,
+                borderColor: theme.isDark ? theme.border : 'rgba(255,255,255,0.60)',
+              }}
+              onPress={() => onCardPress?.(card)}
+            >
+              <View className="relative h-52 w-full">
+                <Image source={card.image} resizeMode="cover" className="h-full w-full" />
+                <View className="absolute inset-0 bg-black/20" />
+                {card.deal ? <DealTag /> : null}
+                <View className="absolute bottom-0 left-0 right-0 p-3">
+                  <View className="rounded-xl bg-black/50 px-3 py-2">
+                    <Text className="text-lg font-semibold" style={{ color: theme.text }} numberOfLines={1}>
+                      {card.title}
+                    </Text>
+                    <Text className="mt-0.5 text-xs" style={{ color: theme.textMuted }} numberOfLines={2}>
+                      {card.kortbeskrivning || 'Upptäck detta företag och deras erbjudanden.'}
+                    </Text>
+                  </View>
+                </View>
               </View>
-            </View>
+            </Pressable>
           </View>
-        </Pressable>
       );
       i += 1;
       smallCount = 0;
@@ -1261,28 +1435,60 @@ function CardGrid({ cards, onCardPress }: { cards: CardItem[]; onCardPress?: (ca
 
     elements.push(
       <View key={`row-${i}`} className="mb-3 flex-row gap-3">
-        <Pressable
-          className="flex-1 overflow-hidden rounded-2xl bg-[#0a1535]"
-          onPress={() => onCardPress?.(left)}
+        <View
+          style={{
+            flex: 1,
+            shadowColor: '#000',
+            shadowOpacity: theme.isDark ? 0.22 : 0.14,
+            shadowRadius: theme.isDark ? 14 : 12,
+            shadowOffset: { width: 0, height: theme.isDark ? 8 : 6 },
+            elevation: theme.isDark ? 6 : 4,
+          }}
         >
-          <View className="relative h-28 w-full">
-            <Image source={left.image} resizeMode="cover" className="h-full w-full" />
-            {left.deal ? <DealTag /> : null}
-          </View>
-          <Text className="px-2 py-2 text-sm text-white" numberOfLines={1}>{left.title}</Text>
-        </Pressable>
-
-        {right ? (
           <Pressable
-            className="flex-1 overflow-hidden rounded-2xl bg-[#0a1535]"
-            onPress={() => onCardPress?.(right)}
+            className="flex-1 overflow-hidden rounded-2xl"
+            style={{
+              backgroundColor: theme.cardBg,
+              borderWidth: 1,
+              borderColor: theme.isDark ? theme.border : 'rgba(255,255,255,0.60)',
+            }}
+            onPress={() => onCardPress?.(left)}
           >
             <View className="relative h-28 w-full">
-              <Image source={right.image} resizeMode="cover" className="h-full w-full" />
-              {right.deal ? <DealTag /> : null}
+              <Image source={left.image} resizeMode="cover" className="h-full w-full" />
+              {left.deal ? <DealTag /> : null}
             </View>
-            <Text className="px-2 py-2 text-sm text-white" numberOfLines={1}>{right.title}</Text>
+            <Text className="px-2 py-2 text-sm" style={{ color: theme.text }} numberOfLines={1}>{left.title}</Text>
           </Pressable>
+        </View>
+
+        {right ? (
+          <View
+            style={{
+              flex: 1,
+              shadowColor: '#000',
+              shadowOpacity: theme.isDark ? 0.22 : 0.14,
+              shadowRadius: theme.isDark ? 14 : 12,
+              shadowOffset: { width: 0, height: theme.isDark ? 8 : 6 },
+              elevation: theme.isDark ? 6 : 4,
+            }}
+          >
+            <Pressable
+              className="flex-1 overflow-hidden rounded-2xl"
+              style={{
+                backgroundColor: theme.cardBg,
+                borderWidth: 1,
+                borderColor: theme.isDark ? theme.border : 'rgba(255,255,255,0.60)',
+              }}
+              onPress={() => onCardPress?.(right)}
+            >
+              <View className="relative h-28 w-full">
+                <Image source={right.image} resizeMode="cover" className="h-full w-full" />
+                {right.deal ? <DealTag /> : null}
+              </View>
+              <Text className="px-2 py-2 text-sm" style={{ color: theme.text }} numberOfLines={1}>{right.title}</Text>
+            </Pressable>
+          </View>
         ) : (
           <View className="flex-1" />
         )}

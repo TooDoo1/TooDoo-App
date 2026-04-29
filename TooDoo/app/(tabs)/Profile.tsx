@@ -27,6 +27,13 @@ export default function ProfileScreen() {
 	const { signOut, token } = useAuth();
 	const { mode, setMode } = useThemePreference();
 	const theme = uiTheme(mode);
+	const boxShadowStyle = {
+		shadowColor: theme.isDark ? 'rgba(0,0,0,0.65)' : 'rgba(0,0,0,0.25)',
+		shadowOffset: { width: 0, height: theme.isDark ? 10 : 6 },
+		shadowOpacity: theme.isDark ? 0.35 : 0.14,
+		shadowRadius: theme.isDark ? 18 : 12,
+		elevation: theme.isDark ? 12 : 7,
+	};
 
 	const [profile, setProfile] = useState<UserProfile | null>(null);
 	const [isLoading, setIsLoading] = useState(true);
@@ -134,7 +141,7 @@ export default function ProfileScreen() {
 					</View>
 				) : (
 					<>
-						<View className="mt-8 rounded-2xl px-4 py-5" style={{ backgroundColor: theme.cardBg }}>
+						<View className="mt-8 rounded-2xl px-4 py-5" style={[{ backgroundColor: theme.cardBg }, boxShadowStyle]}>
 							<View className="flex-row items-center justify-between">
 								<Text className="text-lg font-semibold" style={{ color: theme.text }}>Kontouppgifter</Text>
 								{!isEditing ? (
@@ -192,7 +199,7 @@ export default function ProfileScreen() {
 													onPress={() => setGender(option.value)}
 													className={`flex-1 rounded-2xl px-3 py-3 ${idx < GENDER_OPTIONS.length - 1 ? 'mr-2' : ''}`}
 													style={{
-														backgroundColor: active ? theme.primary : theme.cardBgMuted,
+														backgroundColor: active ? theme.accentGreen : theme.cardBgMuted,
 														borderWidth: active ? 0 : 1,
 														borderColor: theme.border,
 													}}
@@ -215,9 +222,12 @@ export default function ProfileScreen() {
 											<Text className="text-center font-medium" style={{ color: theme.text }}>Avbryt</Text>
 										</Pressable>
 										<Pressable
-											className={`flex-1 rounded-2xl px-4 py-3 ${isSaving ? 'bg-[#007AFF]/40' : 'bg-[#007AFF]'}`}
+											className="flex-1 rounded-2xl px-4 py-3"
 											onPress={handleSave}
 											disabled={isSaving}
+											style={{
+												backgroundColor: isSaving ? 'rgba(186, 219, 194, 0.40)' : theme.accentGreen,
+											}}
 										>
 											<Text className="text-center font-medium text-white">
 												{isSaving ? 'Sparar...' : 'Spara'}
@@ -228,7 +238,7 @@ export default function ProfileScreen() {
 							)}
 						</View>
 
-						<View className="mt-4 rounded-2xl px-4 py-5" style={{ backgroundColor: theme.cardBg }}>
+						<View className="mt-4 rounded-2xl px-4 py-5" style={[{ backgroundColor: theme.cardBg }, boxShadowStyle]}>
 							<View className="flex-row items-center justify-between">
 								<View className="flex-1 pr-3">
 									<Text className="text-lg font-semibold" style={{ color: theme.text }}>Notiser</Text>
@@ -245,7 +255,7 @@ export default function ProfileScreen() {
 							</View>
 						</View>
 
-						<View className="mt-4 rounded-2xl px-4 py-5" style={{ backgroundColor: theme.cardBg }}>
+						<View className="mt-4 rounded-2xl px-4 py-5" style={[{ backgroundColor: theme.cardBg }, boxShadowStyle]}>
 							<View className="flex-row items-center justify-between">
 								<View className="flex-1 pr-3">
 									<Text className="text-lg font-semibold" style={{ color: theme.text }}>Ljust läge</Text>
@@ -254,13 +264,13 @@ export default function ProfileScreen() {
 								<Switch
 									value={isLightMode}
 									onValueChange={(next) => setMode(next ? 'light' : 'dark')}
-									trackColor={{ false: '#3a3a3c', true: '#007AFF' }}
+									trackColor={{ false: '#3a3a3c', true: theme.accentGreen }}
 									thumbColor="#ffffff"
 								/>
 							</View>
 						</View>
 
-						<View className="mt-4 rounded-2xl bg-[#0a1535] px-4 py-5">
+						<View className="mt-4 rounded-2xl px-4 py-5" style={[{ backgroundColor: theme.cardBg }, boxShadowStyle]}>
 							<Pressable
 								className="rounded-2xl bg-[#ff3b30] px-4 py-3"
 								onPress={() => {
@@ -268,7 +278,12 @@ export default function ProfileScreen() {
 									router.replace('/(tabs)/Loggain');
 								}}
 							>
-								<Text className="text-center font-medium text-white">Logga ut</Text>
+								<Text
+									className="text-center font-medium"
+									style={{ color: theme.isDark ? '#ffffff' : theme.text }}
+								>
+									Logga ut
+								</Text>
 							</Pressable>
 						</View>
 					</>
