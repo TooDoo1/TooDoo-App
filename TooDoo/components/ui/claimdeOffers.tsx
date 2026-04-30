@@ -1,8 +1,9 @@
-import { Animated, Dimensions, Image, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { Animated, Dimensions, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import QRCodeSVG from 'react-native-qrcode-svg';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { uiTheme } from '@/lib/ui-theme';
+import { CardMedia } from '@/components/ui/card-media';
 
 export type ClaimedOfferItem = {
 	id: string;
@@ -189,10 +190,10 @@ export default function ClaimedOffers({ items, scrollEnabled = true }: Props) {
 											/>
 										</View>
 									) : (
-										<Image
+										<CardMedia
 											source={{ uri: item.imageUri ?? `https://picsum.photos/seed/${encodeURIComponent(item.id)}/240/240` }}
-											className="h-full w-full"
-											resizeMode="cover"
+											rasterResizeMode="cover"
+											svgContain
 										/>
 									)}
 								</View>
@@ -280,10 +281,10 @@ export default function ClaimedOffers({ items, scrollEnabled = true }: Props) {
 											/>
 										</View>
 									) : (
-										<Image
+										<CardMedia
 											source={{ uri: item.imageUri ?? `https://picsum.photos/seed/${encodeURIComponent(item.id)}/240/240` }}
-											className="h-full w-full"
-											resizeMode="cover"
+											rasterResizeMode="cover"
+											svgContain
 										/>
 									)}
 								</View>
@@ -374,14 +375,14 @@ export default function ClaimedOffers({ items, scrollEnabled = true }: Props) {
 												/>
 											</View>
 										) : (
-											<Image
+											<CardMedia
 												source={{
 													uri:
 														selectedItem.imageUri ??
 														`https://picsum.photos/seed/${encodeURIComponent(selectedItem.id)}/240/240`,
 												}}
-												className="h-full w-full"
-												resizeMode="cover"
+												rasterResizeMode="cover"
+												svgContain
 											/>
 										)}
 									</View>

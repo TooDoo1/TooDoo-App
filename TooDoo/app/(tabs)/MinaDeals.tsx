@@ -10,6 +10,17 @@ import { StarrySkyScreenBackground } from '@/components/ui/starry-background';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { uiTheme } from '@/lib/ui-theme';
 
+function normalizeImageUrl(raw?: unknown) {
+	if (typeof raw !== 'string') return undefined;
+	const trimmed = raw.trim();
+	if (!trimmed) return undefined;
+	if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+	if (trimmed.startsWith('//')) return `https:${trimmed}`;
+	// Backend may return relative file paths like "/uploads/..."
+	if (trimmed.startsWith('/')) return apiUrl(trimmed);
+	return apiUrl(`/${trimmed}`);
+}
+
 type ApiOrder = {
 	id?: string;
 	_id?: string;
@@ -18,6 +29,8 @@ type ApiOrder = {
 	orderTimeTo?: string;
 	orderTimeFrom?: string;
 	validTo?: string;
+	imageSourceType?: string;
+	imageUrl?: string;
 	businessId?: string | { id?: string; _id?: string; name?: string };
 };
 
@@ -275,7 +288,19 @@ export default function MinaDealsScreen() {
 					title: embeddedOrder?.title ?? 'Erbjudande',
 					descriptionText: embeddedOrder?.description,
 					businessName,
-					imageUri: `https://picsum.photos/seed/${encodeURIComponent(orderId ?? `claim-${index}`)}/240/240`,
+					imageUri:
+						normalizeImageUrl(
+							(embeddedOrder as any)?.imageUrl ??
+								(embeddedOrder as any)?.imageAsset?.publicUrl ??
+								(embeddedOrder as any)?.imageAsset?.url ??
+								(embeddedOrder as any)?.image?.publicUrl ??
+								(embeddedOrder as any)?.image?.url ??
+								(claim as any)?.imageUrl ??
+								(claim as any)?.imageAsset?.publicUrl ??
+								(claim as any)?.imageAsset?.url ??
+								(claim as any)?.image?.publicUrl ??
+								(claim as any)?.image?.url
+						) || `https://picsum.photos/seed/${encodeURIComponent(orderId ?? `claim-${index}`)}/240/240`,
 					priceText: embeddedOrder?.price !== undefined ? `${embeddedOrder.price} kr` : undefined,
 					originalPriceText: embeddedOrder?.originalPrice !== undefined ? `${embeddedOrder.originalPrice} kr` : undefined,
 					claimedAtText: claimedAt && Number.isFinite(claimedAt.getTime()) ? claimedAt.toLocaleDateString('sv-SE') : undefined,

@@ -22,6 +22,7 @@ import { useAuth } from "@/context/auth-context";
 import { apiUrl } from "@/lib/api";
 import { useThemePreference } from "@/context/theme-preference-context";
 import { uiTheme } from "@/lib/ui-theme";
+import { CardMedia } from "@/components/ui/card-media";
 
 const skanetrafikenLogo = require("../../assets/images/Skanetrafiken.png");
 const voiLogo = require("../../assets/images/Voi.png");
@@ -30,6 +31,16 @@ const uberLogo = require("../../assets/images/Uber.png");
 const localImagesById: Record<string, ImageSourcePropType> = {
   "event-3": require("../../assets/images/testbild.jpg"),
 };
+
+function normalizeImageUrl(raw?: unknown) {
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
+  if (trimmed.startsWith("//")) return `https:${trimmed}`;
+  if (trimmed.startsWith("/")) return apiUrl(trimmed);
+  return apiUrl(`/${trimmed}`);
+}
 
 export default function ErbjudandenScreen() {
   const router = useRouter();
@@ -42,6 +53,7 @@ export default function ErbjudandenScreen() {
   const [nowMs, setNowMs] = useState(Date.now());
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [claimSuccess, setClaimSuccess] = useState<{ title?: string; qrCode?: string } | null>(null);
+  const [orderImageUriById, setOrderImageUriById] = useState<Record<string, string>>({});
   const {
     mapResetNonce,
     id,
@@ -152,6 +164,86 @@ export default function ErbjudandenScreen() {
     inputRange: [-1, 1],
     outputRange: ["-2deg", "2deg"],
   });
+
+  useEffect(() => {
+    const businessId = claimBusinessIdText || businessIdFromIdParam;
+    if (!businessId) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await fetch(apiUrl(`/business/${encodeURIComponent(businessId)}`));
+        const json = await res.json().catch(() => ({}));
+
+        const businessObj = (json as any)?.business ?? (json as any);
+        const ordersRaw =
+          (Array.isArray(businessObj?.activeOrders) && businessObj.activeOrders) ||
+          (Array.isArray(businessObj?.orders) && businessObj.orders) ||
+          (Array.isArray(businessObj?.active_orders) && businessObj.active_orders) ||
+          (Array.isArray((json as any)?.activeOrders) && (json as any).activeOrders) ||
+          (Array.isArray((json as any)?.orders) && (json as any).orders) ||
+          [];
+
+        const next: Record<string, string> = {};
+        ordersRaw.forEach((order: any) => {
+          const orderId = String(
+            order?.id ??
+              order?._id ??
+              order?.orderId ??
+              order?.order?.id ??
+              order?.order?._id ??
+              ""
+          );
+          if (!orderId) return;
+          const raw =
+            order?.imageUrl ??
+            order?.imageAsset?.publicUrl ??
+            order?.imageAsset?.url ??
+            order?.image?.publicUrl ??
+            order?.image?.url;
+          const normalized = normalizeImageUrl(raw);
+          if (normalized) next[orderId] = normalized;
+        });
+
+        // If the business payload doesn't contain the images for all orderIds, hydrate missing ones
+        // using the canonical endpoint: GET /orders/:orderId
+        const missingOfferIds = offerOrderIds
+          .map((x) => String(x))
+          .filter((id) => id && !next[id])
+          .slice(0, 25);
+
+        if (missingOfferIds.length > 0) {
+          await Promise.all(
+            missingOfferIds.map(async (orderId) => {
+              try {
+                const orderRes = await fetch(apiUrl(`/orders/${encodeURIComponent(orderId)}`));
+                const orderJson = await orderRes.json().catch(() => ({}));
+                const orderObj = (orderJson as any)?.order ?? (orderJson as any);
+                const raw =
+                  orderObj?.imageUrl ??
+                  orderObj?.imageAsset?.publicUrl ??
+                  orderObj?.imageAsset?.url ??
+                  orderObj?.image?.publicUrl ??
+                  orderObj?.image?.url;
+                const normalized = normalizeImageUrl(raw);
+                if (normalized) next[orderId] = normalized;
+              } catch {
+                // ignore per-order failures
+              }
+            })
+          );
+        }
+
+        if (!cancelled) setOrderImageUriById(next);
+      } catch {
+        if (!cancelled) setOrderImageUriById({});
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [claimBusinessIdText, businessIdFromIdParam, offerOrderIds]);
 
   const offers = useMemo(() => {
     const maxLength = Math.max(
@@ -635,7 +727,7 @@ export default function ErbjudandenScreen() {
     >
       {imageSource ? (
         <View className="relative h-72 w-full overflow-hidden rounded-xl">
-          <Image source={imageSource} className="h-full w-full" />
+          {imageSource ? <CardMedia source={imageSource} rasterResizeMode="cover" svgContain /> : null}
           <LinearGradient
             colors={mode === "dark" ? ["rgba(0, 11, 42, 0)", "#000b2a"] : ["rgba(245, 247, 255, 0)", "#f5f7ff"]}
             start={{ x: 0, y: 0 }}
@@ -701,7 +793,16 @@ export default function ErbjudandenScreen() {
               <View key={offer.id} className="mr-3 w-[320px] rounded-2xl p-4" style={{ backgroundColor: theme.cardBg }}>
                 <View className="flex-row gap-3">
                   <View className="relative h-28 w-28 overflow-hidden rounded-xl" style={{ backgroundColor: theme.cardBgMuted }}>
-                    {imageSource ? <Image source={imageSource} className="h-full w-full" /> : null}
+                    {(() => {
+                      const orderId = offer.orderId ? String(offer.orderId) : '';
+                      const offerImageUri = orderId ? orderImageUriById[orderId] : undefined;
+                      const offerImageSource = offerImageUri
+                        ? ({ uri: offerImageUri } as const)
+                        : imageSource;
+                      return offerImageSource ? (
+                        <CardMedia source={offerImageSource} rasterResizeMode="cover" svgContain />
+                      ) : null;
+                    })()}
                     <LinearGradient
                       colors={["rgba(0, 11, 42, 0)", "rgba(0, 11, 42, 0.9)"]}
                       start={{ x: 0, y: 0 }}

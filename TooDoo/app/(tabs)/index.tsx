@@ -27,6 +27,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StarrySkyScreenBackground } from '@/components/ui/starry-background';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { uiTheme } from '@/lib/ui-theme';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { CardMedia } from '@/components/ui/card-media';
 
 const ALL_CATEGORIES_ID = 'all';
 const OFFERS_CATEGORY_ID = 'offers';
@@ -80,6 +82,8 @@ type ApiBusiness = {
   website?: string;
   address?: string;
   city?: string;
+  imageSourceType?: string;
+  imageUrl?: string;
   categoryId?: string;
   categoryName?: string;
   status?: string;
@@ -92,6 +96,8 @@ type ApiOrder = {
   title?: string;
   price?: number;
   originalPrice?: number;
+  imageSourceType?: string;
+  imageUrl?: string;
   maxRedemptions?: number;
   claimedCount?: number;
   orderTimeFrom?: string;
@@ -99,6 +105,21 @@ type ApiOrder = {
   validTo?: string;
   businessId?: string | { id?: string; _id?: string };
 };
+
+function normalizeImageUrl(raw?: unknown) {
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+  if (trimmed.startsWith('//')) return `https:${trimmed}`;
+  // Backend may return relative file paths like "/uploads/..."
+  if (trimmed.startsWith('/')) return apiUrl(trimmed);
+  return apiUrl(`/${trimmed}`);
+}
+
+function isLikelyPicsumUrl(uri: string) {
+  return uri.includes('picsum.photos/');
+}
 
 const sliderImages = [
   'https://picsum.photos/id/1011/800/400',
@@ -400,6 +421,28 @@ export default function HomeScreen() {
           (business) => (business.status ?? 'APPROVED').toUpperCase() === 'APPROVED'
         );
 
+        // Mirror the portal behavior: if the backend doesn't return `imageUrl` consistently,
+        // fall back to the last known value per business id from local storage.
+        const businessImageCacheKey = (businessId: string) => `toodoo_business_image_url_${businessId}`;
+        const approvedBusinessIds = approvedBusinesses.map(
+          (b, i) => String(b.id ?? b._id ?? `business-${i}`)
+        );
+
+        const cachedImageUrlByBusinessId = new Map<string, string>();
+        try {
+          const cachedPairs = await AsyncStorage.multiGet(
+            approvedBusinessIds.map((id) => businessImageCacheKey(id))
+          );
+          cachedPairs.forEach(([key, value]) => {
+            if (!value) return;
+            const match = key.match(/^toodoo_business_image_url_(.+)$/);
+            const id = match?.[1];
+            if (id) cachedImageUrlByBusinessId.set(id, value);
+          });
+        } catch {
+          // ignore cache read errors
+        }
+
         const cards: CardItem[] = approvedBusinesses.map((business, index) => {
           const businessId = business.id ?? business._id ?? `business-${index}`;
           const businessOrders = ordersByBusinessId.get(businessId) ?? [];
@@ -419,11 +462,56 @@ export default function HomeScreen() {
           const offerClaimed = visibleOrders.map((order) => String(order.claimedCount ?? 0));
           const offerAmount = visibleOrders.map((order) => String(order.maxRedemptions ?? 0));
           const offerEnd = visibleOrders.map((order) => order.orderTimeTo ?? order.validTo ?? '');
+          const firstVisibleOrder = visibleOrders[0] as any | undefined;
+
+          const cachedBusinessImageUrl = cachedImageUrlByBusinessId.get(String(businessId));
+          const effectiveBusinessImageUrl =
+            typeof business.imageUrl === 'string' && business.imageUrl.trim()
+              ? business.imageUrl
+              : typeof (business as any)?.image?.publicUrl === 'string' && (business as any).image.publicUrl.trim()
+                ? (business as any).image.publicUrl
+              : cachedBusinessImageUrl;
+
+          const imageCandidateRaw =
+            effectiveBusinessImageUrl ??
+            (business as any).imageUri ??
+            (business as any).imageURI ??
+            (business as any).image ??
+            (business as any).imagePath ??
+            (business as any).imageKey ??
+            (business as any).thumbnailUrl ??
+            (business as any).thumbnail?.url ??
+            (business as any).logoUrl ??
+            (business as any).logo?.url ??
+            (business as any).logo ??
+            (business as any).photoUrl ??
+            (business as any).pictureUrl ??
+            (business as any).mediaUrl ??
+            (business as any).media?.url ??
+            (business as any).image?.url ??
+            (business as any).image?.publicUrl ??
+            // If businesses don't carry an image, fall back to the first active order image.
+            firstVisibleOrder?.imageUrl ??
+            firstVisibleOrder?.imageURI ??
+            firstVisibleOrder?.imageUri ??
+            firstVisibleOrder?.image ??
+            firstVisibleOrder?.imagePath ??
+            firstVisibleOrder?.photoUrl ??
+            firstVisibleOrder?.thumbnailUrl ??
+            firstVisibleOrder?.image?.url ??
+            firstVisibleOrder?.image?.publicUrl ??
+            // Sometimes image is an array of URLs.
+            (Array.isArray((business as any).images) ? (business as any).images[0] : undefined);
+
+          const normalizedImageUri = normalizeImageUrl(imageCandidateRaw);
 
           return {
             id: businessId,
             title: business.name ?? 'Okänd verksamhet',
-            image: { uri: `https://picsum.photos/seed/${encodeURIComponent(businessId)}/300/200` },
+            image: {
+              uri:
+                normalizedImageUri ?? `https://picsum.photos/seed/${encodeURIComponent(businessId)}/300/200`,
+            },
             categoryId:
               business.categoryId,
             categoryName: business.categoryName ?? (business.categoryId ? categoryNameById.get(business.categoryId) : undefined),
@@ -444,6 +532,29 @@ export default function HomeScreen() {
             erbjudandelängd: offerEnd,
           };
         });
+
+        // Update cache with any `imageUrl` we did receive from the backend.
+        try {
+          const toCache: [string, string][] = approvedBusinesses
+            .map((business, index) => {
+              const businessId = String(business.id ?? business._id ?? `business-${index}`);
+              const url =
+                typeof business.imageUrl === 'string'
+                  ? business.imageUrl.trim()
+                  : typeof (business as any)?.image?.publicUrl === 'string'
+                    ? String((business as any).image.publicUrl).trim()
+                    : '';
+              if (!url) return null;
+              return [businessImageCacheKey(businessId), url] as [string, string];
+            })
+            .filter((pair): pair is [string, string] => Boolean(pair));
+
+          if (toCache.length > 0) {
+            await AsyncStorage.multiSet(toCache);
+          }
+        } catch {
+          // ignore cache write errors
+        }
 
         const dealsList = cards.filter((card) => card.deal);
         const shuffledBusinesses = [...cards].sort(() => Math.random() - 0.5);
@@ -466,6 +577,74 @@ export default function HomeScreen() {
             featuredList.length > 0 ? featuredList.length * Math.floor(FEATURED_REPEAT_COUNT / 2) : 0;
           setSections(filteredSections);
         }
+
+        // If list endpoint omits `imageUrl`, hydrate missing images by fetching the portal-like
+        // details endpoint `GET /business/:id` in the background, then cache + update UI.
+        void (async () => {
+          const needsHydrationIds = approvedBusinesses
+            .map((business, index) => String(business.id ?? business._id ?? `business-${index}`))
+            .filter((id) => {
+              const cached = cachedImageUrlByBusinessId.get(id);
+              if (cached && cached.trim()) return false;
+              const card = cards.find((c) => String(c.id) === id);
+              const uri =
+                typeof card?.image === 'object' && card.image && 'uri' in card.image
+                  ? String((card.image as any).uri ?? '')
+                  : '';
+              // Only hydrate ones that are clearly still using placeholder picsum.
+              return uri ? isLikelyPicsumUrl(uri) : true;
+            })
+            .slice(0, 25); // keep it bounded
+
+          if (needsHydrationIds.length === 0) return;
+
+          const fetchedPairs: [string, string][] = [];
+
+          for (const id of needsHydrationIds) {
+            if (cancelled) return;
+            try {
+              const res = await fetch(apiUrl(`/business/${encodeURIComponent(id)}`));
+              const json = await res.json().catch(() => ({}));
+              const imageUrlRaw =
+                (json as any)?.imageUrl ??
+                (json as any)?.image?.publicUrl ??
+                (json as any)?.image?.url ??
+                (json as any)?.business?.imageUrl ??
+                (json as any)?.business?.image?.publicUrl ??
+                (json as any)?.business?.image?.url ??
+                (Array.isArray((json as any)?.images) ? (json as any).images[0] : undefined);
+
+              const normalized = normalizeImageUrl(imageUrlRaw);
+              if (!normalized) continue;
+
+              fetchedPairs.push([businessImageCacheKey(id), normalized]);
+
+              if (!cancelled) {
+                const patchCardImage = (prev: CardItem[]) =>
+                  prev.map((c) =>
+                    String(c.id) === id
+                      ? { ...c, image: { uri: normalized } }
+                      : c
+                  );
+                setDeals(patchCardImage);
+                setFeaturedBusinesses(patchCardImage);
+                setSections((prev) =>
+                  prev.map((section) => ({ ...section, cards: patchCardImage(section.cards) }))
+                );
+              }
+            } catch {
+              // ignore per-business fetch failures
+            }
+          }
+
+          try {
+            if (fetchedPairs.length > 0) {
+              await AsyncStorage.multiSet(fetchedPairs);
+            }
+          } catch {
+            // ignore cache write errors
+          }
+        })();
       } catch {
         if (!cancelled) {
           setCategoryFilters([]);
@@ -807,15 +986,16 @@ export default function HomeScreen() {
                         onPress={() => handleNearbyCardPress(biz)}
                       >
                         <Animated.View
-                          className="relative w-full"
                           style={{
+                            position: 'relative',
+                            width: '100%',
                             height: nearbyAnim.interpolate({
                               inputRange: [0, 1],
                               outputRange: [96, 144],
                             }),
                           }}
                         >
-                          <Image source={biz.image} resizeMode="cover" className="h-full w-full" />
+                          <CardMedia source={biz.image} />
                           <View className="absolute inset-0 bg-black/25" />
                           <View
                             className="absolute left-2 top-2 rounded-full px-2 py-1"
@@ -891,9 +1071,11 @@ export default function HomeScreen() {
                                 }}
                               >
                                 <Animated.Text
-                                  className="mt-1 text-[11px]"
                                   numberOfLines={2}
                                   style={{
+                                    marginTop: 4,
+                                    fontSize: 11,
+                                    color: theme.textMuted,
                                     transform: [
                                       {
                                         translateY: nearbyAnim.interpolate({
@@ -971,15 +1153,16 @@ export default function HomeScreen() {
                             onPress={() => handleHotCardPress(card)}
                           >
                           <Animated.View
-                            className="relative w-full"
                             style={{
+                              position: 'relative',
+                              width: '100%',
                               height: hotAnim.interpolate({
                                 inputRange: [0, 1],
                                 outputRange: [128, 176],
                               }),
                             }}
                           >
-                          <Image source={card.image} resizeMode="cover" className="h-full w-full" />
+                          <CardMedia source={card.image} />
                           <View className="absolute inset-0 bg-black/20" />
                           {card.deal ? <DealTag /> : null}
                           <LinearGradient
@@ -1066,15 +1249,16 @@ export default function HomeScreen() {
                           onPress={() => handleEndingSoonCardPress(card)}
                         >
                         <Animated.View
-                          className="relative w-full"
                           style={{
+                            position: 'relative',
+                            width: '100%',
                             height: endingSoonAnim.interpolate({
                               inputRange: [0, 1],
                               outputRange: [88, 140],
                             }),
                           }}
                         >
-                          <Image source={card.image} resizeMode="cover" className="h-full w-full" />
+                          <CardMedia source={card.image} />
                           <View className="absolute inset-0 bg-black/20" />
                           {card.deal ? <DealTag /> : null}
                           <LinearGradient
@@ -1112,10 +1296,11 @@ export default function HomeScreen() {
                               }}
                             >
                               <Animated.Text
-                                className="mt-0.5 text-[11px]"
                                 numberOfLines={2}
                                 // keep a small slide-in while respecting themed text color
                                 style={{
+                                  marginTop: 2,
+                                  fontSize: 11,
                                   color: theme.textMuted,
                                   transform: [
                                     {
@@ -1319,7 +1504,7 @@ function CardRow({ cards, onCardPress, enlarged }: { cards: CardItem[]; onCardPr
                 onPress={() => onCardPress?.(card)}
               >
               <View className="relative h-44 w-full">
-                <Image source={card.image} resizeMode="cover" className="h-full w-full" />
+                <CardMedia source={card.image} />
                 <View className="absolute inset-0 bg-black/20" />
                 {card.deal ? <DealTag /> : null}
                 <View className="absolute bottom-0 left-0 right-0 p-3">
@@ -1364,7 +1549,7 @@ function CardRow({ cards, onCardPress, enlarged }: { cards: CardItem[]; onCardPr
               onPress={() => onCardPress?.(card)}
             >
               <View className="relative h-28 w-full">
-                <Image source={card.image} resizeMode="cover" className="h-full w-full" />
+                <CardMedia source={card.image} />
                 {card.deal ? <DealTag /> : null}
               </View>
               <Text className="px-2 py-2 text-sm" style={{ color: theme.text }}>{card.title}</Text>
@@ -1408,7 +1593,7 @@ function CardGrid({ cards, onCardPress }: { cards: CardItem[]; onCardPress?: (ca
               onPress={() => onCardPress?.(card)}
             >
               <View className="relative h-52 w-full">
-                <Image source={card.image} resizeMode="cover" className="h-full w-full" />
+                <CardMedia source={card.image} />
                 <View className="absolute inset-0 bg-black/20" />
                 {card.deal ? <DealTag /> : null}
                 <View className="absolute bottom-0 left-0 right-0 p-3">
@@ -1455,7 +1640,7 @@ function CardGrid({ cards, onCardPress }: { cards: CardItem[]; onCardPress?: (ca
             onPress={() => onCardPress?.(left)}
           >
             <View className="relative h-28 w-full">
-              <Image source={left.image} resizeMode="cover" className="h-full w-full" />
+              <CardMedia source={left.image} />
               {left.deal ? <DealTag /> : null}
             </View>
             <Text className="px-2 py-2 text-sm" style={{ color: theme.text }} numberOfLines={1}>{left.title}</Text>
@@ -1483,7 +1668,7 @@ function CardGrid({ cards, onCardPress }: { cards: CardItem[]; onCardPress?: (ca
               onPress={() => onCardPress?.(right)}
             >
               <View className="relative h-28 w-full">
-                <Image source={right.image} resizeMode="cover" className="h-full w-full" />
+                <CardMedia source={right.image} />
                 {right.deal ? <DealTag /> : null}
               </View>
               <Text className="px-2 py-2 text-sm" style={{ color: theme.text }} numberOfLines={1}>{right.title}</Text>
@@ -1531,8 +1716,16 @@ function DealTag() {
 
   return (
     <Animated.View
-      className="absolute left-2 top-2 rounded-full bg-[#ff3b30] px-2 py-0.5"
-      style={{ transform: [{ rotate }] }}
+      style={{
+        position: 'absolute',
+        left: 8,
+        top: 8,
+        borderRadius: 999,
+        backgroundColor: '#ff3b30',
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        transform: [{ rotate }],
+      }}
     >
       <Text className="text-[10px] font-medium text-white">Erbjudande</Text>
     </Animated.View>
