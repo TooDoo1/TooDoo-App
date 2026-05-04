@@ -112,7 +112,6 @@ function normalizeImageUrl(raw?: unknown) {
   if (!trimmed) return undefined;
   if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
   if (trimmed.startsWith('//')) return `https:${trimmed}`;
-  // Backend may return relative file paths like "/uploads/..."
   if (trimmed.startsWith('/')) return apiUrl(trimmed);
   return apiUrl(`/${trimmed}`);
 }
@@ -474,9 +473,10 @@ export default function HomeScreen() {
 
           const imageCandidateRaw =
             effectiveBusinessImageUrl ??
+            (business as any)?.image?.publicUrl ??
+            (business as any)?.image?.url ??
             (business as any).imageUri ??
             (business as any).imageURI ??
-            (business as any).image ??
             (business as any).imagePath ??
             (business as any).imageKey ??
             (business as any).thumbnailUrl ??
@@ -488,13 +488,10 @@ export default function HomeScreen() {
             (business as any).pictureUrl ??
             (business as any).mediaUrl ??
             (business as any).media?.url ??
-            (business as any).image?.url ??
-            (business as any).image?.publicUrl ??
             // If businesses don't carry an image, fall back to the first active order image.
             firstVisibleOrder?.imageUrl ??
             firstVisibleOrder?.imageURI ??
             firstVisibleOrder?.imageUri ??
-            firstVisibleOrder?.image ??
             firstVisibleOrder?.imagePath ??
             firstVisibleOrder?.photoUrl ??
             firstVisibleOrder?.thumbnailUrl ??
@@ -584,15 +581,21 @@ export default function HomeScreen() {
           const needsHydrationIds = approvedBusinesses
             .map((business, index) => String(business.id ?? business._id ?? `business-${index}`))
             .filter((id) => {
-              const cached = cachedImageUrlByBusinessId.get(id);
-              if (cached && cached.trim()) return false;
+              // Always fetch latest image if not provided in the bulk list
               const card = cards.find((c) => String(c.id) === id);
               const uri =
                 typeof card?.image === 'object' && card.image && 'uri' in card.image
                   ? String((card.image as any).uri ?? '')
                   : '';
-              // Only hydrate ones that are clearly still using placeholder picsum.
-              return uri ? isLikelyPicsumUrl(uri) : true;
+              
+              // Only skip if we already have a real, non-placeholder image directly from the bulk endpoint (not from cache)
+              const cached = cachedImageUrlByBusinessId.get(id);
+              
+              // If it's a placeholder, we definitely need to hydrate
+              if (!uri || isLikelyPicsumUrl(uri)) return true;
+              
+              // If it came from cache, we should still hydrate in background to get the fresh url
+              return true; 
             })
             .slice(0, 25); // keep it bounded
 
@@ -995,7 +998,7 @@ export default function HomeScreen() {
                             }),
                           }}
                         >
-                          <CardMedia source={biz.image} />
+                          <CardMedia source={biz.image} svgFit="fill" />
                           <View className="absolute inset-0 bg-black/25" />
                           <View
                             className="absolute left-2 top-2 rounded-full px-2 py-1"
@@ -1162,7 +1165,7 @@ export default function HomeScreen() {
                               }),
                             }}
                           >
-                          <CardMedia source={card.image} />
+                          <CardMedia source={card.image} svgFit="fill" />
                           <View className="absolute inset-0 bg-black/20" />
                           {card.deal ? <DealTag /> : null}
                           <LinearGradient
@@ -1258,7 +1261,7 @@ export default function HomeScreen() {
                             }),
                           }}
                         >
-                          <CardMedia source={card.image} />
+                          <CardMedia source={card.image} svgFit="fill" />
                           <View className="absolute inset-0 bg-black/20" />
                           {card.deal ? <DealTag /> : null}
                           <LinearGradient
@@ -1504,7 +1507,7 @@ function CardRow({ cards, onCardPress, enlarged }: { cards: CardItem[]; onCardPr
                 onPress={() => onCardPress?.(card)}
               >
               <View className="relative h-44 w-full">
-                <CardMedia source={card.image} />
+                <CardMedia source={card.image} svgFit="fill" />
                 <View className="absolute inset-0 bg-black/20" />
                 {card.deal ? <DealTag /> : null}
                 <View className="absolute bottom-0 left-0 right-0 p-3">
@@ -1549,7 +1552,7 @@ function CardRow({ cards, onCardPress, enlarged }: { cards: CardItem[]; onCardPr
               onPress={() => onCardPress?.(card)}
             >
               <View className="relative h-28 w-full">
-                <CardMedia source={card.image} />
+                <CardMedia source={card.image} svgFit="fill" />
                 {card.deal ? <DealTag /> : null}
               </View>
               <Text className="px-2 py-2 text-sm" style={{ color: theme.text }}>{card.title}</Text>
@@ -1593,7 +1596,7 @@ function CardGrid({ cards, onCardPress }: { cards: CardItem[]; onCardPress?: (ca
               onPress={() => onCardPress?.(card)}
             >
               <View className="relative h-52 w-full">
-                <CardMedia source={card.image} />
+                <CardMedia source={card.image} svgFit="fill" />
                 <View className="absolute inset-0 bg-black/20" />
                 {card.deal ? <DealTag /> : null}
                 <View className="absolute bottom-0 left-0 right-0 p-3">
@@ -1640,7 +1643,7 @@ function CardGrid({ cards, onCardPress }: { cards: CardItem[]; onCardPress?: (ca
             onPress={() => onCardPress?.(left)}
           >
             <View className="relative h-28 w-full">
-              <CardMedia source={left.image} />
+              <CardMedia source={left.image} svgFit="fill" />
               {left.deal ? <DealTag /> : null}
             </View>
             <Text className="px-2 py-2 text-sm" style={{ color: theme.text }} numberOfLines={1}>{left.title}</Text>
@@ -1668,7 +1671,7 @@ function CardGrid({ cards, onCardPress }: { cards: CardItem[]; onCardPress?: (ca
               onPress={() => onCardPress?.(right)}
             >
               <View className="relative h-28 w-full">
-                <CardMedia source={right.image} />
+                <CardMedia source={right.image} svgFit="fill" />
                 {right.deal ? <DealTag /> : null}
               </View>
               <Text className="px-2 py-2 text-sm" style={{ color: theme.text }} numberOfLines={1}>{right.title}</Text>
