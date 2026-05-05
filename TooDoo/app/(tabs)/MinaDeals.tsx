@@ -5,21 +5,10 @@ import { useFocusEffect } from '@react-navigation/native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useAuth } from '@/context/auth-context';
 import ClaimedOffers, { ConfettiAnimation, type ClaimedOfferItem } from '@/components/ui/claimdeOffers';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, normalizeImageUrl } from '@/lib/api';
 import { StarrySkyScreenBackground } from '@/components/ui/starry-background';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { uiTheme } from '@/lib/ui-theme';
-
-function normalizeImageUrl(raw?: unknown) {
-	if (typeof raw !== 'string') return undefined;
-	const trimmed = raw.trim();
-	if (!trimmed) return undefined;
-	if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
-	if (trimmed.startsWith('//')) return `https:${trimmed}`;
-	// Backend may return relative file paths like "/uploads/..."
-	if (trimmed.startsWith('/')) return apiUrl(trimmed);
-	return apiUrl(`/${trimmed}`);
-}
 
 type ApiOrder = {
 	id?: string;

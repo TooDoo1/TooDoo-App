@@ -19,7 +19,7 @@ import { Button } from "@react-navigation/elements";
 import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import { Image as ExpoImage } from "expo-image";
 import { useAuth } from "@/context/auth-context";
-import { apiUrl } from "@/lib/api";
+import { apiUrl, normalizeImageUrl } from "@/lib/api";
 import { useThemePreference } from "@/context/theme-preference-context";
 import { uiTheme } from "@/lib/ui-theme";
 import { CardMedia } from "@/components/ui/card-media";
@@ -31,16 +31,6 @@ const uberLogo = require("../../assets/images/Uber.png");
 const localImagesById: Record<string, ImageSourcePropType> = {
   "event-3": require("../../assets/images/testbild.jpg"),
 };
-
-function normalizeImageUrl(raw?: unknown) {
-  if (typeof raw !== "string") return undefined;
-  const trimmed = raw.trim();
-  if (!trimmed) return undefined;
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
-  if (trimmed.startsWith("//")) return `https:${trimmed}`;
-  if (trimmed.startsWith("/")) return apiUrl(trimmed);
-  return apiUrl(`/${trimmed}`);
-}
 
 export default function ErbjudandenScreen() {
   const router = useRouter();

@@ -20,7 +20,7 @@ import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppReady } from '@/context/app-ready-context';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, normalizeImageUrl } from '@/lib/api';
 import { useAuth } from '@/context/auth-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -105,16 +105,6 @@ type ApiOrder = {
   validTo?: string;
   businessId?: string | { id?: string; _id?: string };
 };
-
-function normalizeImageUrl(raw?: unknown) {
-  if (typeof raw !== 'string') return undefined;
-  const trimmed = raw.trim();
-  if (!trimmed) return undefined;
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
-  if (trimmed.startsWith('//')) return `https:${trimmed}`;
-  if (trimmed.startsWith('/')) return apiUrl(trimmed);
-  return apiUrl(`/${trimmed}`);
-}
 
 function isLikelyPicsumUrl(uri: string) {
   return uri.includes('picsum.photos/');
@@ -467,12 +457,21 @@ export default function HomeScreen() {
           const effectiveBusinessImageUrl =
             typeof business.imageUrl === 'string' && business.imageUrl.trim()
               ? business.imageUrl
-              : typeof (business as any)?.image?.publicUrl === 'string' && (business as any).image.publicUrl.trim()
-                ? (business as any).image.publicUrl
-              : cachedBusinessImageUrl;
+              : typeof (business as any)?.imageAsset?.publicUrl === 'string' &&
+                  (business as any).imageAsset.publicUrl.trim()
+                ? (business as any).imageAsset.publicUrl
+                : typeof (business as any)?.imageAsset?.url === 'string' &&
+                    (business as any).imageAsset.url.trim()
+                  ? (business as any).imageAsset.url
+                  : typeof (business as any)?.image?.publicUrl === 'string' &&
+                      (business as any).image.publicUrl.trim()
+                    ? (business as any).image.publicUrl
+                    : cachedBusinessImageUrl;
 
           const imageCandidateRaw =
             effectiveBusinessImageUrl ??
+            (business as any)?.imageAsset?.publicUrl ??
+            (business as any)?.imageAsset?.url ??
             (business as any)?.image?.publicUrl ??
             (business as any)?.image?.url ??
             (business as any).imageUri ??
@@ -490,6 +489,8 @@ export default function HomeScreen() {
             (business as any).media?.url ??
             // If businesses don't carry an image, fall back to the first active order image.
             firstVisibleOrder?.imageUrl ??
+            firstVisibleOrder?.imageAsset?.publicUrl ??
+            firstVisibleOrder?.imageAsset?.url ??
             firstVisibleOrder?.imageURI ??
             firstVisibleOrder?.imageUri ??
             firstVisibleOrder?.imagePath ??
@@ -538,9 +539,13 @@ export default function HomeScreen() {
               const url =
                 typeof business.imageUrl === 'string'
                   ? business.imageUrl.trim()
-                  : typeof (business as any)?.image?.publicUrl === 'string'
-                    ? String((business as any).image.publicUrl).trim()
-                    : '';
+                  : typeof (business as any)?.imageAsset?.publicUrl === 'string'
+                    ? String((business as any).imageAsset.publicUrl).trim()
+                    : typeof (business as any)?.imageAsset?.url === 'string'
+                      ? String((business as any).imageAsset.url).trim()
+                      : typeof (business as any)?.image?.publicUrl === 'string'
+                        ? String((business as any).image.publicUrl).trim()
+                        : '';
               if (!url) return null;
               return [businessImageCacheKey(businessId), url] as [string, string];
             })
@@ -610,9 +615,13 @@ export default function HomeScreen() {
               const json = await res.json().catch(() => ({}));
               const imageUrlRaw =
                 (json as any)?.imageUrl ??
+                (json as any)?.imageAsset?.publicUrl ??
+                (json as any)?.imageAsset?.url ??
                 (json as any)?.image?.publicUrl ??
                 (json as any)?.image?.url ??
                 (json as any)?.business?.imageUrl ??
+                (json as any)?.business?.imageAsset?.publicUrl ??
+                (json as any)?.business?.imageAsset?.url ??
                 (json as any)?.business?.image?.publicUrl ??
                 (json as any)?.business?.image?.url ??
                 (Array.isArray((json as any)?.images) ? (json as any).images[0] : undefined);
@@ -992,6 +1001,7 @@ export default function HomeScreen() {
                           style={{
                             position: 'relative',
                             width: '100%',
+                            overflow: 'hidden',
                             height: nearbyAnim.interpolate({
                               inputRange: [0, 1],
                               outputRange: [96, 144],
@@ -1159,6 +1169,7 @@ export default function HomeScreen() {
                             style={{
                               position: 'relative',
                               width: '100%',
+                              overflow: 'hidden',
                               height: hotAnim.interpolate({
                                 inputRange: [0, 1],
                                 outputRange: [128, 176],
@@ -1255,6 +1266,7 @@ export default function HomeScreen() {
                           style={{
                             position: 'relative',
                             width: '100%',
+                            overflow: 'hidden',
                             height: endingSoonAnim.interpolate({
                               inputRange: [0, 1],
                               outputRange: [88, 140],
