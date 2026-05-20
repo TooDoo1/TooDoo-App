@@ -6,6 +6,7 @@ import {
   Dimensions,
   Image,
   ImageSourcePropType,
+  RefreshControl,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -18,9 +19,9 @@ import { Easing } from 'react-native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppReady } from '@/context/app-ready-context';
-import { apiUrl, normalizeImageUrl } from '@/lib/api';
+import { apiUrl } from '@/lib/api';
 import { useAuth } from '@/context/auth-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -33,8 +34,6 @@ import { CardMedia } from '@/components/ui/card-media';
 const ALL_CATEGORIES_ID = 'all';
 const OFFERS_CATEGORY_ID = 'offers';
 const FEATURED_REPEAT_COUNT = 600;
-
-// Starry background extracted to `components/ui/starry-background.tsx`
 
 type CardItem = {
   id: string;
@@ -106,6 +105,241 @@ type ApiOrder = {
   businessId?: string | { id?: string; _id?: string };
 };
 
+function normalizeImageUrl(raw?: unknown) {
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+  if (trimmed.startsWith('//')) return `https:${trimmed}`;
+  if (trimmed.startsWith('/')) return apiUrl(trimmed);
+  return apiUrl(`/${trimmed}`);
+}
+
+function SectionHeader({ title }: { title: string }) {
+  const { mode } = useThemePreference();
+  const theme = uiTheme(mode);
+
+  return (
+    <View className="mb-3 flex-row items-center justify-between">
+      <Text className="text-lg font-semibold" style={{ color: theme.text }}>{title}</Text>
+      <Pressable>
+        <Text style={{ color: theme.textMuted }}>Visa alla</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function PromoCarousel({ images, activeIndex, theme }: { images: string[]; activeIndex: number; theme: ReturnType<typeof uiTheme> }) {
+  const image = images[activeIndex % images.length];
+
+  return (
+    <View>
+      <View className="overflow-hidden rounded-2xl" style={{ backgroundColor: theme.cardBg }}>
+        <View className="relative h-36 w-full">
+          <Image source={{ uri: image }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+          <View className="absolute inset-0 bg-black/30" />
+          <View className="absolute left-4 top-4">
+            <Text className="text-2xl font-semibold" style={{ color: '#ffffff' }}>Sommarens</Text>
+            <Text className="text-2xl font-semibold" style={{ color: '#ffffff' }}>deals</Text>
+            <View className="mt-2 self-start rounded-full bg-[#ff3b30] px-3 py-1">
+              <Text className="text-xs font-semibold text-white">-50%</Text>
+            </View>
+          </View>
+        </View>
+      </View>
+      <View style={styles.dotsRow}>
+        {images.map((_, idx) => (
+          <View key={`promo-dot-${idx}`} style={idx === activeIndex ? styles.dotActive : styles.dot} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function FeaturedHero({ cards, onCardPress }: { cards: CardItem[]; onCardPress?: (card: CardItem) => void }) {
+  const { mode } = useThemePreference();
+  const theme = uiTheme(mode);
+
+  const left = cards[0];
+  const topRight = cards[1];
+  const bottomRight = cards[2];
+
+  if (!left) return null;
+
+  return (
+    <View>
+      <View className="flex-row gap-3">
+        <View style={{ flex: 2 }}>
+          <Pressable
+            className="overflow-hidden rounded-2xl"
+            style={{ backgroundColor: theme.cardBg, borderWidth: 1, borderColor: theme.border }}
+            onPress={() => onCardPress?.(left)}
+          >
+            <View className="relative h-40 w-full">
+              <CardMedia source={left.image} svgFit="fill" />
+              <View className="absolute inset-0 bg-black/20" />
+              <View className="absolute right-2 top-2 h-7 w-7 items-center justify-center rounded-full" style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}>
+                <Ionicons name="heart-outline" size={16} color="#ffffff" />
+              </View>
+              <View className="absolute bottom-0 left-0 right-0 p-3">
+                <View className="rounded-xl bg-black/50 px-3 py-2">
+                  <Text className="text-lg font-semibold" style={{ color: theme.text }} numberOfLines={1}>{left.title}</Text>
+                  <Text className="mt-0.5 text-xs" style={{ color: theme.textMuted }} numberOfLines={2}>
+                    {left.kortbeskrivning || 'Upptäck detta företag och deras erbjudanden.'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </Pressable>
+        </View>
+
+        <View style={{ flex: 1, justifyContent: 'space-between' }}>
+          {topRight ? (
+            <Pressable
+              className="mb-3 overflow-hidden rounded-2xl"
+              style={{
+                position: 'relative',
+                zIndex: 2,
+                elevation: 2,
+                backgroundColor: theme.cardBg,
+                borderWidth: 1,
+                borderColor: theme.border,
+              }}
+              onPress={() => onCardPress?.(topRight)}
+            >
+              <View className="relative h-20 w-full">
+                <CardMedia source={topRight.image} svgFit="fill" />
+                <View className="absolute inset-0 bg-black/20" />
+                <View className="absolute right-2 top-2 h-6 w-6 items-center justify-center rounded-full" style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}>
+                  <Ionicons name="heart-outline" size={14} color="#ffffff" />
+                </View>
+                <View className="absolute bottom-0 left-0 right-0 p-2">
+                  <View className="rounded-xl bg-black/50 px-2 py-1">
+                    <Text className="text-sm font-semibold" style={{ color: theme.text }} numberOfLines={1}>{topRight.title}</Text>
+                  </View>
+                </View>
+              </View>
+            </Pressable>
+          ) : null}
+
+          {bottomRight ? (
+            <Pressable
+              className="overflow-hidden rounded-2xl"
+              style={{
+                position: 'relative',
+                zIndex: 1,
+                elevation: 1,
+                backgroundColor: theme.cardBg,
+                borderWidth: 1,
+                borderColor: theme.border,
+              }}
+              onPress={() => onCardPress?.(bottomRight)}
+            >
+              <View className="relative h-20 w-full">
+                <CardMedia source={bottomRight.image} svgFit="fill" />
+                <View className="absolute inset-0 bg-black/20" />
+                <View className="absolute right-2 top-2 h-6 w-6 items-center justify-center rounded-full" style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}>
+                  <Ionicons name="heart-outline" size={14} color="#ffffff" />
+                </View>
+                <View className="absolute bottom-0 left-0 right-0 p-2">
+                  <View className="rounded-xl bg-black/50 px-2 py-1">
+                    <Text className="text-sm font-semibold" style={{ color: theme.text }} numberOfLines={1}>{bottomRight.title}</Text>
+                  </View>
+                </View>
+              </View>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function UpcomingHighlights({ cards, onCardPress }: { cards: CardItem[]; onCardPress?: (card: CardItem) => void }) {
+  const { mode } = useThemePreference();
+  const theme = uiTheme(mode);
+
+  const items = cards.slice(0, 8);
+
+  const getDateBadge = (card: CardItem) => {
+    const raw = Array.isArray(card.erbjudandelängd) ? card.erbjudandelängd[0] : card.erbjudandelängd;
+    if (!raw) return 'TBA';
+    const date = new Date(raw);
+    if (!Number.isFinite(date.getTime())) return 'TBA';
+    const day = date.getDate();
+    const month = date.toLocaleDateString('sv-SE', { month: 'short' }).toUpperCase();
+    return `${day} ${month}`;
+  };
+
+  if (items.length === 0) {
+    return <Text style={{ color: theme.textMuted }}>Inga kommande hojdpunkter just nu.</Text>;
+  }
+
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 2 }}>
+      <View className="flex-row gap-3 pb-2">
+        {items.map((card, idx) => (
+          <Pressable
+            key={`${card.id}-${idx}-upcoming`}
+            className="overflow-hidden rounded-2xl"
+            style={{
+              // When the cards grow / overlap, keep earlier (left/top) cards above later ones.
+              position: 'relative',
+              zIndex: 1000 - idx,
+              elevation: 1000 - idx,
+              width: 150,
+              backgroundColor: theme.cardBg,
+              borderWidth: 1,
+              borderColor: theme.border,
+            }}
+            onPress={() => onCardPress?.(card)}
+          >
+            <View className="relative h-28 w-full">
+              <CardMedia source={card.image} svgFit="fill" />
+              <View className="absolute inset-0 bg-black/15" />
+              <View className="absolute left-2 top-2 rounded-md bg-white px-2 py-1">
+                <Text className="text-[10px] font-semibold" style={{ color: '#061A47' }}>{getDateBadge(card)}</Text>
+              </View>
+              <View className="absolute right-2 top-2 h-6 w-6 items-center justify-center rounded-full" style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}>
+                <Ionicons name="heart-outline" size={14} color="#ffffff" />
+              </View>
+            </View>
+          </Pressable>
+        ))}
+      </View>
+    </ScrollView>
+  );
+}
+
+function QuickFiltersRow() {
+  const { mode } = useThemePreference();
+  const theme = uiTheme(mode);
+
+  const filters = [
+    { id: 'tonight', label: 'Ikväll', icon: 'time-outline' as const },
+    { id: 'budget', label: 'Under 200 kr', icon: 'cash-outline' as const },
+    { id: 'outdoor', label: 'Utomhus', icon: 'leaf-outline' as const },
+    { id: 'family', label: 'Barnvänligt', icon: 'people-outline' as const },
+  ];
+
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 2 }}>
+      <View className="flex-row gap-3">
+        {filters.map((filter) => (
+          <View
+            key={filter.id}
+            className="flex-row items-center rounded-full px-3 py-2"
+            style={{ backgroundColor: theme.cardBg, borderWidth: 1, borderColor: theme.border }}
+          >
+            <Ionicons name={filter.icon} size={14} color={theme.textMuted} />
+            <Text className="ml-2 text-xs" style={{ color: theme.textMuted }}>{filter.label}</Text>
+          </View>
+        ))}
+      </View>
+    </ScrollView>
+  );
+}
+
 function isLikelyPicsumUrl(uri: string) {
   return uri.includes('picsum.photos/');
 }
@@ -115,6 +349,7 @@ const sliderImages = [
   'https://picsum.photos/id/1015/800/400',
   'https://picsum.photos/id/1016/800/400',
 ];
+const appLogo = require('../../assets/images/BgLogo.png');
 
 export default function HomeScreen() {
   const [sliderIndex, setSliderIndex] = useState(0);
@@ -124,6 +359,8 @@ export default function HomeScreen() {
   const [featuredBusinesses, setFeaturedBusinesses] = useState<CardItem[]>([]);
   const [sections, setSections] = useState<SectionItem[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [firstName, setFirstName] = useState<string | null>(null);
   const [expandedSection, setExpandedSection] = useState<'nearby' | 'hot' | 'endingSoon' | null>(null);
@@ -136,6 +373,8 @@ export default function HomeScreen() {
   const didScrollAfterExpandRef = useRef(false);
   const didOpenCardRef = useRef(false);
   const tabBarHeight = useBottomTabBarHeight();
+  const insets = useSafeAreaInsets();
+  const scrollY = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollView>(null);
   const featuredScrollRef = useRef<any>(null);
   const featuredScrollX = useRef(new Animated.Value(0)).current;
@@ -156,6 +395,23 @@ export default function HomeScreen() {
   const featuredSnapInterval = featuredCardWidth + featuredCardSpacing;
   const featuredSidePadding = Math.max((screenWidth - featuredSnapInterval) / 2, 0);
 
+  // Start the sticky transition only once the top "Hej" header is beginning to scroll away.
+  // This avoids adding safe-area spacing too early (which looks like a big gap).
+  const stickyStartY = Math.max(0, insets.top + 56);
+  const stickyEndY = stickyStartY + 18;
+
+  const stickyBgOpacity = scrollY.interpolate({
+    inputRange: [stickyStartY, stickyEndY],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
+
+
+  const handleRefresh = useCallback(() => {
+    setIsRefreshing(true);
+    setRefreshNonce((prev) => prev + 1);
+  }, []);
+
   useEffect(() => {
     const timer = setInterval(() => {
       setSliderIndex((prev) => (prev + 1) % sliderImages.length);
@@ -169,6 +425,7 @@ export default function HomeScreen() {
       UIManager.setLayoutAnimationEnabledExperimental?.(true);
     }
   }, []);
+
 
   useEffect(() => {
     const run = (value: Animated.Value, toValue: number) => {
@@ -457,21 +714,12 @@ export default function HomeScreen() {
           const effectiveBusinessImageUrl =
             typeof business.imageUrl === 'string' && business.imageUrl.trim()
               ? business.imageUrl
-              : typeof (business as any)?.imageAsset?.publicUrl === 'string' &&
-                  (business as any).imageAsset.publicUrl.trim()
-                ? (business as any).imageAsset.publicUrl
-                : typeof (business as any)?.imageAsset?.url === 'string' &&
-                    (business as any).imageAsset.url.trim()
-                  ? (business as any).imageAsset.url
-                  : typeof (business as any)?.image?.publicUrl === 'string' &&
-                      (business as any).image.publicUrl.trim()
-                    ? (business as any).image.publicUrl
-                    : cachedBusinessImageUrl;
+              : typeof (business as any)?.image?.publicUrl === 'string' && (business as any).image.publicUrl.trim()
+                ? (business as any).image.publicUrl
+              : cachedBusinessImageUrl;
 
           const imageCandidateRaw =
             effectiveBusinessImageUrl ??
-            (business as any)?.imageAsset?.publicUrl ??
-            (business as any)?.imageAsset?.url ??
             (business as any)?.image?.publicUrl ??
             (business as any)?.image?.url ??
             (business as any).imageUri ??
@@ -489,8 +737,6 @@ export default function HomeScreen() {
             (business as any).media?.url ??
             // If businesses don't carry an image, fall back to the first active order image.
             firstVisibleOrder?.imageUrl ??
-            firstVisibleOrder?.imageAsset?.publicUrl ??
-            firstVisibleOrder?.imageAsset?.url ??
             firstVisibleOrder?.imageURI ??
             firstVisibleOrder?.imageUri ??
             firstVisibleOrder?.imagePath ??
@@ -539,13 +785,9 @@ export default function HomeScreen() {
               const url =
                 typeof business.imageUrl === 'string'
                   ? business.imageUrl.trim()
-                  : typeof (business as any)?.imageAsset?.publicUrl === 'string'
-                    ? String((business as any).imageAsset.publicUrl).trim()
-                    : typeof (business as any)?.imageAsset?.url === 'string'
-                      ? String((business as any).imageAsset.url).trim()
-                      : typeof (business as any)?.image?.publicUrl === 'string'
-                        ? String((business as any).image.publicUrl).trim()
-                        : '';
+                  : typeof (business as any)?.image?.publicUrl === 'string'
+                    ? String((business as any).image.publicUrl).trim()
+                    : '';
               if (!url) return null;
               return [businessImageCacheKey(businessId), url] as [string, string];
             })
@@ -615,13 +857,9 @@ export default function HomeScreen() {
               const json = await res.json().catch(() => ({}));
               const imageUrlRaw =
                 (json as any)?.imageUrl ??
-                (json as any)?.imageAsset?.publicUrl ??
-                (json as any)?.imageAsset?.url ??
                 (json as any)?.image?.publicUrl ??
                 (json as any)?.image?.url ??
                 (json as any)?.business?.imageUrl ??
-                (json as any)?.business?.imageAsset?.publicUrl ??
-                (json as any)?.business?.imageAsset?.url ??
                 (json as any)?.business?.image?.publicUrl ??
                 (json as any)?.business?.image?.url ??
                 (Array.isArray((json as any)?.images) ? (json as any).images[0] : undefined);
@@ -668,6 +906,7 @@ export default function HomeScreen() {
       } finally {
         if (!cancelled) {
           setIsLoadingData(false);
+          setIsRefreshing(false);
           markDataReady();
         }
       }
@@ -678,7 +917,7 @@ export default function HomeScreen() {
     return () => {
       cancelled = true;
     };
-  }, [markDataReady]);
+  }, [markDataReady, refreshNonce]);
 
   useEffect(() => {
     let cancelled = false;
@@ -736,6 +975,33 @@ export default function HomeScreen() {
     ],
     [categoryFilters]
   );
+
+  const quickCategories = useMemo(() => {
+    const pool = categoryOptions.filter((cat) => cat.id !== ALL_CATEGORIES_ID);
+    const used = new Set<string>();
+
+    const pick = (matchers: string[], fallbackLabel: string, icon: React.ComponentProps<typeof Ionicons>['name']) => {
+      const found = pool.find((cat) =>
+        matchers.some((matcher) => cat.label.toLowerCase().includes(matcher))
+      );
+      if (found && !used.has(found.id)) {
+        used.add(found.id);
+        return { ...found, icon };
+      }
+      return { id: `fallback-${fallbackLabel}`, label: fallbackLabel, icon };
+    };
+
+    const picks = [
+      pick(['erbjud'], 'Erbjudanden', 'pricetag-outline'),
+      pick(['restaur', 'mat', 'food'], 'Restauranger', 'restaurant-outline'),
+      pick(['event', 'evenemang'], 'Event', 'calendar-outline'),
+      pick(['nöje', 'entertain', 'bio'], 'Nöje', 'sparkles-outline'),
+      pick(['familj', 'family', 'barn'], 'Familj', 'people-outline'),
+      { id: 'more', label: 'Mer', icon: 'ellipsis-horizontal' as const },
+    ];
+
+    return picks;
+  }, [categoryOptions]);
 
   useEffect(() => {
     if (!categoryOptions.some((category) => category.id === activeCategory)) {
@@ -888,7 +1154,7 @@ export default function HomeScreen() {
     <View style={{ flex: 1, backgroundColor: theme.screenBg }}>
       <StarrySkyScreenBackground variant={theme.isDark ? 'dark' : 'light'} />
       <SafeAreaView
-        edges={['top', 'left', 'right']}
+        edges={['left', 'right']}
         className="flex-1"
         style={[styles.screen, { backgroundColor: 'transparent' }]}
       >
@@ -896,544 +1162,166 @@ export default function HomeScreen() {
           ref={scrollRef}
           className="flex-1"
           style={styles.scroll}
-          contentContainerStyle={{ paddingBottom: tabBarHeight + 16 }}>
-        <View className="px-6 pt-3">
-          <View className="relative items-center justify-center">
-            <View style={{ flexDirection: 'row' }}>
-              {tooDooLetters.map((letter, idx) => (
-                <Animated.Text
-                  key={`${letter}-${idx}`}
-                  style={{
-                    color: tooDooColors[idx],
-                    fontSize: 30,
-                    fontWeight: '600',
-                    transform: [{ translateY: tooDooBounceValues[idx] }],
-                    lineHeight: 36,
-                  }}
-                >
-                  {letter}
-                </Animated.Text>
-              ))}
-            </View>
-            <Pressable
-              onPress={() => router.push('/(tabs)/Profile')}
-              className="absolute right-0 h-10 w-10 items-center justify-center rounded-full"
-              style={{ backgroundColor: theme.cardBgMuted, borderColor: theme.border, borderWidth: 1 }}
-            >
-              <Ionicons name="person" size={20} color={theme.text} />
-            </Pressable>
-          </View>
-          <Text className="mt-1 text-base" style={{ color: theme.textMuted }}>
-            Hej {firstName?.trim() ? firstName.trim() : 'vän'}
-          </Text>
-        </View>
-
-        <View className="px-6 pt-3">
-          <View
-            className="flex-row items-center rounded-full px-4 py-2.5"
-            style={{ borderWidth: 1, borderColor: theme.isDark ? 'rgba(255,255,255,0.40)' : 'rgba(0,11,42,0.25)', backgroundColor: theme.cardBg }}
-          >
-            <Ionicons name="search" size={18} color={theme.text} style={{ marginRight: 8 }} />
-            <TextInput
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholder="Vad vill du göra idag?"
-              placeholderTextColor={theme.textFaint}
-              className="flex-1"
-              style={{ color: theme.text }}
-              returnKeyType="search"
+          contentContainerStyle={{ paddingBottom: tabBarHeight + 16 }}
+          stickyHeaderIndices={[0]}
+          onScroll={Animated.event(
+            [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+            { useNativeDriver: false }
+          )}
+          scrollEventThrottle={16}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              tintColor="transparent"
+              colors={['transparent']}
+              progressViewOffset={0}
             />
-            {searchQuery.trim() ? (
-              <Pressable onPress={() => setSearchQuery('')} className="ml-2 rounded-full px-2 py-1">
-                <Ionicons name="close-circle" size={18} color={theme.text} />
-              </Pressable>
-            ) : null}
-          </View>
+          }
+        >
+        <View
+          style={{
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            borderBottomLeftRadius: 24,
+            borderBottomRightRadius: 24,
+            borderLeftWidth: 1,
+            borderRightWidth: 1,
+            borderTopWidth: 1,
+            borderBottomWidth: 1,
+            borderColor: theme.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,11,42,0.10)',
+            overflow: 'hidden',
+          }}
+        >
+          <LinearGradient
+            colors={theme.isDark ? ['#0b1a45', '#0b1a45'] : ['#f5f7ff', '#f5f7ff']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={{ paddingTop: insets.top + 8, paddingBottom: 18 }}
+          >
+            {(() => {
+              const collapse = scrollY.interpolate({
+                inputRange: [0, 70],
+                outputRange: [1, 0],
+                extrapolate: 'clamp',
+              });
+              const greetingHeight = collapse.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, 120],
+                extrapolate: 'clamp',
+              });
+
+              return (
+                <Animated.View style={{ height: greetingHeight, opacity: collapse, overflow: 'hidden' }}>
+                  <View style={{ position: 'relative', paddingLeft: 24, paddingTop: 10, paddingBottom: 10, paddingRight: 24 }}>
+                    {/* Right banner should reach the header corners */}
+                    <View
+                      pointerEvents="none"
+                      style={{
+                        position: 'absolute',
+                        right: 0,
+                        top: 0,
+                        bottom: 0,
+                        width: 220,
+                        overflow: 'hidden',
+                        borderTopRightRadius: 24,
+                        borderBottomRightRadius: 24,
+                      }}
+                    >
+                      <Image source={appLogo} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                    </View>
+
+                    <View className="flex-row items-center justify-between">
+                      <View style={{ paddingRight: 220 - 24 }}>
+                        <Text className="text-2xl font-semibold" style={{ color: theme.text }}>
+                          Hej
+                        </Text>
+                        <Text className="mt-1 text-sm" style={{ color: theme.textMuted }}>
+                          Vad vill du göra idag?
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                </Animated.View>
+              );
+            })()}
+
+            <View className="px-6">
+              <View
+                className="flex-row items-center rounded-full px-4 py-2.5"
+                style={{
+                  borderWidth: 1,
+                  borderColor: theme.isDark ? 'rgba(255,255,255,0.40)' : 'rgba(0,11,42,0.25)',
+                  backgroundColor: theme.cardBg,
+                }}
+              >
+                <Ionicons name="search" size={18} color={theme.text} style={{ marginRight: 8 }} />
+                <TextInput
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  placeholder="Sök restauranger, events, upplevelser"
+                  placeholderTextColor={theme.textFaint}
+                  className="flex-1"
+                  style={{ color: theme.text }}
+                  returnKeyType="search"
+                />
+                {searchQuery.trim() ? (
+                  <Pressable onPress={() => setSearchQuery('')} className="ml-2 rounded-full px-2 py-1">
+                    <Ionicons name="close-circle" size={18} color={theme.text} />
+                  </Pressable>
+                ) : null}
+                <Pressable className="ml-1 rounded-full p-1">
+                  <Ionicons name="options-outline" size={18} color={theme.text} />
+                </Pressable>
+              </View>
+            </View>
+
+            <View className="mt-3">
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 24 }}>
+                <View className="flex-row gap-2">
+                  {quickCategories.map((cat) => (
+                    <Pressable
+                      key={cat.id}
+                      onPress={() => setActiveCategory(cat.id)}
+                      className="flex-row items-center rounded-full px-3 py-2"
+                      style={{
+                        backgroundColor: activeCategory === cat.id ? 'rgba(255,59,48,0.12)' : theme.cardBg,
+                        borderColor: activeCategory === cat.id ? '#ff3b30' : theme.border,
+                        borderWidth: 1,
+                      }}
+                    >
+                      <Ionicons name={cat.icon} size={14} color={activeCategory === cat.id ? '#ff3b30' : theme.textMuted} />
+                      <Text className="ml-2 text-xs" style={{ color: activeCategory === cat.id ? '#ff3b30' : theme.textMuted }}>
+                        {cat.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </ScrollView>
+            </View>
+          </LinearGradient>
         </View>
 
         <View className="mt-4 px-6">
-          <View className="mb-3 flex-row items-center justify-between">
-            <Text className="text-lg font-semibold" style={{ color: theme.text }}>& Nära dig</Text>
-            <Pressable onPress={() => {}}>
-              <Text style={{ color: theme.textMuted }}>Se alla →</Text>
-            </Pressable>
-          </View>
+          <PromoCarousel images={sliderImages} activeIndex={sliderIndex} theme={theme} />
+        </View>
 
-          {featuredBusinesses.length > 0 ? (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 10 }}
-              onScrollBeginDrag={() => expandedSection === 'nearby' && markExpandedSectionScrolled()}
-            >
-              <View className="flex-row gap-3 pb-2">
-                {featuredBusinesses.map((biz, idx) => (
-                  <Animated.View
-                    key={`${biz.id}-${idx}`}
-                    style={{
-                      width: nearbyAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [176, 256],
-                      }),
-                      overflow: 'visible',
-                    }}
-                  >
-                    <View
-                      style={{
-                        shadowColor: '#000',
-                        shadowOpacity: theme.isDark ? 0.16 : 0.06,
-                        shadowRadius: theme.isDark ? 10 : 6,
-                        shadowOffset: { width: 0, height: theme.isDark ? 5 : 1 },
-                        elevation: theme.isDark ? 3 : 1,
-                        overflow: 'visible',
-                      }}
-                    >
-                      <Pressable
-                        className="overflow-hidden rounded-2xl"
-                        style={{
-                          backgroundColor: theme.cardBg,
-                          borderColor: theme.border,
-                          borderWidth: 1,
-                        }}
-                        onPress={() => handleNearbyCardPress(biz)}
-                      >
-                        <Animated.View
-                          style={{
-                            position: 'relative',
-                            width: '100%',
-                            overflow: 'hidden',
-                            height: nearbyAnim.interpolate({
-                              inputRange: [0, 1],
-                              outputRange: [96, 144],
-                            }),
-                          }}
-                        >
-                          <CardMedia source={biz.image} svgFit="fill" />
-                          <View className="absolute inset-0 bg-black/25" />
-                          <View
-                            className="absolute left-2 top-2 rounded-full px-2 py-1"
-                            style={{
-                              backgroundColor: theme.isDark ? 'rgba(0,0,0,0.55)' : 'rgba(0,11,42,0.55)',
-                            }}
-                          >
-                            <Text className="text-[10px] font-medium text-white">0.{(idx % 9) + 1} km</Text>
-                          </View>
-                          <Animated.View
-                            style={{
-                              position: 'absolute',
-                              left: 0,
-                              right: 0,
-                              bottom: 0,
-                              // Animated wrapper is safe; keep `LinearGradient` static to avoid render crashes.
-                              height: nearbyAnim.interpolate({
-                                inputRange: [0, 1],
-                                outputRange: [56, 104],
-                              }),
-                              overflow: 'hidden',
-                            }}
-                          >
-                            <LinearGradient
-                              colors={
-                                theme.isDark
-                                  ? [
-                                      'rgba(0,11,42,0.00)',
-                                      'rgba(0,11,42,0.92)',
-                                      'rgba(0,11,42,0.92)',
-                                    ]
-                                  : [
-                                      'rgba(245,247,255,0.00)',
-                                      'rgba(245,247,255,0.98)',
-                                      'rgba(245,247,255,0.98)',
-                                    ]
-                              }
-                              locations={[0, 0.28, 1]}
-                              start={{ x: 0.5, y: 0 }}
-                              end={{ x: 0.5, y: 1 }}
-                              style={{
-                                flex: 1,
-                                paddingHorizontal: 12,
-                                // Tune spacing so title/category sit nicely within the gradient
-                                // in both collapsed and enlarged states.
-                                paddingBottom: 8,
-                                paddingTop: 10,
-                                justifyContent: 'flex-end',
-                              }}
-                            >
-                              <Text
-                                className="font-semibold"
-                                numberOfLines={1}
-                                style={{ color: theme.text, lineHeight: 18 }}
-                              >
-                                {biz.title}
-                              </Text>
-                              <Text
-                                className="text-xs"
-                                numberOfLines={1}
-                                style={{ color: theme.textMuted, lineHeight: 16 }}
-                              >
-                                {biz.categoryName ?? 'Nära dig'}
-                              </Text>
-                              <Animated.View
-                                style={{
-                                  height: nearbyAnim.interpolate({
-                                    inputRange: [0, 1],
-                                    outputRange: [0, 30],
-                                  }),
-                                  opacity: nearbyAnim,
-                                  overflow: 'hidden',
-                                }}
-                              >
-                                <Animated.Text
-                                  numberOfLines={2}
-                                  style={{
-                                    marginTop: 4,
-                                    fontSize: 11,
-                                    color: theme.textMuted,
-                                    transform: [
-                                      {
-                                        translateY: nearbyAnim.interpolate({
-                                          inputRange: [0, 1],
-                                          outputRange: [6, 0],
-                                        }),
-                                      },
-                                    ],
-                                  }}
-                                >
-                                  {biz.kortbeskrivning || 'Upptäck detta företag och deras erbjudanden.'}
-                                </Animated.Text>
-                              </Animated.View>
-                            </LinearGradient>
-                          </Animated.View>
-                        </Animated.View>
-                      </Pressable>
-                    </View>
-                  </Animated.View>
-                ))}
-              </View>
-            </ScrollView>
+        <View className="mt-4 px-6">
+          <SectionHeader title="Utvalt för dig" />
+          {filteredDeals.length > 0 ? (
+            <FeaturedHero cards={filteredDeals.slice(0, 3)} onCardPress={handleCardPress} />
           ) : (
             <Text style={{ color: theme.textMuted }}>{isLoadingData ? 'Laddar...' : 'Inget att visa just nu.'}</Text>
           )}
         </View>
 
         <View className="mt-4 px-6">
-          <View className="flex-row items-center">
-            <Ionicons name="flame" size={18} color="#ff3b30" />
-            <Text className="ml-2 text-lg font-semibold" style={{ color: theme.text }}>Heta erbjudanden</Text>
-          </View>
-          <View className="mt-3">
-            {isLoadingData ? (
-              <Text style={{ color: theme.textMuted }}>Laddar...</Text>
-            ) : (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 10 }}
-                onScrollBeginDrag={() => expandedSection === 'hot' && markExpandedSectionScrolled()}
-              >
-                <View className="flex-row gap-3 pb-2">
-                  {searchedDeals
-                    .filter((c) => c.deal)
-                    .slice(0, 10)
-                    .map((card, idx) => (
-                      <Animated.View
-                        key={`${card.id}-${idx}`}
-                        style={{
-                          width: hotAnim.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [256, 320],
-                          }),
-                      overflow: 'visible',
-                        }}
-                      >
-                        <View
-                          style={{
-                            shadowColor: '#000',
-                          shadowOpacity: theme.isDark ? 0.16 : 0.06,
-                          shadowRadius: theme.isDark ? 10 : 6,
-                          shadowOffset: { width: 0, height: theme.isDark ? 5 : 1 },
-                          elevation: theme.isDark ? 3 : 1,
-                        overflow: 'visible',
-                          }}
-                        >
-                          <Pressable
-                            className="overflow-hidden rounded-2xl border"
-                            style={{
-                              backgroundColor: theme.cardBg,
-                              borderColor: theme.border,
-                              borderWidth: 1,
-                            }}
-                            onPress={() => handleHotCardPress(card)}
-                          >
-                          <Animated.View
-                            style={{
-                              position: 'relative',
-                              width: '100%',
-                              overflow: 'hidden',
-                              height: hotAnim.interpolate({
-                                inputRange: [0, 1],
-                                outputRange: [128, 176],
-                              }),
-                            }}
-                          >
-                          <CardMedia source={card.image} svgFit="fill" />
-                          <View className="absolute inset-0 bg-black/20" />
-                          {card.deal ? <DealTag /> : null}
-                          <LinearGradient
-                            colors={
-                              theme.isDark
-                                ? ['rgba(0,11,42,0.00)', 'rgba(0,11,42,0.92)', 'rgba(0,11,42,0.92)']
-                            : ['rgba(245,247,255,0.00)', 'rgba(245,247,255,0.98)', 'rgba(245,247,255,0.98)']
-                            }
-                            locations={[0, 0.28, 1]}
-                            start={{ x: 0.5, y: 0 }}
-                            end={{ x: 0.5, y: 1 }}
-                            style={{
-                              position: 'absolute',
-                              left: 0,
-                              right: 0,
-                              bottom: 0,
-                              height: '55%',
-                              paddingHorizontal: 12,
-                              paddingBottom: 12,
-                              paddingTop: 16,
-                              justifyContent: 'flex-end',
-                            }}
-                          >
-                            <Text className="text-lg font-semibold" style={{ color: theme.text }} numberOfLines={1}>
-                              {card.title}
-                            </Text>
-                            <Text className="mt-0.5 text-xs" style={{ color: theme.textMuted }} numberOfLines={2}>
-                              {card.kortbeskrivning || 'Upptäck detta företag och deras erbjudanden.'}
-                            </Text>
-                          </LinearGradient>
-                          </Animated.View>
-                          </Pressable>
-                        </View>
-                      </Animated.View>
-                    ))}
-                </View>
-              </ScrollView>
-            )}
-          </View>
+          <SectionHeader title="Kommande höjdpunkter" />
+          <UpcomingHighlights cards={endingSoonDeals} onCardPress={handleCardPress} />
         </View>
 
         <View className="mt-4 px-6">
-          <View className="flex-row items-center">
-            <Ionicons name="time" size={18} color={theme.text} />
-            <Text className="ml-2 text-lg font-semibold" style={{ color: theme.text }}>Slutar snart</Text>
-          </View>
-          <View className="mt-3">
-            {endingSoonDeals.length > 0 ? (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ paddingHorizontal: 10 }}
-                onScrollBeginDrag={() => expandedSection === 'endingSoon' && markExpandedSectionScrolled()}
-              >
-                <View className="flex-row gap-3 pb-2">
-                  {endingSoonDeals.map((card, idx) => (
-                    <Animated.View
-                      key={`${card.id}-${idx}`}
-                      style={{
-                        width: endingSoonAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [160, 256],
-                        }),
-                        overflow: 'visible',
-                      }}
-                    >
-                      <View
-                        style={{
-                          shadowColor: '#000',
-                          shadowOpacity: theme.isDark ? 0.16 : 0.06,
-                          shadowRadius: theme.isDark ? 10 : 6,
-                          shadowOffset: { width: 0, height: theme.isDark ? 5 : 1 },
-                          elevation: theme.isDark ? 3 : 1,
-                          overflow: 'visible',
-                        }}
-                      >
-                        <Pressable
-                          className="overflow-hidden rounded-2xl border"
-                          style={{
-                            backgroundColor: theme.cardBg,
-                            borderColor: theme.border,
-                            borderWidth: 1,
-                          }}
-                          onPress={() => handleEndingSoonCardPress(card)}
-                        >
-                        <Animated.View
-                          style={{
-                            position: 'relative',
-                            width: '100%',
-                            overflow: 'hidden',
-                            height: endingSoonAnim.interpolate({
-                              inputRange: [0, 1],
-                              outputRange: [88, 140],
-                            }),
-                          }}
-                        >
-                          <CardMedia source={card.image} svgFit="fill" />
-                          <View className="absolute inset-0 bg-black/20" />
-                          {card.deal ? <DealTag /> : null}
-                          <LinearGradient
-                            colors={
-                              theme.isDark
-                                ? ['rgba(0,11,42,0.00)', 'rgba(0,11,42,0.92)', 'rgba(0,11,42,0.92)']
-                            : ['rgba(245,247,255,0.00)', 'rgba(245,247,255,0.98)', 'rgba(245,247,255,0.98)']
-                            }
-                            locations={[0, 0.28, 1]}
-                            start={{ x: 0.5, y: 0 }}
-                            end={{ x: 0.5, y: 1 }}
-                            style={{
-                              position: 'absolute',
-                              left: 0,
-                              right: 0,
-                              bottom: 0,
-                              height: '58%',
-                              paddingHorizontal: 10,
-                              paddingBottom: 10,
-                              paddingTop: 14,
-                              justifyContent: 'flex-end',
-                            }}
-                          >
-                            <Text className="text-sm font-semibold" style={{ color: theme.text }} numberOfLines={1}>
-                              {card.title}
-                            </Text>
-                            <Animated.View
-                              style={{
-                                height: endingSoonAnim.interpolate({
-                                  inputRange: [0, 1],
-                                  outputRange: [0, 28],
-                                }),
-                                opacity: endingSoonAnim,
-                                overflow: 'hidden',
-                              }}
-                            >
-                              <Animated.Text
-                                numberOfLines={2}
-                                // keep a small slide-in while respecting themed text color
-                                style={{
-                                  marginTop: 2,
-                                  fontSize: 11,
-                                  color: theme.textMuted,
-                                  transform: [
-                                    {
-                                      translateY: endingSoonAnim.interpolate({
-                                        inputRange: [0, 1],
-                                        outputRange: [6, 0],
-                                      }),
-                                    },
-                                  ],
-                                }}
-                              >
-                                {card.kortbeskrivning || 'Upptäck detta företag och deras erbjudanden.'}
-                              </Animated.Text>
-                            </Animated.View>
-                          </LinearGradient>
-                        </Animated.View>
-                        </Pressable>
-                      </View>
-                    </Animated.View>
-                  ))}
-                </View>
-              </ScrollView>
-            ) : (
-              <Text style={{ color: theme.textMuted }}>{isLoadingData ? 'Laddar...' : 'Inga tidsbegränsade erbjudanden hittades.'}</Text>
-            )}
-          </View>
-        </View>
-
-        <View className="mt-4 px-6">
-          <View className="flex-row items-center">
-            <Ionicons name="apps" size={18} color={theme.textMuted} />
-            <Text className="ml-2 text-lg font-semibold" style={{ color: theme.text }}>Bläddra kategorier</Text>
-          </View>
-          <View
-            className="mt-3 rounded-3xl border px-4 py-4"
-            style={{
-              borderColor: theme.isDark ? theme.border : 'rgba(255,255,255,0.55)',
-              // In light mode, match the cards' "text area" overlay tone.
-              backgroundColor: theme.isDark ? theme.cardBg : 'rgba(245,247,255,0.98)',
-              borderWidth: 1,
-              shadowColor: '#000',
-              shadowOpacity: theme.isDark ? 0.22 : 0.10,
-              shadowRadius: theme.isDark ? 14 : 10,
-              shadowOffset: { width: 0, height: theme.isDark ? 8 : 4 },
-              elevation: theme.isDark ? 6 : 2,
-            }}
-          >
-            <View className="flex-row flex-wrap justify-between">
-              {categoryFilters.map((cat, idx) => {
-                // More vibrant ("screaming") palette for category bubbles.
-                const palette = ['#FFB703', '#00D4FF', '#FF4D6D', '#9B5DE5', '#00E676', '#FF5ACD', '#3A86FF', '#FFD60A'];
-                const bg = palette[idx % palette.length];
-                return (
-                  <Pressable
-                    key={cat.id}
-                    className="mb-3 w-[23%] items-center"
-                    onPress={() => setActiveCategory(cat.id)}
-                  >
-                    <View
-                      className="h-14 w-14 overflow-hidden rounded-2xl"
-                      style={{
-                        backgroundColor: bg,
-                        // Use dark shadow in both modes for a consistent "lifted" look.
-                        shadowColor: '#000',
-                        shadowOpacity: theme.isDark ? 0.25 : 0.22,
-                        shadowRadius: 10,
-                        shadowOffset: { width: 0, height: 6 },
-                        elevation: 6,
-                      }}
-                    >
-                      {/* Frost layer (what makes it "glass") */}
-                      <View
-                        style={{
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          backgroundColor: 'rgba(255,255,255,0.04)',
-                        }}
-                      />
-
-                      {/* Specular highlight */}
-                      <LinearGradient
-                        colors={['rgba(255,255,255,0.40)', 'rgba(255,255,255,0.08)', 'rgba(255,255,255,0.00)']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-                      />
-
-                      {/* Subtle bottom shadow for depth */}
-                      <LinearGradient
-                        colors={['rgba(0,0,0,0.00)', 'rgba(0,0,0,0.015)']}
-                        start={{ x: 0.5, y: 0 }}
-                        end={{ x: 0.5, y: 1 }}
-                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-                      />
-                      <View className="flex-1 items-center justify-center">
-                        <Ionicons name={getCategoryIconName(cat.label)} size={22} color="#ffffff" />
-                      </View>
-                      {/* Glass edges */}
-                      <View
-                        className="absolute inset-0 rounded-2xl border"
-                        style={{ borderWidth: 1, borderColor: theme.isDark ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.70)' }}
-                      />
-                      <View
-                        className="absolute inset-[1px] rounded-[15px] border"
-                        style={{ borderWidth: 1, borderColor: theme.isDark ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.30)' }}
-                      />
-                    </View>
-                    <Text className="mt-2 text-xs" style={{ color: theme.textMuted }} numberOfLines={1}>
-                      {cat.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
+          <QuickFiltersRow />
         </View>
         </ScrollView>
       </SafeAreaView>

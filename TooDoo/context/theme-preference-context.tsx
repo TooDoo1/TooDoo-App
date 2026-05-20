@@ -18,7 +18,7 @@ const ThemePreferenceContext = createContext<ThemePreferenceContextValue | undef
 
 export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
   const systemScheme = useSystemColorScheme() ?? 'dark';
-  const [mode, setModeState] = useState<ThemeMode>('light');
+  const [mode, setModeState] = useState<ThemeMode>('dark');
   const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
@@ -55,7 +55,7 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ThemePreferenceContextValue>(
     () => ({
       mode,
-      effectiveScheme: mode ?? systemScheme,
+      effectiveScheme: (mode as ThemeMode) ?? systemScheme,
       setMode,
       toggle,
       isHydrated,

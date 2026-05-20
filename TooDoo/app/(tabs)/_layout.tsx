@@ -32,7 +32,7 @@ export default function TabLayout() {
             {Platform.OS === 'ios' ? (
               <BlurView
                 tint={isDark ? 'dark' : 'light'}
-                intensity={80}
+                intensity={60}
                 style={StyleSheet.absoluteFill}
               />
             ) : null}
@@ -41,7 +41,7 @@ export default function TabLayout() {
                 StyleSheet.absoluteFill,
                 {
                   // Keep navbar see-through (blur on iOS, translucent fill everywhere).
-                  backgroundColor: isDark ? 'rgba(10, 21, 53, 0.65)' : 'rgba(245, 247, 255, 0.75)',
+                  backgroundColor: isDark ? 'rgba(10, 21, 53, 0.45)' : 'rgba(245, 247, 255, 0.6)',
                 },
               ]}
             />
@@ -55,6 +55,20 @@ export default function TabLayout() {
         options={{
           title: 'Upptäck',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="Favoriter"
+        options={{
+          title: 'Favoriter',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="heart.fill" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="NaraDig"
+        options={{
+          title: 'Nära dig',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="location.fill" color={color} />,
         }}
       />
       <Tabs.Screen
