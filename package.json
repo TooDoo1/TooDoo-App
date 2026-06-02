@@ -1,0 +1,6 @@
+{
+  "private": true,
+  "dependencies": {
+    "react-native-qrcode-svg": "^6.3.21"
+  }
+}
