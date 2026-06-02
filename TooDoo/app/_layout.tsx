@@ -9,6 +9,8 @@ import '../global.css';
 
 import { ThemePreferenceProvider, useThemePreference } from '@/context/theme-preference-context';
 import { AuthProvider } from '@/context/auth-context';
+import { FavoritesProvider } from '@/context/favorites-context';
+import { FavoriteOfferNotificationsProvider } from '@/context/favorite-offer-notifications';
 import { AppReadyProvider, useAppReady } from '@/context/app-ready-context';
 import LoadingSplash, { SPLASH_EXIT_DURATION_MS } from '@/components/ui/loading-splash';
 
@@ -82,7 +84,11 @@ export default function RootLayout() {
 		<AppReadyProvider>
 			<ThemePreferenceProvider>
 				<AuthProvider>
-					<AppShell />
+					<FavoritesProvider>
+						<FavoriteOfferNotificationsProvider>
+							<AppShell />
+						</FavoriteOfferNotificationsProvider>
+					</FavoritesProvider>
 				</AuthProvider>
 			</ThemePreferenceProvider>
 		</AppReadyProvider>

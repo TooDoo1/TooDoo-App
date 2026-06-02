@@ -16,8 +16,8 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Button } from "@react-navigation/elements";
-import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import { Image as ExpoImage } from "expo-image";
+import { OfferMap } from "@/components/ui/offer-map";
 import { useAuth } from "@/context/auth-context";
 import { apiUrl, normalizeImageUrl } from "@/lib/api";
 import { useThemePreference } from "@/context/theme-preference-context";
@@ -44,6 +44,10 @@ export default function ErbjudandenScreen() {
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [claimSuccess, setClaimSuccess] = useState<{ title?: string; qrCode?: string } | null>(null);
   const [orderImageUriById, setOrderImageUriById] = useState<Record<string, string>>({});
+  /** Live, fresh-from-API counts per order id so the progress bar reflects current data. */
+  const [liveCountsByOrderId, setLiveCountsByOrderId] = useState<
+    Record<string, { claimed: number; total: number }>
+  >({});
   const {
     mapResetNonce,
     id,
@@ -175,6 +179,7 @@ export default function ErbjudandenScreen() {
           [];
 
         const next: Record<string, string> = {};
+        const nextCounts: Record<string, { claimed: number; total: number }> = {};
         ordersRaw.forEach((order: any) => {
           const orderId = String(
             order?.id ??
@@ -193,6 +198,15 @@ export default function ErbjudandenScreen() {
             order?.image?.url;
           const normalized = normalizeImageUrl(raw);
           if (normalized) next[orderId] = normalized;
+
+          const claimed = Number(order?.claimedRedemptions ?? order?.claimedCount ?? NaN);
+          const total = Number(order?.maxRedemptions ?? NaN);
+          if (Number.isFinite(claimed) || Number.isFinite(total)) {
+            nextCounts[orderId] = {
+              claimed: Number.isFinite(claimed) ? claimed : 0,
+              total: Number.isFinite(total) ? total : 0,
+            };
+          }
         });
 
         // If the business payload doesn't contain the images for all orderIds, hydrate missing ones
@@ -217,6 +231,15 @@ export default function ErbjudandenScreen() {
                   orderObj?.image?.url;
                 const normalized = normalizeImageUrl(raw);
                 if (normalized) next[orderId] = normalized;
+
+                const claimed = Number(orderObj?.claimedRedemptions ?? orderObj?.claimedCount ?? NaN);
+                const total = Number(orderObj?.maxRedemptions ?? NaN);
+                if (Number.isFinite(claimed) || Number.isFinite(total)) {
+                  nextCounts[orderId] = {
+                    claimed: Number.isFinite(claimed) ? claimed : 0,
+                    total: Number.isFinite(total) ? total : 0,
+                  };
+                }
               } catch {
                 // ignore per-order failures
               }
@@ -224,9 +247,15 @@ export default function ErbjudandenScreen() {
           );
         }
 
-        if (!cancelled) setOrderImageUriById(next);
+        if (!cancelled) {
+          setOrderImageUriById(next);
+          setLiveCountsByOrderId(nextCounts);
+        }
       } catch {
-        if (!cancelled) setOrderImageUriById({});
+        if (!cancelled) {
+          setOrderImageUriById({});
+          setLiveCountsByOrderId({});
+        }
       }
     })();
 
@@ -258,8 +287,9 @@ export default function ErbjudandenScreen() {
       const claimedText = offerClaimedTexts[index] ?? offerClaimedTexts[0];
       const amountText = offerAmountTexts[index] ?? offerAmountTexts[0];
       const endText = offerEndTexts[index] ?? offerEndTexts[0];
-      const claimedCount = Number(claimedText ?? 0);
-      const totalCount = Number(amountText ?? 0);
+      const live = orderId ? liveCountsByOrderId[String(orderId)] : undefined;
+      const claimedCount = live ? live.claimed : Number(claimedText ?? 0);
+      const totalCount = live && live.total > 0 ? live.total : Number(amountText ?? 0);
       const progressPercent = totalCount > 0 ? Math.min((claimedCount / totalCount) * 100, 100) : 0;
       const parsedEndDate = endText ? new Date(endText) : undefined;
       const endDate = parsedEndDate && Number.isFinite(parsedEndDate.getTime()) ? parsedEndDate : undefined;
@@ -282,7 +312,7 @@ export default function ErbjudandenScreen() {
       // Hide offers that have expired (gått ut).
       .filter((offer) => !offer.endDate || offer.endDate.getTime() > nowMs);
     return parsedOffers;
-  }, [offerTexts, offerOrderIds, claimOrderIdText, offerPriceTexts, offerOriginalPriceTexts, offerClaimedTexts, offerAmountTexts, offerEndTexts, nowMs, dealFlag]);
+  }, [offerTexts, offerOrderIds, claimOrderIdText, offerPriceTexts, offerOriginalPriceTexts, offerClaimedTexts, offerAmountTexts, offerEndTexts, liveCountsByOrderId, nowMs, dealFlag]);
 
   const isDuplicateClaimConflict = (message: string) => {
     const normalized = message.toLowerCase();
@@ -416,7 +446,9 @@ export default function ErbjudandenScreen() {
     }
 
     const maxRedemptions = Number(order?.maxRedemptions ?? 0);
-    const claimedCount = Number(order?.claimedCount ?? 0);
+    const claimedCount = Number(
+      order?.claimedRedemptions ?? order?.claimedCount ?? 0
+    );
     if (maxRedemptions > 0 && Number.isFinite(claimedCount) && claimedCount >= maxRedemptions) {
       return 'Ordern är fullclaimad (max antal uppnått).';
     }
@@ -552,6 +584,17 @@ export default function ErbjudandenScreen() {
           const next = new Set(prev);
           next.add(offer.orderId as string);
           return next;
+        });
+        // Optimistically bump the live claimed count so the progress bar moves immediately.
+        setLiveCountsByOrderId((prev) => {
+          const orderIdKey = String(offer.orderId);
+          const current = prev[orderIdKey];
+          const fallbackTotal = Number(offer.totalCount ?? 0);
+          const nextEntry = {
+            claimed: (current?.claimed ?? Number(offer.claimedCount ?? 0)) + 1,
+            total: current?.total ?? (Number.isFinite(fallbackTotal) ? fallbackTotal : 0),
+          };
+          return { ...prev, [orderIdKey]: nextEntry };
         });
       }
       setClaimSuccess({ title: offer.text ?? title ?? 'Erbjudande', qrCode });
@@ -1039,23 +1082,13 @@ export default function ErbjudandenScreen() {
         <View className="mt-6 mx-6 mb-2">
           <Text className="mb-2 text-xl font-medium ml-4" style={{ color: theme.text }}>Karta:</Text>
           <View className="overflow-hidden rounded-2xl border" style={{ borderColor: theme.border }}>
-            <MapView
-              key={mapResetKey}
-              provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
-              style={{ width: "100%", height: 220 }}
-              scrollEnabled
-              zoomEnabled
-              rotateEnabled
-              pitchEnabled
-              initialRegion={{
-                latitude: mapCoordinate.latitude,
-                longitude: mapCoordinate.longitude,
-                latitudeDelta: 0.01,
-                longitudeDelta: 0.01,
-              }}
-            >
-              <Marker coordinate={mapCoordinate} title={title ?? "Erbjudande"} description={addressText} />
-            </MapView>
+            <OfferMap
+              mapKey={mapResetKey}
+              latitude={mapCoordinate.latitude}
+              longitude={mapCoordinate.longitude}
+              title={title ?? "Erbjudande"}
+              addressText={addressText}
+            />
           </View>
 
           <Text className="mt-5 mb-2 text-xl font-medium ml-4" style={{ color: theme.text }}>Ta dig hit:</Text>

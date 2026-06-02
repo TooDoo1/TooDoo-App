@@ -171,10 +171,15 @@ export default function MinaDealsScreen() {
 				body: JSON.stringify({ email, password }),
 			});
 
-			const data = (await response.json().catch(() => ({}))) as { token?: string; error?: string };
+			const data = (await response.json().catch(() => ({}))) as {
+				token?: string;
+				refreshToken?: string;
+				error?: string;
+				user?: { role?: string };
+			};
 
 			if (response.status === 200 && data.token) {
-				signIn(data.token);
+				await signIn(data.token, data.refreshToken ?? null, data.user?.role ?? null);
 				Alert.alert('Inloggad', 'Inloggning lyckades.');
 				router.push('/(tabs)/MinaDeals');
 				return;

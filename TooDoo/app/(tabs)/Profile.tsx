@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/auth-context';
-import { apiUrl } from '@/lib/api';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { uiTheme } from '@/lib/ui-theme';
 
@@ -24,7 +23,7 @@ const GENDER_OPTIONS: { label: string; value: UserProfile['gender'] }[] = [
 
 export default function ProfileScreen() {
 	const router = useRouter();
-	const { signOut, token } = useAuth();
+	const { signOut, token, authFetch } = useAuth();
 	const { mode, setMode } = useThemePreference();
 	const theme = uiTheme(mode);
 	const boxShadowStyle = {
@@ -53,9 +52,7 @@ export default function ProfileScreen() {
 		}
 		setIsLoading(true);
 		try {
-			const res = await fetch(apiUrl('/user/me'), {
-				headers: { Authorization: `Bearer ${token}` },
-			});
+			const res = await authFetch('/user/me');
 			const json = (await res.json().catch(() => ({}))) as UserProfile;
 			setProfile(json);
 			setFirstName(json.firstName ?? '');
@@ -76,11 +73,10 @@ export default function ProfileScreen() {
 	}, [loadProfile]);
 
 	const putProfile = async (payload: Partial<UserProfile>) => {
-		const res = await fetch(apiUrl('/user/me'), {
+		const res = await authFetch('/user/me', {
 			method: 'PUT',
 			headers: {
 				'Content-Type': 'application/json',
-				Authorization: `Bearer ${token}`,
 			},
 			body: JSON.stringify(payload),
 		});
@@ -275,8 +271,8 @@ export default function ProfileScreen() {
 						<View className="mt-4 rounded-2xl px-4 py-5" style={[{ backgroundColor: theme.cardBg }, boxShadowStyle]}>
 							<Pressable
 								className="rounded-2xl bg-[#ff3b30] px-4 py-3"
-								onPress={() => {
-									signOut();
+								onPress={async () => {
+									await signOut();
 									router.replace('/(tabs)/Loggain');
 								}}
 							>

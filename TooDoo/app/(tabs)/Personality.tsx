@@ -385,10 +385,17 @@ export default function PersonalityScreen() {
                       }),
                     });
 
-                    const data = (await response.json().catch(() => ({}))) as { error?: string; token?: string };
+                    const data = (await response.json().catch(() => ({}))) as {
+                      error?: string;
+                      token?: string;
+                      refreshToken?: string;
+                      user?: { role?: string };
+                    };
 
                     if (response.status === 201) {
                       let tokenToUse = data.token;
+                      let refreshToUse: string | null = data.refreshToken ?? null;
+                      let roleToUse: string | null = data.user?.role ?? null;
 
                       if (!tokenToUse) {
                         const loginResponse = await fetch(apiUrl('/user/login'), {
@@ -402,12 +409,18 @@ export default function PersonalityScreen() {
                           }),
                         });
 
-                        const loginData = (await loginResponse.json().catch(() => ({}))) as { token?: string };
+                        const loginData = (await loginResponse.json().catch(() => ({}))) as {
+                          token?: string;
+                          refreshToken?: string;
+                          user?: { role?: string };
+                        };
                         tokenToUse = loginResponse.status === 200 ? loginData.token : undefined;
+                        refreshToUse = loginData.refreshToken ?? refreshToUse;
+                        roleToUse = loginData.user?.role ?? roleToUse;
                       }
 
                       if (tokenToUse) {
-                        signIn(tokenToUse);
+                        await signIn(tokenToUse, refreshToUse, roleToUse);
                       } else {
                         Alert.alert('Konto skapat', 'Kontot skapades men automatisk inloggning misslyckades. Logga in manuellt.');
                       }

@@ -130,10 +130,15 @@ export default function RegistreringScreen() {
 					}),
 				});
 
-				const loginData = (await loginResponse.json().catch(() => ({}))) as { token?: string; error?: string };
+				const loginData = (await loginResponse.json().catch(() => ({}))) as {
+					token?: string;
+					refreshToken?: string;
+					error?: string;
+					user?: { role?: string };
+				};
 
 				if (loginResponse.status === 200 && loginData.token) {
-					signIn(loginData.token);
+					await signIn(loginData.token, loginData.refreshToken ?? null, loginData.user?.role ?? null);
 					Alert.alert('Konto skapat', 'Manager-kontot skapades och du är nu inloggad.');
 					router.replace('/(tabs)/Profile');
 					return;

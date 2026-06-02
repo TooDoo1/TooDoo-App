@@ -30,6 +30,11 @@ import { useThemePreference } from '@/context/theme-preference-context';
 import { uiTheme } from '@/lib/ui-theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CardMedia } from '@/components/ui/card-media';
+import { haversineKm, formatDistanceKm, geocodeAddressCached, getUserCoords } from '@/lib/geo';
+import { prefetchImageUris } from '@/lib/image-prefetch';
+import { useFavorites } from '@/context/favorites-context';
+
+const IMAGE_HYDRATE_CONCURRENCY = 5;
 
 const ALL_CATEGORIES_ID = 'all';
 const OFFERS_CATEGORY_ID = 'offers';
@@ -56,6 +61,7 @@ type CardItem = {
   erbjudandeclaimade?: number | string[];
   erbjudandemängd?: number | string[];
   erbjudandelängd?: string | string[];
+  distanceKm?: number;
 };
 
 type SectionItem = {
@@ -99,6 +105,10 @@ type ApiOrder = {
   imageUrl?: string;
   maxRedemptions?: number;
   claimedCount?: number;
+  /** Backend canonical field for claimed redemptions. */
+  claimedRedemptions?: number;
+  /** Backend canonical field for redeemed redemptions. */
+  redeemedRedemptions?: number;
   orderTimeFrom?: string;
   orderTimeTo?: string;
   validTo?: string;
@@ -107,12 +117,291 @@ type ApiOrder = {
 
 function normalizeImageUrl(raw?: unknown) {
   if (typeof raw !== 'string') return undefined;
-  const trimmed = raw.trim();
+  const trimmed = raw.trim().replace(/\\/g, '/');
   if (!trimmed) return undefined;
   if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
   if (trimmed.startsWith('//')) return `https:${trimmed}`;
   if (trimmed.startsWith('/')) return apiUrl(trimmed);
   return apiUrl(`/${trimmed}`);
+}
+
+function parseOrdersPayload(json: unknown): any[] {
+  if (Array.isArray(json)) return json;
+  const obj = json as Record<string, unknown>;
+  if (Array.isArray(obj?.orders)) return obj.orders;
+  if (Array.isArray(obj?.data)) return obj.data;
+  return [];
+}
+
+function isActiveOffer(order: any, nowMs: number = Date.now()): boolean {
+  if (!order) return false;
+
+  const status = typeof order?.status === 'string' ? order.status.toUpperCase() : '';
+  if (order?.isActive === false || status === 'INACTIVE' || status === 'DRAFT' || status === 'CANCELLED' || status === 'EXPIRED' || status === 'ARCHIVED') {
+    return false;
+  }
+
+  // Expired (utgånget): the campaign end date has passed.
+  // Use `orderTimeTo` only. `validTo` is a 1970 time-of-day value, not a real date.
+  const toMs = order?.orderTimeTo ? new Date(order.orderTimeTo).getTime() : NaN;
+  if (Number.isFinite(toMs) && toMs < nowMs) return false;
+
+  // Not started yet: the campaign start date is in the future.
+  const fromMs = order?.orderTimeFrom ? new Date(order.orderTimeFrom).getTime() : NaN;
+  if (Number.isFinite(fromMs) && fromMs > nowMs) return false;
+
+  // Sold out (all redemptions claimed).
+  const max = Number(order?.maxRedemptions);
+  const claimed = Number(order?.claimedRedemptions ?? order?.claimedCount);
+  if (Number.isFinite(max) && max > 0 && Number.isFinite(claimed) && claimed >= max) {
+    return false;
+  }
+
+  return true;
+}
+
+function getNearbyBadge(card: CardItem) {
+  return formatDistanceKm(card.distanceKm) ?? 'Nära dig';
+}
+
+function getEndingSoonBadge(card: CardItem) {
+  const raw = Array.isArray(card.erbjudandelängd) ? card.erbjudandelängd[0] : card.erbjudandelängd;
+  if (!raw) return 'Snart';
+  const date = new Date(raw);
+  if (!Number.isFinite(date.getTime())) return 'Snart';
+  const day = date.getDate();
+  const month = date.toLocaleDateString('sv-SE', { month: 'short' }).toUpperCase();
+  return `${day} ${month}`;
+}
+
+function pickAt<T>(arr: T[] | undefined, index: number): T | undefined {
+  if (!arr || arr.length === 0) return undefined;
+  return arr[index] ?? arr[0];
+}
+
+function parseOrdersFromBusinessRecord(business: any): any[] {
+  const nested =
+    (Array.isArray(business?.activeOrders) && business.activeOrders) ||
+    (Array.isArray(business?.orders) && business.orders) ||
+    (Array.isArray(business?.active_orders) && business.active_orders) ||
+    [];
+  const businessId = business?.id ?? business?._id;
+  return nested.map((order: any) => ({
+    ...order,
+    businessId: order?.businessId ?? businessId,
+    business: order?.business ?? business,
+  }));
+}
+
+function mergeOrdersById(...groups: any[][]): any[] {
+  const byId = new Map<string, any>();
+  groups.flat().forEach((order, index) => {
+    const id = String(order?.id ?? order?._id ?? `order-${index}`);
+    if (!byId.has(id)) byId.set(id, order);
+  });
+  return Array.from(byId.values());
+}
+
+async function fetchOrdersFromBusinessDetails(
+  businesses: ApiBusiness[],
+  maxBusinesses = 24
+): Promise<any[]> {
+  const slice = businesses.slice(0, maxBusinesses);
+  const batches = await Promise.all(
+    slice.map(async (business, index) => {
+      const businessId = String(business.id ?? business._id ?? `business-${index}`);
+      try {
+        const res = await fetch(apiUrl(`/business/${encodeURIComponent(businessId)}`));
+        if (!res.ok) return [];
+        const json = await res.json().catch(() => ({}));
+        const businessObj = (json as any)?.business ?? json;
+        return parseOrdersFromBusinessRecord({ ...businessObj, id: businessId });
+      } catch {
+        return [];
+      }
+    })
+  );
+  return batches.flat();
+}
+
+function expandBusinessCardToOfferCards(card: CardItem): CardItem[] {
+  const offers = Array.isArray(card.erbjudande)
+    ? card.erbjudande
+    : card.erbjudande
+      ? [card.erbjudande]
+      : [];
+  const orderIds = card.orderIds ?? [];
+  if (offers.length === 0 && orderIds.length === 0) return [];
+
+  const count = Math.max(offers.length, orderIds.length);
+  return Array.from({ length: count }, (_, i) => ({
+    ...card,
+    deal: true,
+    orderIds: orderIds[i] ? [String(orderIds[i])] : orderIds.slice(i, i + 1).map(String),
+    erbjudande: [offers[i] ?? offers[0] ?? 'Erbjudande'],
+    erbjudandepris: pickAt(card.erbjudandepris as string[] | undefined, i)
+      ? [String(pickAt(card.erbjudandepris as string[] | undefined, i))]
+      : [],
+    erbjudandeoriginalpris: pickAt(card.erbjudandeoriginalpris as string[] | undefined, i)
+      ? [String(pickAt(card.erbjudandeoriginalpris as string[] | undefined, i))]
+      : [],
+    erbjudandeclaimade: pickAt(card.erbjudandeclaimade as string[] | undefined, i)
+      ? [String(pickAt(card.erbjudandeclaimade as string[] | undefined, i))]
+      : [],
+    erbjudandemängd: pickAt(card.erbjudandemängd as string[] | undefined, i)
+      ? [String(pickAt(card.erbjudandemängd as string[] | undefined, i))]
+      : [],
+    erbjudandelängd: pickAt(card.erbjudandelängd as string[] | undefined, i)
+      ? [String(pickAt(card.erbjudandelängd as string[] | undefined, i))]
+      : [],
+    kortbeskrivning: offers[i] ?? offers[0] ?? card.kortbeskrivning,
+  }));
+}
+
+function buildOfferCardsFromBusinessCards(cards: CardItem[]): CardItem[] {
+  return cards.filter((card) => card.deal).flatMap(expandBusinessCardToOfferCards);
+}
+
+function applyCarouselMode(
+  cards: CardItem[],
+  mode: 'hot' | 'endingSoon' | 'random',
+  limit = 10
+): CardItem[] {
+  const parseEndMs = (card: CardItem) => {
+    const raw = Array.isArray(card.erbjudandelängd) ? card.erbjudandelängd[0] : card.erbjudandelängd;
+    const ms = raw ? new Date(raw).getTime() : NaN;
+    return Number.isFinite(ms) ? ms : Number.POSITIVE_INFINITY;
+  };
+
+  if (mode === 'endingSoon') {
+    const withEnd = cards.filter((card) => parseEndMs(card) !== Number.POSITIVE_INFINITY);
+    const pool = withEnd.length > 0 ? withEnd : cards;
+    return [...pool].sort((a, b) => parseEndMs(a) - parseEndMs(b)).slice(0, limit);
+  }
+
+  if (mode === 'hot') {
+    return [...cards]
+      .sort((a, b) => {
+        const claimedA = Number(
+          Array.isArray(a.erbjudandeclaimade) ? a.erbjudandeclaimade[0] : a.erbjudandeclaimade ?? 0
+        );
+        const claimedB = Number(
+          Array.isArray(b.erbjudandeclaimade) ? b.erbjudandeclaimade[0] : b.erbjudandeclaimade ?? 0
+        );
+        return claimedB - claimedA;
+      })
+      .slice(0, limit);
+  }
+
+  if (mode === 'random') {
+    const shuffled = [...cards];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled.slice(0, limit);
+  }
+
+  return cards.slice(0, limit);
+}
+
+function resolveCarouselCards(
+  catalogCards: CardItem[],
+  businessOfferCards: CardItem[],
+  mode: 'hot' | 'endingSoon' | 'random',
+  limit = 10
+): CardItem[] {
+  const primary = applyCarouselMode(catalogCards, mode, limit);
+  if (primary.length > 0) return primary;
+  return applyCarouselMode(businessOfferCards, mode, limit);
+}
+
+function buildOrderCardsFromCatalog(
+  ordersRaw: any[],
+  approvedBusinesses: ApiBusiness[],
+  mode: 'hot' | 'endingSoon' | 'random',
+  limit = 10
+): CardItem[] {
+  return applyCarouselMode(buildCatalogOfferCardsFlat(ordersRaw, approvedBusinesses), mode, limit);
+}
+
+function buildCatalogOfferCardsFlat(ordersRaw: any[], approvedBusinesses: ApiBusiness[]): CardItem[] {
+  const businessById = new Map<string, ApiBusiness>();
+  approvedBusinesses.forEach((business, index) => {
+    businessById.set(String(business.id ?? business._id ?? `business-${index}`), business);
+  });
+
+  const nowMs = Date.now();
+  const eligible: CardItem[] = [];
+
+  ordersRaw.forEach((order, index) => {
+    if (!isActiveOffer(order, nowMs)) return;
+
+    const businessId =
+      typeof order?.businessId === 'string'
+        ? order.businessId
+        : order?.businessId?.id ?? order?.businessId?._id;
+    const business =
+      order?.business ?? (businessId ? businessById.get(String(businessId)) : undefined);
+
+    if (!business?.name && !business?.id && !order?.title) return;
+
+    eligible.push(mapApiOrderToCardItem({ ...order, business: business ?? {} }, index));
+  });
+
+  return eligible;
+}
+
+function mapApiOrderToCardItem(order: any, index: number): CardItem {
+  const business = order?.business ?? {};
+  const businessId =
+    typeof order?.businessId === 'string'
+      ? order.businessId
+      : order?.businessId?.id ??
+        order?.businessId?._id ??
+        business?.id ??
+        business?._id ??
+        `business-${index}`;
+  const orderId = String(order?.id ?? order?._id ?? `order-${index}`);
+
+  const imageCandidate =
+    order?.image?.publicUrl ??
+    order?.image?.url ??
+    order?.imageUrl ??
+    order?.imageAsset?.publicUrl ??
+    order?.imageAsset?.url ??
+    business?.image?.publicUrl ??
+    business?.imageUrl;
+
+  const normalizedImageUri = normalizeImageUrl(imageCandidate);
+
+  return {
+    id: String(businessId),
+    title: business?.name ?? order?.title ?? 'Erbjudande',
+    image: {
+      uri: normalizedImageUri ?? `https://picsum.photos/seed/${encodeURIComponent(orderId)}/300/200`,
+    },
+    categoryId: business?.categoryId ?? business?.category?.id,
+    categoryName: business?.categoryName ?? business?.category?.name,
+    deal: true,
+    orderIds: [orderId],
+    erbjudandepris: [String(order?.price ?? 0)],
+    erbjudandeoriginalpris:
+      order?.originalPrice !== undefined && order?.originalPrice !== null
+        ? [String(order.originalPrice)]
+        : [],
+    Adress: [business?.address, business?.city].filter(Boolean).join(', ') || 'Adress saknas',
+    latitude: business?.latitude,
+    longitude: business?.longitude,
+    Telefon: business?.contactPhone ?? undefined,
+    Website: business?.website ?? '',
+    kortbeskrivning: order?.title ?? order?.description ?? business?.description ?? '',
+    långbeskrivning: order?.description ?? business?.description ?? '',
+    erbjudande: [order?.title ?? 'Erbjudande'],
+    erbjudandeclaimade: [String(order?.claimedRedemptions ?? order?.claimedCount ?? 0)],
+    erbjudandemängd: [String(order?.maxRedemptions ?? 0)],
+    erbjudandelängd: [order?.orderTimeTo ?? order?.validTo ?? ''],
+  };
 }
 
 function SectionHeader({ title }: { title: string }) {
@@ -156,123 +445,32 @@ function PromoCarousel({ images, activeIndex, theme }: { images: string[]; activ
   );
 }
 
-function FeaturedHero({ cards, onCardPress }: { cards: CardItem[]; onCardPress?: (card: CardItem) => void }) {
+function ForYouOrderCarousel({
+  cards,
+  onCardPress,
+  emptyText,
+  badgeLabel,
+  badgeColor,
+  getBadgeLabel,
+  showFavoriteButton = false,
+}: {
+  cards: CardItem[];
+  onCardPress?: (card: CardItem) => void;
+  emptyText: string;
+  badgeLabel: string;
+  badgeColor: string;
+  getBadgeLabel?: (card: CardItem) => string;
+  /** Only företag (not individual erbjudanden) should be favoritable. */
+  showFavoriteButton?: boolean;
+}) {
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
-
-  const left = cards[0];
-  const topRight = cards[1];
-  const bottomRight = cards[2];
-
-  if (!left) return null;
-
-  return (
-    <View>
-      <View className="flex-row gap-3">
-        <View style={{ flex: 2 }}>
-          <Pressable
-            className="overflow-hidden rounded-2xl"
-            style={{ backgroundColor: theme.cardBg, borderWidth: 1, borderColor: theme.border }}
-            onPress={() => onCardPress?.(left)}
-          >
-            <View className="relative h-40 w-full">
-              <CardMedia source={left.image} svgFit="fill" />
-              <View className="absolute inset-0 bg-black/20" />
-              <View className="absolute right-2 top-2 h-7 w-7 items-center justify-center rounded-full" style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}>
-                <Ionicons name="heart-outline" size={16} color="#ffffff" />
-              </View>
-              <View className="absolute bottom-0 left-0 right-0 p-3">
-                <View className="rounded-xl bg-black/50 px-3 py-2">
-                  <Text className="text-lg font-semibold" style={{ color: theme.text }} numberOfLines={1}>{left.title}</Text>
-                  <Text className="mt-0.5 text-xs" style={{ color: theme.textMuted }} numberOfLines={2}>
-                    {left.kortbeskrivning || 'Upptäck detta företag och deras erbjudanden.'}
-                  </Text>
-                </View>
-              </View>
-            </View>
-          </Pressable>
-        </View>
-
-        <View style={{ flex: 1, justifyContent: 'space-between' }}>
-          {topRight ? (
-            <Pressable
-              className="mb-3 overflow-hidden rounded-2xl"
-              style={{
-                position: 'relative',
-                zIndex: 2,
-                elevation: 2,
-                backgroundColor: theme.cardBg,
-                borderWidth: 1,
-                borderColor: theme.border,
-              }}
-              onPress={() => onCardPress?.(topRight)}
-            >
-              <View className="relative h-20 w-full">
-                <CardMedia source={topRight.image} svgFit="fill" />
-                <View className="absolute inset-0 bg-black/20" />
-                <View className="absolute right-2 top-2 h-6 w-6 items-center justify-center rounded-full" style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}>
-                  <Ionicons name="heart-outline" size={14} color="#ffffff" />
-                </View>
-                <View className="absolute bottom-0 left-0 right-0 p-2">
-                  <View className="rounded-xl bg-black/50 px-2 py-1">
-                    <Text className="text-sm font-semibold" style={{ color: theme.text }} numberOfLines={1}>{topRight.title}</Text>
-                  </View>
-                </View>
-              </View>
-            </Pressable>
-          ) : null}
-
-          {bottomRight ? (
-            <Pressable
-              className="overflow-hidden rounded-2xl"
-              style={{
-                position: 'relative',
-                zIndex: 1,
-                elevation: 1,
-                backgroundColor: theme.cardBg,
-                borderWidth: 1,
-                borderColor: theme.border,
-              }}
-              onPress={() => onCardPress?.(bottomRight)}
-            >
-              <View className="relative h-20 w-full">
-                <CardMedia source={bottomRight.image} svgFit="fill" />
-                <View className="absolute inset-0 bg-black/20" />
-                <View className="absolute right-2 top-2 h-6 w-6 items-center justify-center rounded-full" style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}>
-                  <Ionicons name="heart-outline" size={14} color="#ffffff" />
-                </View>
-                <View className="absolute bottom-0 left-0 right-0 p-2">
-                  <View className="rounded-xl bg-black/50 px-2 py-1">
-                    <Text className="text-sm font-semibold" style={{ color: theme.text }} numberOfLines={1}>{bottomRight.title}</Text>
-                  </View>
-                </View>
-              </View>
-            </Pressable>
-          ) : null}
-        </View>
-      </View>
-    </View>
-  );
-}
-
-function UpcomingHighlights({ cards, onCardPress }: { cards: CardItem[]; onCardPress?: (card: CardItem) => void }) {
-  const { mode } = useThemePreference();
-  const theme = uiTheme(mode);
-
-  const items = cards.slice(0, 8);
-
-  const getDateBadge = (card: CardItem) => {
-    const raw = Array.isArray(card.erbjudandelängd) ? card.erbjudandelängd[0] : card.erbjudandelängd;
-    if (!raw) return 'TBA';
-    const date = new Date(raw);
-    if (!Number.isFinite(date.getTime())) return 'TBA';
-    const day = date.getDate();
-    const month = date.toLocaleDateString('sv-SE', { month: 'short' }).toUpperCase();
-    return `${day} ${month}`;
-  };
+  const { token, role } = useAuth();
+  const { isFavorite, toggleFavorite } = useFavorites();
+  const items = cards.slice(0, 10);
 
   if (items.length === 0) {
-    return <Text style={{ color: theme.textMuted }}>Inga kommande hojdpunkter just nu.</Text>;
+    return <Text style={{ color: theme.textMuted }}>{emptyText}</Text>;
   }
 
   return (
@@ -280,34 +478,310 @@ function UpcomingHighlights({ cards, onCardPress }: { cards: CardItem[]; onCardP
       <View className="flex-row gap-3 pb-2">
         {items.map((card, idx) => (
           <Pressable
-            key={`${card.id}-${idx}-upcoming`}
+            key={`${card.orderIds?.[0] ?? card.id}-${idx}`}
             className="overflow-hidden rounded-2xl"
             style={{
-              // When the cards grow / overlap, keep earlier (left/top) cards above later ones.
               position: 'relative',
               zIndex: 1000 - idx,
               elevation: 1000 - idx,
-              width: 150,
+              width: 168,
               backgroundColor: theme.cardBg,
               borderWidth: 1,
               borderColor: theme.border,
             }}
             onPress={() => onCardPress?.(card)}
           >
-            <View className="relative h-28 w-full">
-              <CardMedia source={card.image} svgFit="fill" />
-              <View className="absolute inset-0 bg-black/15" />
-              <View className="absolute left-2 top-2 rounded-md bg-white px-2 py-1">
-                <Text className="text-[10px] font-semibold" style={{ color: '#061A47' }}>{getDateBadge(card)}</Text>
+            <View className="relative h-32 w-full">
+              <CardMedia source={card.image} svgFit="fill" priority={idx < 4 ? 'high' : 'normal'} />
+              <View className="absolute inset-0 bg-black/20" />
+              <View
+                className="absolute left-2 top-2 rounded-full px-2 py-1"
+                style={{ backgroundColor: badgeColor }}
+              >
+                <Text className="text-[10px] font-semibold text-white">
+                  {getBadgeLabel ? getBadgeLabel(card) : badgeLabel}
+                </Text>
               </View>
-              <View className="absolute right-2 top-2 h-6 w-6 items-center justify-center rounded-full" style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}>
-                <Ionicons name="heart-outline" size={14} color="#ffffff" />
-              </View>
+              {showFavoriteButton && token && role === 'USER' ? (
+                <View className="absolute right-2 top-2 h-8 w-8 items-center justify-center rounded-full" style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}>
+                  <Pressable
+                    onPress={async (e: any) => {
+                      e?.stopPropagation?.();
+                      await toggleFavorite(card.id);
+                    }}
+                    hitSlop={10}
+                    style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    <Ionicons
+                      name={isFavorite(card.id) ? 'heart' : 'heart-outline'}
+                      size={18}
+                      color={isFavorite(card.id) ? '#ff3b30' : '#ffffff'}
+                    />
+                  </Pressable>
+                </View>
+              ) : null}
+              <LinearGradient
+                colors={['rgba(0,0,0,0.00)', 'rgba(0,0,0,0.85)']}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  height: '55%',
+                  paddingHorizontal: 10,
+                  paddingBottom: 10,
+                  justifyContent: 'flex-end',
+                }}
+              >
+                <Text className="text-sm font-semibold text-white" numberOfLines={1}>
+                  {card.title}
+                </Text>
+                <Text className="mt-0.5 text-[11px] text-white/80" numberOfLines={1}>
+                  {card.kortbeskrivning || 'Erbjudande'}
+                </Text>
+              </LinearGradient>
             </View>
           </Pressable>
         ))}
       </View>
     </ScrollView>
+  );
+}
+
+function computeDiscountLabel(card: CardItem): string | null {
+  const priceArr = Array.isArray(card.erbjudandepris) ? card.erbjudandepris : [];
+  const origArr = Array.isArray(card.erbjudandeoriginalpris) ? card.erbjudandeoriginalpris : [];
+  const price = Number(priceArr[0]);
+  const orig = Number(origArr[0]);
+  if (!Number.isFinite(price) || !Number.isFinite(orig) || orig <= 0 || price >= orig) return null;
+  const pct = Math.round(((orig - price) / orig) * 100);
+  if (pct <= 0) return null;
+  return `-${pct}%`;
+}
+
+function getEndingDateParts(card: CardItem): { day: string; month: string } | null {
+  const raw = Array.isArray(card.erbjudandelängd) ? card.erbjudandelängd[0] : card.erbjudandelängd;
+  if (!raw) return null;
+  const date = new Date(raw);
+  if (!Number.isFinite(date.getTime())) return null;
+  const day = String(date.getDate());
+  const month = date.toLocaleDateString('sv-SE', { month: 'short' }).toUpperCase().replace(/\./g, '');
+  return { day, month };
+}
+
+function FeaturedDealCard({
+  card,
+  onPress,
+  height,
+  titleSize = 'sm',
+}: {
+  card: CardItem;
+  onPress?: (card: CardItem) => void;
+  height: number;
+  titleSize?: 'sm' | 'lg';
+}) {
+  const discount = computeDiscountLabel(card);
+  const offerLabel = Array.isArray(card.erbjudande) ? card.erbjudande[0] : card.erbjudande;
+  return (
+    <Pressable
+      onPress={() => onPress?.(card)}
+      className="overflow-hidden rounded-2xl"
+      style={{ height, backgroundColor: '#000' }}
+    >
+      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+        <CardMedia source={card.image} svgFit="fill" />
+      </View>
+      <LinearGradient
+        colors={['rgba(0,0,0,0.00)', 'rgba(0,0,0,0.85)']}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          paddingHorizontal: 12,
+          paddingBottom: 12,
+          paddingTop: 28,
+        }}
+      >
+        <Text
+          className={titleSize === 'lg' ? 'text-xl font-semibold text-white' : 'text-sm font-semibold text-white'}
+          numberOfLines={titleSize === 'lg' ? 2 : 1}
+        >
+          {offerLabel || card.title}
+        </Text>
+        {discount ? (
+          <View
+            className="mt-2 self-start rounded-md px-2 py-0.5"
+            style={{ backgroundColor: '#ff3b30' }}
+          >
+            <Text className="text-[11px] font-semibold text-white">{discount}</Text>
+          </View>
+        ) : null}
+      </LinearGradient>
+    </Pressable>
+  );
+}
+
+function FeaturedDealsSplit({
+  cards,
+  onCardPress,
+  emptyText,
+}: {
+  cards: CardItem[];
+  onCardPress?: (card: CardItem) => void;
+  emptyText: string;
+}) {
+  const { mode } = useThemePreference();
+  const theme = uiTheme(mode);
+  const items = cards.slice(0, 3);
+
+  if (items.length === 0) {
+    return <Text style={{ color: theme.textMuted }}>{emptyText}</Text>;
+  }
+
+  const big = items[0];
+  const small1 = items[1];
+  const small2 = items[2];
+  const largeHeight = 220;
+  const smallHeight = (largeHeight - 12) / 2;
+
+  return (
+    <View className="flex-row gap-3">
+      <View style={{ flex: 1.15 }}>
+        <FeaturedDealCard card={big} onPress={onCardPress} height={largeHeight} titleSize="lg" />
+      </View>
+      <View style={{ flex: 1, gap: 12 }}>
+        {small1 ? (
+          <FeaturedDealCard card={small1} onPress={onCardPress} height={smallHeight} />
+        ) : null}
+        {small2 ? (
+          <FeaturedDealCard card={small2} onPress={onCardPress} height={smallHeight} />
+        ) : (
+          <View style={{ height: smallHeight }} />
+        )}
+      </View>
+    </View>
+  );
+}
+
+function EndingSoonPortraitRow({
+  cards,
+  onCardPress,
+  emptyText,
+}: {
+  cards: CardItem[];
+  onCardPress?: (card: CardItem) => void;
+  emptyText: string;
+}) {
+  const { mode } = useThemePreference();
+  const theme = uiTheme(mode);
+  const items = cards.slice(0, 3);
+
+  if (items.length === 0) {
+    return <Text style={{ color: theme.textMuted }}>{emptyText}</Text>;
+  }
+
+  return (
+    <View className="flex-row gap-3">
+      {items.map((card, idx) => {
+        const date = getEndingDateParts(card);
+        return (
+          <Pressable
+            key={`${card.orderIds?.[0] ?? card.id}-${idx}`}
+            onPress={() => onCardPress?.(card)}
+            className="overflow-hidden rounded-2xl"
+            style={{ flex: 1, height: 180, backgroundColor: '#000' }}
+          >
+            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+              <CardMedia source={card.image} svgFit="fill" priority={idx < 4 ? 'high' : 'normal'} />
+            </View>
+            <View className="absolute inset-0 bg-black/25" />
+            {date ? (
+              <View
+                style={{
+                  position: 'absolute',
+                  top: 8,
+                  left: 8,
+                  paddingHorizontal: 8,
+                  paddingVertical: 4,
+                  borderRadius: 10,
+                  backgroundColor: 'rgba(255,255,255,0.92)',
+                  alignItems: 'center',
+                  minWidth: 36,
+                }}
+              >
+                <Text style={{ fontSize: 14, fontWeight: '700', color: '#0b1a45', lineHeight: 16 }}>
+                  {date.day}
+                </Text>
+                <Text style={{ fontSize: 9, fontWeight: '700', color: '#0b1a45', lineHeight: 11 }}>
+                  {date.month}
+                </Text>
+              </View>
+            ) : null}
+            <LinearGradient
+              colors={['rgba(0,0,0,0.00)', 'rgba(0,0,0,0.85)']}
+              start={{ x: 0.5, y: 0 }}
+              end={{ x: 0.5, y: 1 }}
+              style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                bottom: 0,
+                paddingHorizontal: 10,
+                paddingBottom: 10,
+                paddingTop: 24,
+              }}
+            >
+              <Text className="text-sm font-semibold text-white" numberOfLines={2}>
+                {card.title}
+              </Text>
+            </LinearGradient>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function SectionTitleRow({
+  title,
+  icon,
+  iconColor,
+  subtitle,
+  onSeeAllPress,
+}: {
+  title: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  iconColor?: string;
+  subtitle?: string;
+  onSeeAllPress?: () => void;
+}) {
+  const { mode } = useThemePreference();
+  const theme = uiTheme(mode);
+  return (
+    <View className="mb-3 flex-row items-start justify-between">
+      <View style={{ flex: 1 }}>
+        <View className="flex-row items-center">
+          <Ionicons name={icon} size={18} color={iconColor ?? theme.text} />
+          <Text className="ml-2 text-lg font-semibold" style={{ color: theme.text }}>
+            {title}
+          </Text>
+        </View>
+        {subtitle ? (
+          <Text className="mt-0.5 text-xs" style={{ color: theme.textMuted }}>
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
+      <Pressable onPress={onSeeAllPress} className="flex-row items-center" style={{ marginTop: 2 }}>
+        <Text style={{ color: theme.textMuted, fontSize: 13 }}>Visa alla</Text>
+        <Ionicons name="chevron-forward" size={14} color={theme.textMuted} style={{ marginLeft: 2 }} />
+      </Pressable>
+    </View>
   );
 }
 
@@ -356,6 +830,8 @@ export default function HomeScreen() {
   const [activeCategory, setActiveCategory] = useState<string>(ALL_CATEGORIES_ID);
   const [categoryFilters, setCategoryFilters] = useState<FilterCategory[]>([]);
   const [deals, setDeals] = useState<CardItem[]>([]);
+  const [nearYouCards, setNearYouCards] = useState<CardItem[]>([]);
+  const [hotOfferCards, setHotOfferCards] = useState<CardItem[]>([]);
   const [featuredBusinesses, setFeaturedBusinesses] = useState<CardItem[]>([]);
   const [sections, setSections] = useState<SectionItem[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
@@ -363,6 +839,7 @@ export default function HomeScreen() {
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [firstName, setFirstName] = useState<string | null>(null);
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [expandedSection, setExpandedSection] = useState<'nearby' | 'hot' | 'endingSoon' | null>(null);
   const nearbyAnim = useRef(new Animated.Value(0)).current;
   const hotAnim = useRef(new Animated.Value(0)).current;
@@ -584,6 +1061,21 @@ export default function HomeScreen() {
   useEffect(() => {
     let cancelled = false;
 
+    (async () => {
+      const resolved = await getUserCoords();
+      if (!cancelled && resolved) {
+        setCoords(resolved);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
     const loadHomeData = async () => {
       setIsLoadingData(true);
       try {
@@ -621,6 +1113,41 @@ export default function HomeScreen() {
               ? ordersJson.data
               : [];
 
+        const approvedBusinessesEarly = businessesRaw.filter(
+          (business) => (business.status ?? 'APPROVED').toUpperCase() === 'APPROVED'
+        );
+
+        const ordersFromBusinessList = businessesRaw.flatMap(parseOrdersFromBusinessRecord);
+        let allOrdersRaw = mergeOrdersById(ordersRaw, ordersFromBusinessList);
+        if (!token) {
+          const fromBusinessDetails = await fetchOrdersFromBusinessDetails(approvedBusinessesEarly);
+          allOrdersRaw = mergeOrdersById(allOrdersRaw, fromBusinessDetails);
+        } else if (allOrdersRaw.length === 0) {
+          allOrdersRaw = await fetchOrdersFromBusinessDetails(approvedBusinessesEarly.slice(0, 16));
+        }
+
+        let nearYouFromApi: CardItem[] = [];
+        let hotFromApi: CardItem[] = [];
+        if (token) {
+          const authHeaders = { Authorization: `Bearer ${token}` };
+          const closeUrl = coords
+            ? `/orders/for-you/close?take=10&lat=${coords.lat}&lng=${coords.lng}`
+            : '/orders/for-you/close?take=10';
+          const [closeRes, hotRes] = await Promise.all([
+            fetch(apiUrl(closeUrl), { headers: authHeaders }),
+            fetch(apiUrl('/orders/for-you/hot?take=10'), { headers: authHeaders }),
+          ]);
+          const closeJson = closeRes.ok ? await closeRes.json().catch(() => ({})) : {};
+          const hotJson = hotRes.ok ? await hotRes.json().catch(() => ({})) : {};
+          const nowMsForYou = Date.now();
+          nearYouFromApi = parseOrdersPayload(closeJson)
+            .filter((order) => isActiveOffer(order, nowMsForYou))
+            .map(mapApiOrderToCardItem);
+          hotFromApi = parseOrdersPayload(hotJson)
+            .filter((order) => isActiveOffer(order, nowMsForYou))
+            .map(mapApiOrderToCardItem);
+        }
+
         const categoryNameById = new Map<string, string>();
         categoriesRaw.forEach((category) => {
           const id = category.id ?? category._id;
@@ -645,7 +1172,7 @@ export default function HomeScreen() {
           .filter((item): item is FilterCategory => Boolean(item));
 
         const ordersByBusinessId = new Map<string, ApiOrder[]>();
-        ordersRaw.forEach((order) => {
+        allOrdersRaw.forEach((order) => {
           const businessId =
             typeof order.businessId === 'string'
               ? order.businessId
@@ -663,9 +1190,7 @@ export default function HomeScreen() {
 
         const nowMs = Date.now();
 
-        const approvedBusinesses = businessesRaw.filter(
-          (business) => (business.status ?? 'APPROVED').toUpperCase() === 'APPROVED'
-        );
+        const approvedBusinesses = approvedBusinessesEarly;
 
         // Mirror the portal behavior: if the backend doesn't return `imageUrl` consistently,
         // fall back to the last known value per business id from local storage.
@@ -692,20 +1217,15 @@ export default function HomeScreen() {
         const cards: CardItem[] = approvedBusinesses.map((business, index) => {
           const businessId = business.id ?? business._id ?? `business-${index}`;
           const businessOrders = ordersByBusinessId.get(businessId) ?? [];
-          const visibleOrders = businessOrders.filter((order) => {
-            if (!order.orderTimeFrom) {
-              return true;
-            }
-
-            const fromMs = new Date(order.orderTimeFrom).getTime();
-            return Number.isFinite(fromMs) && fromMs <= nowMs;
-          });
+          const visibleOrders = businessOrders.filter((order) => isActiveOffer(order, nowMs));
 
           const offers = visibleOrders.map((order) => order.title ?? 'Erbjudande');
           const orderIds = visibleOrders.map((order, orderIndex) => order.id ?? order._id ?? `${businessId}-order-${orderIndex}`);
           const offerPrices = visibleOrders.map((order) => String(order.price ?? 0));
           const offerOriginalPrices = visibleOrders.map((order) => order.originalPrice !== undefined ? String(order.originalPrice) : '');
-          const offerClaimed = visibleOrders.map((order) => String(order.claimedCount ?? 0));
+          const offerClaimed = visibleOrders.map((order) =>
+            String(order.claimedRedemptions ?? order.claimedCount ?? 0)
+          );
           const offerAmount = visibleOrders.map((order) => String(order.maxRedemptions ?? 0));
           const offerEnd = visibleOrders.map((order) => order.orderTimeTo ?? order.validTo ?? '');
           const firstVisibleOrder = visibleOrders[0] as any | undefined;
@@ -749,6 +1269,16 @@ export default function HomeScreen() {
 
           const normalizedImageUri = normalizeImageUrl(imageCandidateRaw);
 
+          const resolvedCategoryIdRaw =
+            (business as any)?.categoryId ??
+            (business as any)?.category?.id ??
+            (business as any)?.category?._id ??
+            (business as any)?.category;
+          const resolvedCategoryId =
+            typeof resolvedCategoryIdRaw === 'string' || typeof resolvedCategoryIdRaw === 'number'
+              ? String(resolvedCategoryIdRaw)
+              : undefined;
+
           return {
             id: businessId,
             title: business.name ?? 'Okänd verksamhet',
@@ -756,9 +1286,10 @@ export default function HomeScreen() {
               uri:
                 normalizedImageUri ?? `https://picsum.photos/seed/${encodeURIComponent(businessId)}/300/200`,
             },
-            categoryId:
-              business.categoryId,
-            categoryName: business.categoryName ?? (business.categoryId ? categoryNameById.get(business.categoryId) : undefined),
+            categoryId: resolvedCategoryId,
+            categoryName:
+              business.categoryName ??
+              (resolvedCategoryId ? categoryNameById.get(resolvedCategoryId) : undefined),
             deal: visibleOrders.length > 0,
             orderIds,
             erbjudandepris: offerPrices,
@@ -800,7 +1331,34 @@ export default function HomeScreen() {
           // ignore cache write errors
         }
 
-        const dealsList = cards.filter((card) => card.deal);
+        // "Nära dig" lists real approved companies regardless of whether they
+        // currently have an active (non-expired) offer.
+        // When the user's location is known, rank by actual distance (nearest
+        // first); otherwise fall back to surfacing companies with active offers.
+        const cardsWithDistance = cards.map((card) => {
+          if (
+            coords &&
+            typeof card.latitude === 'number' &&
+            typeof card.longitude === 'number' &&
+            Number.isFinite(card.latitude) &&
+            Number.isFinite(card.longitude)
+          ) {
+            return {
+              ...card,
+              distanceKm: haversineKm(coords.lat, coords.lng, card.latitude, card.longitude),
+            };
+          }
+          return card;
+        });
+
+        const dealsList = coords
+          ? [...cardsWithDistance].sort((a, b) => {
+              const da = typeof a.distanceKm === 'number' ? a.distanceKm : Number.POSITIVE_INFINITY;
+              const db = typeof b.distanceKm === 'number' ? b.distanceKm : Number.POSITIVE_INFINITY;
+              if (da !== db) return da - db;
+              return Number(b.deal) - Number(a.deal);
+            })
+          : [...cardsWithDistance].sort((a, b) => Number(b.deal) - Number(a.deal));
         const shuffledBusinesses = [...cards].sort(() => Math.random() - 0.5);
         const featuredList = shuffledBusinesses.slice(0, 5);
 
@@ -813,13 +1371,83 @@ export default function HomeScreen() {
 
         const filteredSections = nextSections.filter((section) => section.cards.length > 0);
 
+        const businessOfferCards = buildOfferCardsFromBusinessCards(cards);
+        const catalogCardsFlat = buildCatalogOfferCardsFlat(allOrdersRaw, approvedBusinessesEarly);
+
+        if (token) {
+          if (nearYouFromApi.length === 0) {
+            nearYouFromApi = resolveCarouselCards(catalogCardsFlat, businessOfferCards, 'endingSoon');
+          }
+          if (hotFromApi.length === 0) {
+            hotFromApi = resolveCarouselCards(catalogCardsFlat, businessOfferCards, 'hot');
+          }
+        } else {
+          nearYouFromApi = resolveCarouselCards(catalogCardsFlat, businessOfferCards, 'endingSoon');
+          hotFromApi = resolveCarouselCards(catalogCardsFlat, businessOfferCards, 'random');
+        }
+
         if (!cancelled) {
           setCategoryFilters(apiCategoryFilters);
           setDeals(dealsList);
+          setNearYouCards(nearYouFromApi);
+          setHotOfferCards(hotFromApi);
           setFeaturedBusinesses(featuredList);
           currentFeaturedIndex.current =
             featuredList.length > 0 ? featuredList.length * Math.floor(FEATURED_REPEAT_COUNT / 2) : 0;
           setSections(filteredSections);
+
+          void prefetchImageUris(
+            [
+              ...dealsList.slice(0, 12).map((c) => c.image),
+              ...nearYouFromApi.slice(0, 6).map((c) => c.image),
+              ...hotFromApi.slice(0, 6).map((c) => c.image),
+              ...featuredList.slice(0, 4).map((c) => c.image),
+            ],
+            24
+          );
+        }
+
+        // Background: for "Nära dig", geocode companies that lack coordinates
+        // (using their address) so every card can show a real km distance, then
+        // re-sort closest -> furthest. Cached so we only geocode each address once.
+        if (coords) {
+          void (async () => {
+            const userCoords = coords;
+            const needGeocode = dealsList.filter(
+              (card) =>
+                typeof card.distanceKm !== 'number' &&
+                card.Adress &&
+                card.Adress !== 'Adress saknas'
+            );
+            if (needGeocode.length === 0) return;
+
+            const distanceByCardId = new Map<string, number>();
+            for (const card of needGeocode) {
+              const geo = await geocodeAddressCached(card.Adress);
+              if (cancelled) return;
+              if (geo) {
+                distanceByCardId.set(
+                  card.id,
+                  haversineKm(userCoords.lat, userCoords.lng, geo.lat, geo.lng)
+                );
+              }
+            }
+
+            if (cancelled || distanceByCardId.size === 0) return;
+
+            setDeals((prev) => {
+              const merged = prev.map((card) => {
+                const dist = distanceByCardId.get(card.id);
+                return typeof dist === 'number' ? { ...card, distanceKm: dist } : card;
+              });
+              return [...merged].sort((a, b) => {
+                const da = typeof a.distanceKm === 'number' ? a.distanceKm : Number.POSITIVE_INFINITY;
+                const db = typeof b.distanceKm === 'number' ? b.distanceKm : Number.POSITIVE_INFINITY;
+                if (da !== db) return da - db;
+                return Number(b.deal) - Number(a.deal);
+              });
+            });
+          })();
         }
 
         // If list endpoint omits `imageUrl`, hydrate missing images by fetching the portal-like
@@ -828,30 +1456,18 @@ export default function HomeScreen() {
           const needsHydrationIds = approvedBusinesses
             .map((business, index) => String(business.id ?? business._id ?? `business-${index}`))
             .filter((id) => {
-              // Always fetch latest image if not provided in the bulk list
               const card = cards.find((c) => String(c.id) === id);
               const uri =
                 typeof card?.image === 'object' && card.image && 'uri' in card.image
                   ? String((card.image as any).uri ?? '')
                   : '';
-              
-              // Only skip if we already have a real, non-placeholder image directly from the bulk endpoint (not from cache)
-              const cached = cachedImageUrlByBusinessId.get(id);
-              
-              // If it's a placeholder, we definitely need to hydrate
-              if (!uri || isLikelyPicsumUrl(uri)) return true;
-              
-              // If it came from cache, we should still hydrate in background to get the fresh url
-              return true; 
+              return !uri || isLikelyPicsumUrl(uri);
             })
-            .slice(0, 25); // keep it bounded
+            .slice(0, 20);
 
           if (needsHydrationIds.length === 0) return;
 
-          const fetchedPairs: [string, string][] = [];
-
-          for (const id of needsHydrationIds) {
-            if (cancelled) return;
+          const fetchBusinessImage = async (id: string): Promise<{ id: string; uri: string } | null> => {
             try {
               const res = await fetch(apiUrl(`/business/${encodeURIComponent(id)}`));
               const json = await res.json().catch(() => ({}));
@@ -865,27 +1481,42 @@ export default function HomeScreen() {
                 (Array.isArray((json as any)?.images) ? (json as any).images[0] : undefined);
 
               const normalized = normalizeImageUrl(imageUrlRaw);
-              if (!normalized) continue;
-
-              fetchedPairs.push([businessImageCacheKey(id), normalized]);
-
-              if (!cancelled) {
-                const patchCardImage = (prev: CardItem[]) =>
-                  prev.map((c) =>
-                    String(c.id) === id
-                      ? { ...c, image: { uri: normalized } }
-                      : c
-                  );
-                setDeals(patchCardImage);
-                setFeaturedBusinesses(patchCardImage);
-                setSections((prev) =>
-                  prev.map((section) => ({ ...section, cards: patchCardImage(section.cards) }))
-                );
-              }
+              if (!normalized) return null;
+              return { id, uri: normalized };
             } catch {
-              // ignore per-business fetch failures
+              return null;
+            }
+          };
+
+          const imageByBusinessId = new Map<string, string>();
+          const fetchedPairs: [string, string][] = [];
+
+          for (let i = 0; i < needsHydrationIds.length; i += IMAGE_HYDRATE_CONCURRENCY) {
+            if (cancelled) return;
+            const batch = needsHydrationIds.slice(i, i + IMAGE_HYDRATE_CONCURRENCY);
+            const results = await Promise.all(batch.map(fetchBusinessImage));
+            for (const result of results) {
+              if (!result) continue;
+              imageByBusinessId.set(result.id, result.uri);
+              fetchedPairs.push([businessImageCacheKey(result.id), result.uri]);
             }
           }
+
+          if (cancelled || imageByBusinessId.size === 0) return;
+
+          const patchCardImage = (prev: CardItem[]) =>
+            prev.map((c) => {
+              const nextUri = imageByBusinessId.get(String(c.id));
+              return nextUri ? { ...c, image: { uri: nextUri } } : c;
+            });
+
+          setDeals(patchCardImage);
+          setFeaturedBusinesses(patchCardImage);
+          setSections((prev) =>
+            prev.map((section) => ({ ...section, cards: patchCardImage(section.cards) }))
+          );
+
+          void prefetchImageUris([...imageByBusinessId.values()], imageByBusinessId.size);
 
           try {
             if (fetchedPairs.length > 0) {
@@ -899,6 +1530,8 @@ export default function HomeScreen() {
         if (!cancelled) {
           setCategoryFilters([]);
           setDeals([]);
+          setNearYouCards([]);
+          setHotOfferCards([]);
           setFeaturedBusinesses([]);
           setSections([]);
           Alert.alert('Fel', 'Kunde inte ladda startsidan just nu.');
@@ -917,7 +1550,7 @@ export default function HomeScreen() {
     return () => {
       cancelled = true;
     };
-  }, [markDataReady, refreshNonce]);
+  }, [markDataReady, refreshNonce, token, coords]);
 
   useEffect(() => {
     let cancelled = false;
@@ -978,29 +1611,23 @@ export default function HomeScreen() {
 
   const quickCategories = useMemo(() => {
     const pool = categoryOptions.filter((cat) => cat.id !== ALL_CATEGORIES_ID);
-    const used = new Set<string>();
 
-    const pick = (matchers: string[], fallbackLabel: string, icon: React.ComponentProps<typeof Ionicons>['name']) => {
-      const found = pool.find((cat) =>
-        matchers.some((matcher) => cat.label.toLowerCase().includes(matcher))
-      );
-      if (found && !used.has(found.id)) {
-        used.add(found.id);
-        return { ...found, icon };
-      }
-      return { id: `fallback-${fallbackLabel}`, label: fallbackLabel, icon };
+    const getIconName = (label: string): React.ComponentProps<typeof Ionicons>['name'] => {
+      const name = label.toLowerCase();
+      if (name.includes('erbjud')) return 'pricetag-outline';
+      if (name.includes('mat') || name.includes('food') || name.includes('restaur')) return 'restaurant-outline';
+      if (name.includes('event') || name.includes('evenemang')) return 'calendar-outline';
+      if (name.includes('familj') || name.includes('family') || name.includes('barn')) return 'people-outline';
+      if (name.includes('sport') || name.includes('träning') || name.includes('fitness')) return 'football-outline';
+      if (name.includes('hälsa') || name.includes('health')) return 'heart-outline';
+      if (name.includes('skön') || name.includes('beauty') || name.includes('spa')) return 'sparkles-outline';
+      if (name.includes('nöje') || name.includes('entertain') || name.includes('bio')) return 'film-outline';
+      if (name.includes('kläder') || name.includes('shopping') || name.includes('butik')) return 'bag-outline';
+      if (name.includes('resa') || name.includes('travel')) return 'airplane-outline';
+      return 'grid-outline';
     };
 
-    const picks = [
-      pick(['erbjud'], 'Erbjudanden', 'pricetag-outline'),
-      pick(['restaur', 'mat', 'food'], 'Restauranger', 'restaurant-outline'),
-      pick(['event', 'evenemang'], 'Event', 'calendar-outline'),
-      pick(['nöje', 'entertain', 'bio'], 'Nöje', 'sparkles-outline'),
-      pick(['familj', 'family', 'barn'], 'Familj', 'people-outline'),
-      { id: 'more', label: 'Mer', icon: 'ellipsis-horizontal' as const },
-    ];
-
-    return picks;
+    return pool.map((cat) => ({ ...cat, icon: getIconName(cat.label) }));
   }, [categoryOptions]);
 
   useEffect(() => {
@@ -1033,26 +1660,6 @@ export default function HomeScreen() {
     }
     return false;
   }, []);
-
-  const endingSoonDeals = useMemo(() => {
-    const toValues = (value?: string | string[]) => (Array.isArray(value) ? value : value ? [value] : []);
-    const parseEndMs = (card: CardItem) => {
-      const raw = toValues(card.erbjudandelängd);
-      const best = raw
-        .map((item) => new Date(item).getTime())
-        .filter((ms) => Number.isFinite(ms))
-        .sort((a, b) => a - b)[0];
-      return best ?? Number.POSITIVE_INFINITY;
-    };
-
-    return [...filteredDeals]
-      .filter((card) => card.deal)
-      .map((card) => ({ card, endMs: parseEndMs(card) }))
-      .filter((item) => Number.isFinite(item.endMs) && item.endMs !== Number.POSITIVE_INFINITY)
-      .sort((a, b) => a.endMs - b.endMs)
-      .slice(0, 8)
-      .map((item) => item.card);
-  }, [filteredDeals]);
 
   const searchedDeals = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -1197,7 +1804,7 @@ export default function HomeScreen() {
             colors={theme.isDark ? ['#0b1a45', '#0b1a45'] : ['#f5f7ff', '#f5f7ff']}
             start={{ x: 0, y: 0 }}
             end={{ x: 0, y: 1 }}
-            style={{ paddingTop: insets.top + 8, paddingBottom: 18 }}
+            style={{ paddingTop: insets.top + 4, paddingBottom: 10 }}
           >
             {(() => {
               const collapse = scrollY.interpolate({
@@ -1207,46 +1814,31 @@ export default function HomeScreen() {
               });
               const greetingHeight = collapse.interpolate({
                 inputRange: [0, 1],
-                outputRange: [0, 120],
+                outputRange: [0, 36],
                 extrapolate: 'clamp',
               });
 
               return (
                 <Animated.View style={{ height: greetingHeight, opacity: collapse, overflow: 'hidden' }}>
-                  <View style={{ position: 'relative', paddingLeft: 24, paddingTop: 10, paddingBottom: 10, paddingRight: 24 }}>
-                    {/* Right banner should reach the header corners */}
-                    <View
-                      pointerEvents="none"
-                      style={{
-                        position: 'absolute',
-                        right: 0,
-                        top: 0,
-                        bottom: 0,
-                        width: 220,
-                        overflow: 'hidden',
-                        borderTopRightRadius: 24,
-                        borderBottomRightRadius: 24,
-                      }}
-                    >
-                      <Image source={appLogo} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-                    </View>
-
-                    <View className="flex-row items-center justify-between">
-                      <View style={{ paddingRight: 220 - 24 }}>
-                        <Text className="text-2xl font-semibold" style={{ color: theme.text }}>
-                          Hej
-                        </Text>
-                        <Text className="mt-1 text-sm" style={{ color: theme.textMuted }}>
-                          Vad vill du göra idag?
-                        </Text>
-                      </View>
-                    </View>
+                  <View
+                    style={{
+                      paddingLeft: 24,
+                      paddingTop: 0,
+                      paddingBottom: 0,
+                      paddingRight: 24,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Text className="text-xl font-semibold" style={{ color: theme.text, textAlign: 'center' }}>
+                      Vad vill du göra idag?
+                    </Text>
                   </View>
                 </Animated.View>
               );
             })()}
 
-            <View className="px-6">
+            <View className="px-6" style={{ marginTop: -2 }}>
               <View
                 className="flex-row items-center rounded-full px-4 py-2.5"
                 style={{
@@ -1276,25 +1868,61 @@ export default function HomeScreen() {
               </View>
             </View>
 
-            <View className="mt-3">
+            <View className="mt-4">
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 24 }}>
                 <View className="flex-row gap-2">
                   {quickCategories.map((cat) => (
+                    (() => {
+                      const getAccent = () => {
+                        // Make "Erbjudanden" stand out with orange.
+                        if (cat.id === OFFERS_CATEGORY_ID || cat.label.toLowerCase().includes('erbjud')) return '#ff7a00';
+                        // Otherwise, pick a stable accent based on icon.
+                        switch (cat.icon) {
+                          case 'restaurant-outline':
+                            return '#34c759';
+                          case 'calendar-outline':
+                            return '#ff3b30';
+                          case 'film-outline':
+                          case 'sparkles-outline':
+                            return '#af52de';
+                          case 'people-outline':
+                            return '#0a84ff';
+                          case 'football-outline':
+                            return '#32ade6';
+                          case 'heart-outline':
+                            return '#ff2d55';
+                          case 'bag-outline':
+                            return '#ffd60a';
+                          case 'airplane-outline':
+                            return '#64d2ff';
+                          default:
+                            return '#9b5de5';
+                        }
+                      };
+
+                      const accent = getAccent();
+                      const isActive = activeCategory === cat.id;
+
+                      return (
                     <Pressable
                       key={cat.id}
-                      onPress={() => setActiveCategory(cat.id)}
+                      onPress={() =>
+                        setActiveCategory((prev) => (prev === cat.id ? ALL_CATEGORIES_ID : cat.id))
+                      }
                       className="flex-row items-center rounded-full px-3 py-2"
                       style={{
-                        backgroundColor: activeCategory === cat.id ? 'rgba(255,59,48,0.12)' : theme.cardBg,
-                        borderColor: activeCategory === cat.id ? '#ff3b30' : theme.border,
+                        backgroundColor: isActive ? `${accent}22` : theme.cardBg,
+                        borderColor: accent,
                         borderWidth: 1,
                       }}
                     >
-                      <Ionicons name={cat.icon} size={14} color={activeCategory === cat.id ? '#ff3b30' : theme.textMuted} />
-                      <Text className="ml-2 text-xs" style={{ color: activeCategory === cat.id ? '#ff3b30' : theme.textMuted }}>
+                      <Ionicons name={cat.icon} size={14} color={isActive ? accent : theme.textMuted} />
+                      <Text className="ml-2 text-xs" style={{ color: isActive ? accent : theme.textMuted }}>
                         {cat.label}
                       </Text>
                     </Pressable>
+                      );
+                    })()
                   ))}
                 </View>
               </ScrollView>
@@ -1302,22 +1930,61 @@ export default function HomeScreen() {
           </LinearGradient>
         </View>
 
-        <View className="mt-4 px-6">
-          <PromoCarousel images={sliderImages} activeIndex={sliderIndex} theme={theme} />
-        </View>
-
-        <View className="mt-4 px-6">
-          <SectionHeader title="Utvalt för dig" />
-          {filteredDeals.length > 0 ? (
-            <FeaturedHero cards={filteredDeals.slice(0, 3)} onCardPress={handleCardPress} />
+        <View className="mt-6 px-6">
+          <SectionTitleRow
+            title="Nära dig"
+            icon="navigate"
+            iconColor="#ff3b30"
+            onSeeAllPress={() => router.push('/(tabs)/NaraDig')}
+          />
+          {isLoadingData && filteredDeals.length === 0 ? (
+            <Text style={{ color: theme.textMuted }}>Laddar...</Text>
           ) : (
-            <Text style={{ color: theme.textMuted }}>{isLoadingData ? 'Laddar...' : 'Inget att visa just nu.'}</Text>
+            <ForYouOrderCarousel
+              cards={filteredDeals}
+              onCardPress={handleCardPress}
+              badgeLabel="Nära dig"
+              badgeColor="rgba(0,11,42,0.75)"
+              getBadgeLabel={getNearbyBadge}
+              showFavoriteButton
+              emptyText="Inga erbjudanden nära dig just nu."
+            />
           )}
         </View>
 
-        <View className="mt-4 px-6">
-          <SectionHeader title="Kommande höjdpunkter" />
-          <UpcomingHighlights cards={endingSoonDeals} onCardPress={handleCardPress} />
+        <View className="mt-6 px-6">
+          <SectionTitleRow
+            title="Heta erbjudanden"
+            icon="flame"
+            iconColor="#ff3b30"
+            subtitle="Baserat på dina intressen"
+          />
+          {isLoadingData && hotOfferCards.length === 0 ? (
+            <Text style={{ color: theme.textMuted }}>Laddar...</Text>
+          ) : (
+            <FeaturedDealsSplit
+              cards={hotOfferCards}
+              onCardPress={handleCardPress}
+              emptyText="Inga heta erbjudanden just nu."
+            />
+          )}
+        </View>
+
+        <View className="mt-6 px-6">
+          <SectionTitleRow
+            title="Slutar snart"
+            icon="hourglass-outline"
+            subtitle="Baserat på dina intressen"
+          />
+          {isLoadingData && nearYouCards.length === 0 ? (
+            <Text style={{ color: theme.textMuted }}>Laddar...</Text>
+          ) : (
+            <EndingSoonPortraitRow
+              cards={nearYouCards}
+              onCardPress={handleCardPress}
+              emptyText="Inga tidsbegränsade erbjudanden just nu."
+            />
+          )}
         </View>
 
         <View className="mt-4 px-6">
@@ -1407,7 +2074,7 @@ function CardRow({ cards, onCardPress, enlarged }: { cards: CardItem[]; onCardPr
                 onPress={() => onCardPress?.(card)}
               >
               <View className="relative h-44 w-full">
-                <CardMedia source={card.image} svgFit="fill" />
+                <CardMedia source={card.image} svgFit="fill" priority={index < 4 ? 'high' : 'normal'} />
                 <View className="absolute inset-0 bg-black/20" />
                 {card.deal ? <DealTag /> : null}
                 <View className="absolute bottom-0 left-0 right-0 p-3">
@@ -1452,7 +2119,7 @@ function CardRow({ cards, onCardPress, enlarged }: { cards: CardItem[]; onCardPr
               onPress={() => onCardPress?.(card)}
             >
               <View className="relative h-28 w-full">
-                <CardMedia source={card.image} svgFit="fill" />
+                <CardMedia source={card.image} svgFit="fill" priority={index < 4 ? 'high' : 'normal'} />
                 {card.deal ? <DealTag /> : null}
               </View>
               <Text className="px-2 py-2 text-sm" style={{ color: theme.text }}>{card.title}</Text>
@@ -1496,7 +2163,7 @@ function CardGrid({ cards, onCardPress }: { cards: CardItem[]; onCardPress?: (ca
               onPress={() => onCardPress?.(card)}
             >
               <View className="relative h-52 w-full">
-                <CardMedia source={card.image} svgFit="fill" />
+                <CardMedia source={card.image} svgFit="fill" priority={i < 4 ? 'high' : 'normal'} />
                 <View className="absolute inset-0 bg-black/20" />
                 {card.deal ? <DealTag /> : null}
                 <View className="absolute bottom-0 left-0 right-0 p-3">

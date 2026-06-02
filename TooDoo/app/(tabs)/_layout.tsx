@@ -69,6 +69,7 @@ export default function TabLayout() {
         options={{
           title: 'Nära dig',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="location.fill" color={color} />,
+          href: null,
         }}
       />
       <Tabs.Screen
