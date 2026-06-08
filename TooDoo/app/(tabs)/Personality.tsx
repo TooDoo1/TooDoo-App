@@ -12,6 +12,7 @@ import { useRouter } from "expo-router";
 import { useAuth } from "@/context/auth-context";
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { apiUrl } from "@/lib/api";
+import { hasForegroundLocationPermission, resolveUserCityFromDevice } from "@/lib/geo";
 import { useThemePreference } from "@/context/theme-preference-context";
 import { uiTheme } from "@/lib/ui-theme";
 
@@ -20,6 +21,7 @@ export default function PersonalityScreen() {
   const { pendingRegistration, clearPendingRegistration, signIn } = useAuth();
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
+  const accentColor = theme.danger;
   const totalCount = 4;
   const [claimedCount, setClaimedCount] = useState(1);
   const [isSubmittingCreate, setIsSubmittingCreate] = useState(false);
@@ -32,6 +34,7 @@ export default function PersonalityScreen() {
   const [isLoadingCategories, setIsLoadingCategories] = useState(false);
   const [categoryLoadError, setCategoryLoadError] = useState('');
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
+  const [resolvedCity, setResolvedCity] = useState('');
   const progressPercent = totalCount > 0 ? Math.min((claimedCount / totalCount) * 100, 100) : 0;
   const lastPendingEmailRef = useRef<string | null>(null);
 
@@ -50,7 +53,29 @@ export default function PersonalityScreen() {
     setIsIosDatePickerVisible(false);
     setSelectedGender(null);
     setSelectedCategoryIds([]);
+    setResolvedCity('');
   }, [pendingRegistration?.email]);
+
+  useEffect(() => {
+    if (claimedCount !== 1) return;
+
+    let cancelled = false;
+
+    const autoDetectLocation = async () => {
+      if (Platform.OS === 'web') return;
+      if (!(await hasForegroundLocationPermission())) return;
+
+      const result = await resolveUserCityFromDevice({ requestPermission: false });
+      if (cancelled || !result) return;
+      setResolvedCity(result.city);
+    };
+
+    void autoDetectLocation();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [claimedCount, pendingRegistration?.email]);
 
   const formatBirthDate = (date: Date) => {
     // Keep a stable YYYY-MM-DD regardless of device locale.
@@ -154,7 +179,7 @@ export default function PersonalityScreen() {
         <View className="mt-2 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: theme.cardBgMuted }}>
                   <View
                     className="h-full rounded-full"
-                    style={{ width: `${progressPercent}%`, backgroundColor: theme.accentGreen }}
+                    style={{ width: `${progressPercent}%`, backgroundColor: accentColor }}
                   />
         </View>
 
@@ -213,10 +238,10 @@ export default function PersonalityScreen() {
               />
               <Pressable
                 className="mt-2 rounded-2xl px-4 py-3"
-                style={{ backgroundColor: theme.accentGreen }}
+                style={{ backgroundColor: accentColor }}
                 onPress={() => setIsIosDatePickerVisible(false)}
               >
-                <Text className="text-center font-medium text-[#061A47]">Klar</Text>
+                <Text className="text-center font-medium text-white">Klar</Text>
               </Pressable>
             </View>
           ) : null}
@@ -243,14 +268,14 @@ export default function PersonalityScreen() {
                       key={option.value}
                       className="mb-3 w-[48%] rounded-2xl border px-4 py-3"
                       style={{
-                        backgroundColor: isSelected ? theme.accentGreen : '#061A47',
-                        borderColor: isSelected ? '#061A47' : theme.accentGreen,
+                        backgroundColor: isSelected ? accentColor : '#061A47',
+                        borderColor: isSelected ? accentColor : '#ffffff',
                       }}
                       onPress={() => setSelectedGender(option.value)}
                     >
                       <Text
                         className="text-center text-lg font-medium"
-                        style={{ color: isSelected ? '#061A47' : theme.accentGreen }}
+                        style={{ color: '#ffffff' }}
                       >
                         {option.label}
                       </Text>
@@ -292,8 +317,8 @@ export default function PersonalityScreen() {
                     key={option.id ?? option.name}
                       className="rounded-2xl border px-5 py-3"
                       style={{
-                        backgroundColor: isSelected ? theme.accentGreen : '#061A47',
-                        borderColor: isSelected ? '#061A47' : theme.accentGreen,
+                        backgroundColor: isSelected ? accentColor : '#061A47',
+                        borderColor: isSelected ? accentColor : '#ffffff',
                       }}
                       onPress={() => {
                         setSelectedCategoryIds((prev) =>
@@ -305,7 +330,7 @@ export default function PersonalityScreen() {
                     >
                       <Text
                         className="text-center text-lg font-medium"
-                        style={{ color: isSelected ? '#061A47' : theme.accentGreen }}
+                        style={{ color: '#ffffff' }}
                       >
                       {option.name}
                       </Text>
@@ -335,17 +360,17 @@ export default function PersonalityScreen() {
           <View className="mt-8 rounded-2xl px-4 py-5" style={{ backgroundColor: theme.cardBgMuted }}>
             <Pressable
               className="rounded-2xl px-4 py-3"
-              style={{ backgroundColor: theme.accentGreen }}
+              style={{ backgroundColor: accentColor }}
               onPress={() => router.replace('/')}
             >
-              <Text className="text-center font-medium text-[#061A47]">Fortsätt</Text>
+              <Text className="text-center font-medium text-white">Fortsätt</Text>
             </Pressable>
           </View>
         ) : (
           <View className="mt-8 rounded-2xl px-4 py-5" style={{ backgroundColor: theme.cardBgMuted }}>
             <Pressable
               className="rounded-2xl px-4 py-3"
-              style={{ backgroundColor: theme.accentGreen }}
+              style={{ backgroundColor: accentColor }}
               onPress={async () => {
                 if (claimedCount === 2 && !selectedGender) {
                   Alert.alert("Välj ett alternativ", "Välj Man, Kvinna, Ickebinär eller Vill ej ange innan du går vidare.");
@@ -359,7 +384,6 @@ export default function PersonalityScreen() {
                   Alert.alert("Saknad information", "Välj din födelsedag innan du går vidare.");
                   return;
                 }
-
                 if (claimedCount === 3) {
                   if (!pendingRegistration) {
                     Alert.alert("Saknad registrering", "Fyll i registrering först innan du fortsätter.");
@@ -419,6 +443,22 @@ export default function PersonalityScreen() {
                         roleToUse = loginData.user?.role ?? roleToUse;
                       }
 
+                      const registrationLocation = resolvedCity.trim();
+                      if (tokenToUse && registrationLocation) {
+                        try {
+                          await fetch(apiUrl('/user/me'), {
+                            method: 'PUT',
+                            headers: {
+                              'Content-Type': 'application/json',
+                              Authorization: `Bearer ${tokenToUse}`,
+                            },
+                            body: JSON.stringify({ location: registrationLocation }),
+                          });
+                        } catch {
+                          // Profile location is best-effort; account creation already succeeded.
+                        }
+                      }
+
                       if (tokenToUse) {
                         await signIn(tokenToUse, refreshToUse, roleToUse);
                       } else {
@@ -449,7 +489,7 @@ export default function PersonalityScreen() {
               }}
               disabled={isSubmittingCreate}
             >
-              <Text className="text-center font-medium text-[#061A47]">{isSubmittingCreate ? "Skapar konto..." : "Nästa"}</Text>
+              <Text className="text-center font-medium text-white">{isSubmittingCreate ? "Skapar konto..." : "Nästa"}</Text>
             </Pressable>
 
             <Pressable

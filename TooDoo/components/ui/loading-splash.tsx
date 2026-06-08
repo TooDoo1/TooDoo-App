@@ -10,8 +10,6 @@ import Animated, {
 	withSequence,
 	withTiming,
 } from 'react-native-reanimated';
-import Svg, { Path } from 'react-native-svg';
-
 const logoSrc = require('../../assets/images/TooDoo.jpg');
 const { height: SCREEN_H, width: SCREEN_W } = Dimensions.get('window');
 const WORDMARK_BOX_WIDTH = Math.min(SCREEN_W - 24, 480);
@@ -63,95 +61,6 @@ const FLUTTER_SEQUENCE: FlickerStep[] = [
 	{ to: 0.99, duration: 260, easing: Easing.inOut(Easing.sin) },
 	{ to: 1.0, duration: 320, easing: Easing.inOut(Easing.sin) },
 ];
-
-type SparkleSpec = {
-	x: number;
-	y: number;
-	size: number;
-	delay: number;
-};
-
-const SPARKLES: SparkleSpec[] = [
-	{ x: -105, y: -115, size: 14, delay: 0 },
-	{ x: 110, y: -100, size: 17, delay: 90 },
-	{ x: -128, y: 55, size: 12, delay: 170 },
-	{ x: 122, y: 40, size: 14, delay: 50 },
-	{ x: -82, y: 125, size: 15, delay: 230 },
-	{ x: 92, y: 130, size: 16, delay: 140 },
-	{ x: 18, y: -135, size: 12, delay: 30 },
-	{ x: -28, y: 150, size: 14, delay: 200 },
-];
-
-const buildSparklePath = (size: number) => {
-	const outer = size / 2;
-	const inner = size / 7;
-	return `M 0,-${outer} L ${inner},-${inner} L ${outer},0 L ${inner},${inner} L 0,${outer} L -${inner},${inner} L -${outer},0 L -${inner},-${inner} Z`;
-};
-
-function Sparkle({ x, y, size, delay }: SparkleSpec) {
-	const opacity = useSharedValue(0);
-	const scale = useSharedValue(0);
-	const rotate = useSharedValue(0);
-
-	useEffect(() => {
-		const fullDelay = FLICKER_START_MS + delay;
-
-		opacity.value = withDelay(
-			fullDelay,
-			withSequence(
-				withTiming(1, { duration: 120 }),
-				withTiming(0.3, { duration: 80 }),
-				withTiming(1, { duration: 70 }),
-				withRepeat(
-					withSequence(
-						withTiming(0.4, { duration: 380 }),
-						withTiming(1, { duration: 380 })
-					),
-					3,
-					true
-				),
-				withTiming(0, { duration: 300 })
-			)
-		);
-		scale.value = withDelay(
-			fullDelay,
-			withSequence(
-				withTiming(1.25, { duration: 180, easing: Easing.out(Easing.cubic) }),
-				withTiming(0.9, { duration: 160 }),
-				withTiming(1, { duration: 1200 }),
-				withTiming(0, { duration: 320 })
-			)
-		);
-		rotate.value = withDelay(fullDelay, withTiming(60, { duration: 1800 }));
-	}, [delay, opacity, scale, rotate]);
-
-	const style = useAnimatedStyle(() => ({
-		opacity: opacity.value,
-		transform: [{ scale: scale.value }, { rotate: `${rotate.value}deg` }],
-	}));
-
-	return (
-		<Animated.View
-			pointerEvents="none"
-			style={[
-				{
-					position: 'absolute',
-					left: '50%',
-					top: '50%',
-					marginLeft: x - size / 2,
-					marginTop: y - size / 2,
-					width: size,
-					height: size,
-				},
-				style,
-			]}
-		>
-			<Svg width={size} height={size} viewBox={`-${size / 2} -${size / 2} ${size} ${size}`}>
-				<Path d={buildSparklePath(size)} fill="#fff8cc" />
-			</Svg>
-		</Animated.View>
-	);
-}
 
 export const SPLASH_EXIT_DURATION_MS = 380;
 
@@ -240,10 +149,6 @@ export default function LoadingSplash({ isExiting = false }: { isExiting?: boole
 				<Animated.View style={[styles.string, stringStyle]} />
 				<Animated.View style={[styles.bead, beadStyle]} />
 			</View>
-
-			{SPARKLES.map((spec, idx) => (
-				<Sparkle key={`sparkle-${idx}`} {...spec} />
-			))}
 
 			<Animated.View style={[styles.logoColumn, logoStyle]}>
 				<View style={styles.logoClip}>

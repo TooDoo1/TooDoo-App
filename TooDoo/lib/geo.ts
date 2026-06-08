@@ -67,20 +67,83 @@ export async function geocodeAddressCached(address: string): Promise<Coords | nu
   return null;
 }
 
+/** Reverse-geocode coordinates to a city name suitable for the user profile `location` field. */
+export async function reverseGeocodeCity(coords: Coords): Promise<string | null> {
+  if (Platform.OS === 'web') return null;
+  try {
+    const results = await Location.reverseGeocodeAsync({
+      latitude: coords.lat,
+      longitude: coords.lng,
+    });
+    const first = results?.[0];
+    const city = first?.city ?? first?.subregion ?? first?.region;
+    const trimmed = typeof city === 'string' ? city.trim() : '';
+    return trimmed || null;
+  } catch {
+    return null;
+  }
+}
+
+async function readCoordsFromDevice(): Promise<Coords | null> {
+  const position =
+    (await Location.getLastKnownPositionAsync()) ??
+    (await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }));
+  if (position?.coords) {
+    return { lat: position.coords.latitude, lng: position.coords.longitude };
+  }
+  return null;
+}
+
+/** True when foreground location permission was already granted. */
+export async function hasForegroundLocationPermission(): Promise<boolean> {
+  if (Platform.OS === 'web') return false;
+  try {
+    const { status } = await Location.getForegroundPermissionsAsync();
+    return status === 'granted';
+  } catch {
+    return false;
+  }
+}
+
+/** Read coordinates only when permission is already granted (no permission prompt). */
+export async function getUserCoordsIfGranted(): Promise<Coords | null> {
+  if (Platform.OS === 'web') return null;
+  try {
+    if (!(await hasForegroundLocationPermission())) return null;
+    return await readCoordsFromDevice();
+  } catch {
+    return null;
+  }
+}
+
 /** Request foreground location permission and resolve the user's coordinates (or null). */
 export async function getUserCoords(): Promise<Coords | null> {
   if (Platform.OS === 'web') return null;
   try {
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') return null;
-    const position =
-      (await Location.getLastKnownPositionAsync()) ??
-      (await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }));
-    if (position?.coords) {
-      return { lat: position.coords.latitude, lng: position.coords.longitude };
-    }
+    return await readCoordsFromDevice();
   } catch {
-    // ignore
+    return null;
   }
-  return null;
+}
+
+export type ResolvedUserLocation = {
+  coords: Coords;
+  city: string;
+};
+
+/**
+ * Resolve the user's city from device location.
+ * When requestPermission is false, only runs if permission was already granted.
+ */
+export async function resolveUserCityFromDevice(options?: {
+  requestPermission?: boolean;
+}): Promise<ResolvedUserLocation | null> {
+  const requestPermission = options?.requestPermission ?? false;
+  const coords = requestPermission ? await getUserCoords() : await getUserCoordsIfGranted();
+  if (!coords) return null;
+  const city = await reverseGeocodeCity(coords);
+  if (!city) return null;
+  return { coords, city };
 }
