@@ -387,6 +387,25 @@ export async function fetchOfferListCards(
 ): Promise<OfferCardItem[]> {
   const limit = options.limit ?? 50;
   const { token, coords } = options;
+  const nowMs = Date.now();
+
+  if (token) {
+    const authHeaders = { Authorization: `Bearer ${token}` };
+    const endpoint =
+      mode === 'hot'
+        ? `/orders/for-you/hot?take=${limit}`
+        : coords
+          ? `/orders/for-you/close?take=${limit}&lat=${coords.lat}&lng=${coords.lng}`
+          : `/orders/for-you/close?take=${limit}`;
+    const res = await fetch(apiUrl(endpoint), { headers: authHeaders });
+    const json = res.ok ? await res.json().catch(() => ({})) : {};
+    const fromApi = parseOrdersPayload(json)
+      .filter((order) => isActiveOffer(order, nowMs))
+      .map(mapApiOrderToCardItem);
+    if (fromApi.length > 0) {
+      return fromApi.slice(0, limit);
+    }
+  }
 
   const [businessRes, ordersRes] = await Promise.all([
     fetch(apiUrl('/business?status=APPROVED')),
@@ -419,32 +438,10 @@ export async function fetchOfferListCards(
   const ordersFromBusinessList = businessesRaw.flatMap(parseOrdersFromBusinessRecord);
   let allOrdersRaw = mergeOrdersById(ordersRaw, ordersFromBusinessList);
   if (!token) {
-    const fromBusinessDetails = await fetchOrdersFromBusinessDetails(approvedBusinesses);
+    const fromBusinessDetails = await fetchOrdersFromBusinessDetails(approvedBusinesses, 12);
     allOrdersRaw = mergeOrdersById(allOrdersRaw, fromBusinessDetails);
   } else if (allOrdersRaw.length === 0) {
-    allOrdersRaw = await fetchOrdersFromBusinessDetails(approvedBusinesses.slice(0, 16));
-  }
-
-  const nowMs = Date.now();
-  let fromApi: OfferCardItem[] = [];
-
-  if (token) {
-    const authHeaders = { Authorization: `Bearer ${token}` };
-    const endpoint =
-      mode === 'hot'
-        ? `/orders/for-you/hot?take=${limit}`
-        : coords
-          ? `/orders/for-you/close?take=${limit}&lat=${coords.lat}&lng=${coords.lng}`
-          : `/orders/for-you/close?take=${limit}`;
-    const res = await fetch(apiUrl(endpoint), { headers: authHeaders });
-    const json = res.ok ? await res.json().catch(() => ({})) : {};
-    fromApi = parseOrdersPayload(json)
-      .filter((order) => isActiveOffer(order, nowMs))
-      .map(mapApiOrderToCardItem);
-  }
-
-  if (fromApi.length > 0) {
-    return fromApi.slice(0, limit);
+    allOrdersRaw = await fetchOrdersFromBusinessDetails(approvedBusinesses.slice(0, 12));
   }
 
   const ordersByBusinessId = new Map<string, any[]>();

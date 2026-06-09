@@ -34,3 +34,40 @@ export const FULL_SCREEN_STACK_SEGMENTS = [
   'heta-erbjudanden',
   'slutar-snart',
 ] as const;
+
+export type FullScreenStackSegment = (typeof FULL_SCREEN_STACK_SEGMENTS)[number];
+
+export function isFullScreenStackRouteName(routeName: string | undefined): routeName is FullScreenStackSegment {
+  if (!routeName) return false;
+  return FULL_SCREEN_STACK_SEGMENTS.includes(routeName as FullScreenStackSegment);
+}
+
+/** Tab bar should only animate in when the screen revealed by a pop is the tab root. */
+export function shouldRevealTabBarWhenClosingStack(previousRouteName: string | undefined) {
+  if (!previousRouteName || previousRouteName === '(tabs)') {
+    return true;
+  }
+  return !isFullScreenStackRouteName(previousRouteName);
+}
+
+const DETAIL_RETURN_TO_LIST_KEYS = new Set(['naradig', 'heta', 'slutarsnart']);
+
+/** For web swipe-back outside the stack tree — infer destination from segment + returnTo. */
+export function shouldRevealTabBarOnStackSwipeBack(
+  topSegment: string | undefined,
+  returnTo: string | string[] | undefined
+) {
+  if (topSegment === 'company-detail') {
+    const key = Array.isArray(returnTo) ? returnTo[0] : returnTo;
+    if (key && DETAIL_RETURN_TO_LIST_KEYS.has(key)) {
+      return false;
+    }
+    return true;
+  }
+
+  if (topSegment && isFullScreenStackRouteName(topSegment)) {
+    return true;
+  }
+
+  return true;
+}

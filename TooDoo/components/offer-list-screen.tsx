@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  FlatList,
   Pressable,
   RefreshControl,
-  ScrollView,
   Text,
   View,
 } from 'react-native';
@@ -16,7 +16,6 @@ import { BrandColors } from '@/lib/brand-colors';
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
 import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
 import { ScreenBackButton } from '@/components/ui/screen-back-button';
-import { StarrySkyScreenBackground } from '@/components/ui/starry-background';
 import { CardMedia } from '@/components/ui/card-media';
 import { useAuth } from '@/context/auth-context';
 import { useThemePreference } from '@/context/theme-preference-context';
@@ -28,6 +27,7 @@ import {
   type OfferCardItem,
 } from '@/lib/home-offers';
 import { getUserCoords } from '@/lib/geo';
+import { getHomeEndingSoonCache, getHomeHotOffersCache } from '@/lib/home-list-cache';
 import { openOfferDetail } from '@/lib/open-offer-detail';
 import { uiTheme } from '@/lib/ui-theme';
 
@@ -42,14 +42,18 @@ type OfferListScreenProps = {
   emptyText: string;
 };
 
-function HotOfferCard({
+const LIST_BATCH_SIZE = 8;
+
+const HotOfferCard = memo(function HotOfferCard({
   card,
   onPress,
   theme,
+  imagePriority,
 }: {
   card: OfferCardItem;
   onPress: () => void;
   theme: ReturnType<typeof uiTheme>;
+  imagePriority: 'high' | 'normal';
 }) {
   const discount = computeDiscountLabel(card);
   const discountColor = getDiscountBadgeColor(card);
@@ -68,7 +72,7 @@ function HotOfferCard({
       }}
     >
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
-        <CardMedia source={card.image} svgFit="fill" priority="high" />
+        <CardMedia source={card.image} svgFit="fill" priority={imagePriority} />
       </View>
       <View className="absolute inset-0 bg-black/20" />
       {discount ? (
@@ -102,16 +106,18 @@ function HotOfferCard({
       </LinearGradient>
     </Pressable>
   );
-}
+});
 
-function EndingSoonOfferCard({
+const EndingSoonOfferCard = memo(function EndingSoonOfferCard({
   card,
   onPress,
   theme,
+  imagePriority,
 }: {
   card: OfferCardItem;
   onPress: () => void;
   theme: ReturnType<typeof uiTheme>;
+  imagePriority: 'high' | 'normal';
 }) {
   const date = getEndingDateParts(card);
 
@@ -128,7 +134,7 @@ function EndingSoonOfferCard({
       }}
     >
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
-        <CardMedia source={card.image} svgFit="fill" priority="high" />
+        <CardMedia source={card.image} svgFit="fill" priority={imagePriority} />
       </View>
       <View className="absolute inset-0 bg-black/25" />
       {date ? (
@@ -176,7 +182,7 @@ function EndingSoonOfferCard({
       </LinearGradient>
     </Pressable>
   );
-}
+});
 
 export function OfferListScreen({
   mode,
@@ -186,15 +192,20 @@ export function OfferListScreen({
   subtitle,
   emptyText,
 }: OfferListScreenProps) {
+  const initialCache = useMemo(
+    () => (mode === 'hot' ? getHomeHotOffersCache() : getHomeEndingSoonCache()) ?? [],
+    [mode]
+  );
+
   const { mode: themeMode } = useThemePreference();
   const theme = uiTheme(themeMode);
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { token } = useAuth();
 
-  const [cards, setCards] = useState<OfferCardItem[]>([]);
+  const [cards, setCards] = useState<OfferCardItem[]>(initialCache);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(initialCache.length === 0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
 
@@ -213,12 +224,14 @@ export function OfferListScreen({
     let cancelled = false;
 
     (async () => {
-      setIsLoading(true);
+      if (cards.length === 0) {
+        setIsLoading(true);
+      }
       try {
         const list = await fetchOfferListCards(mode, { token, coords });
         if (!cancelled) setCards(list);
       } catch {
-        if (!cancelled) setCards([]);
+        if (!cancelled && cards.length === 0) setCards([]);
       } finally {
         if (!cancelled) {
           setIsLoading(false);
@@ -241,25 +254,12 @@ export function OfferListScreen({
     (card: OfferCardItem) => {
       openOfferDetail(router, card, mode === 'hot' ? 'heta' : 'slutarsnart');
     },
-    [router]
+    [router, mode]
   );
 
-  return (
-    <WebStackSwipeContainer>
-    <View style={{ flex: 1, backgroundColor: theme.screenBg }}>
-      <StackScreenTabBarSync />
-      <StarrySkyScreenBackground variant={theme.isDark ? 'dark' : 'light'} />
-      <ScreenBackButton />
-      <ScrollView
-        contentContainerStyle={{
-          paddingHorizontal: 24,
-          paddingTop: insets.top + 56,
-          paddingBottom: insets.bottom + 24,
-        }}
-        refreshControl={
-          <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={theme.text} />
-        }
-      >
+  const listHeader = useMemo(
+    () => (
+      <View className="mb-5">
         <View className="flex-row items-center">
           <Ionicons name={icon} size={22} color={iconColor ?? theme.text} />
           <Text className="ml-2 text-2xl font-semibold" style={{ color: theme.text }}>
@@ -271,38 +271,60 @@ export function OfferListScreen({
             {subtitle}
           </Text>
         ) : null}
+      </View>
+    ),
+    [icon, iconColor, subtitle, theme.text, theme.textMuted, title]
+  );
 
-        {isLoading && cards.length === 0 ? (
-          <View className="mt-10 items-center">
-            <ActivityIndicator color={theme.text} />
-          </View>
-        ) : cards.length === 0 ? (
-          <Text className="mt-10" style={{ color: theme.textMuted }}>
-            {emptyText}
-          </Text>
-        ) : (
-          <View className="mt-5" style={{ gap: 12 }}>
-            {cards.map((card, idx) =>
-              mode === 'hot' ? (
-                <HotOfferCard
-                  key={`${card.orderIds?.[0] ?? card.id}-${idx}`}
-                  card={card}
-                  theme={theme}
-                  onPress={() => handleCardPress(card)}
-                />
-              ) : (
-                <EndingSoonOfferCard
-                  key={`${card.orderIds?.[0] ?? card.id}-${idx}`}
-                  card={card}
-                  theme={theme}
-                  onPress={() => handleCardPress(card)}
-                />
-              )
-            )}
-          </View>
-        )}
-      </ScrollView>
-    </View>
+  const renderItem = useCallback(
+    ({ item, index }: { item: OfferCardItem; index: number }) => {
+      const onPress = () => handleCardPress(item);
+      const imagePriority = index < 6 ? 'high' : 'normal';
+
+      if (mode === 'hot') {
+        return <HotOfferCard card={item} onPress={onPress} theme={theme} imagePriority={imagePriority} />;
+      }
+      return <EndingSoonOfferCard card={item} onPress={onPress} theme={theme} imagePriority={imagePriority} />;
+    },
+    [handleCardPress, mode, theme]
+  );
+
+  return (
+    <WebStackSwipeContainer>
+      <View style={{ flex: 1, backgroundColor: theme.screenBg }}>
+        <StackScreenTabBarSync />
+        <ScreenBackButton />
+        <FlatList
+          data={cards}
+          keyExtractor={(item, idx) => `${item.orderIds?.[0] ?? item.id}-${idx}`}
+          renderItem={renderItem}
+          ListHeaderComponent={listHeader}
+          contentContainerStyle={{
+            paddingHorizontal: 24,
+            paddingTop: insets.top + 56,
+            paddingBottom: insets.bottom + 24,
+          }}
+          ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+          initialNumToRender={6}
+          maxToRenderPerBatch={LIST_BATCH_SIZE}
+          windowSize={7}
+          removeClippedSubviews
+          refreshControl={
+            <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={theme.text} />
+          }
+          ListEmptyComponent={
+            isLoading ? (
+              <View className="mt-10 items-center">
+                <ActivityIndicator color={theme.text} />
+              </View>
+            ) : (
+              <Text className="mt-10" style={{ color: theme.textMuted }}>
+                {emptyText}
+              </Text>
+            )
+          }
+        />
+      </View>
     </WebStackSwipeContainer>
   );
 }
