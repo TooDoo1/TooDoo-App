@@ -84,6 +84,20 @@ export async function reverseGeocodeCity(coords: Coords): Promise<string | null>
   }
 }
 
+async function readCoordsFromBrowser(): Promise<Coords | null> {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) return null;
+
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({ lat: position.coords.latitude, lng: position.coords.longitude });
+      },
+      () => resolve(null),
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+    );
+  });
+}
+
 async function readCoordsFromDevice(): Promise<Coords | null> {
   const position =
     (await Location.getLastKnownPositionAsync()) ??
@@ -94,9 +108,22 @@ async function readCoordsFromDevice(): Promise<Coords | null> {
   return null;
 }
 
+async function hasBrowserGeolocationPermission(): Promise<boolean> {
+  if (typeof navigator === 'undefined' || !navigator.permissions?.query) {
+    return false;
+  }
+
+  try {
+    const status = await navigator.permissions.query({ name: 'geolocation' });
+    return status.state === 'granted';
+  } catch {
+    return false;
+  }
+}
+
 /** True when foreground location permission was already granted. */
 export async function hasForegroundLocationPermission(): Promise<boolean> {
-  if (Platform.OS === 'web') return false;
+  if (Platform.OS === 'web') return hasBrowserGeolocationPermission();
   try {
     const { status } = await Location.getForegroundPermissionsAsync();
     return status === 'granted';
@@ -107,7 +134,10 @@ export async function hasForegroundLocationPermission(): Promise<boolean> {
 
 /** Read coordinates only when permission is already granted (no permission prompt). */
 export async function getUserCoordsIfGranted(): Promise<Coords | null> {
-  if (Platform.OS === 'web') return null;
+  if (Platform.OS === 'web') {
+    if (!(await hasBrowserGeolocationPermission())) return null;
+    return readCoordsFromBrowser();
+  }
   try {
     if (!(await hasForegroundLocationPermission())) return null;
     return await readCoordsFromDevice();
@@ -118,7 +148,7 @@ export async function getUserCoordsIfGranted(): Promise<Coords | null> {
 
 /** Request foreground location permission and resolve the user's coordinates (or null). */
 export async function getUserCoords(): Promise<Coords | null> {
-  if (Platform.OS === 'web') return null;
+  if (Platform.OS === 'web') return readCoordsFromBrowser();
   try {
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') return null;

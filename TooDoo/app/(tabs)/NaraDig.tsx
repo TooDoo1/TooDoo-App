@@ -8,8 +8,10 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
+import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
+import { ScreenBackButton } from '@/components/ui/screen-back-button';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StarrySkyScreenBackground } from '@/components/ui/starry-background';
@@ -26,6 +28,8 @@ import {
   getUserCoords,
   haversineKm,
 } from '@/lib/geo';
+import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
+import { FAVORITE_HEART_COLOR } from '@/lib/tab-colors';
 import { prefetchImageUris } from '@/lib/image-prefetch';
 
 type NearbyCompany = {
@@ -62,7 +66,7 @@ export default function NaraDigScreen() {
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
   const router = useRouter();
-  const tabBarHeight = useBottomTabBarHeight();
+  const insets = useSafeAreaInsets();
   const { token, role } = useAuth();
   const { isFavorite, toggleFavorite } = useFavorites();
 
@@ -173,11 +177,13 @@ export default function NaraDigScreen() {
   const openCompany = useCallback(
     (company: NearbyCompany) => {
       router.push({
-        pathname: '/(tabs)/Erbjudanden',
+        pathname: COMPANY_DETAIL_PATH,
         params: {
+          returnTo: 'naradig',
           id: company.id,
           claimBusinessId: company.id,
           title: company.name,
+          deal: '1',
           imageUri: company.imageUri ?? '',
           Adress: company.address,
           latitude: company.latitude?.toString(),
@@ -197,11 +203,17 @@ export default function NaraDigScreen() {
   }, [coords]);
 
   return (
+    <WebStackSwipeContainer>
     <View style={{ flex: 1, backgroundColor: theme.screenBg }}>
+      <StackScreenTabBarSync />
       <StarrySkyScreenBackground variant={theme.isDark ? 'dark' : 'light'} />
-      <SafeAreaView edges={['left', 'right', 'top']} style={{ flex: 1 }}>
-        <ScrollView
-          contentContainerStyle={{ padding: 24, paddingBottom: tabBarHeight + 24 }}
+      <ScreenBackButton />
+      <ScrollView
+          contentContainerStyle={{
+            paddingHorizontal: 24,
+            paddingTop: insets.top + 56,
+            paddingBottom: insets.bottom + 24,
+          }}
           refreshControl={
             <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={theme.text} />
           }
@@ -284,7 +296,7 @@ export default function NaraDigScreen() {
                             <Ionicons
                               name={isFavorite(company.id) ? 'heart' : 'heart-outline'}
                               size={18}
-                              color={isFavorite(company.id) ? '#ff3b30' : '#ffffff'}
+                              color={isFavorite(company.id) ? FAVORITE_HEART_COLOR : '#ffffff'}
                             />
                           </Pressable>
                         </View>
@@ -319,8 +331,8 @@ export default function NaraDigScreen() {
             </View>
           )}
         </ScrollView>
-      </SafeAreaView>
     </View>
+    </WebStackSwipeContainer>
   );
 }
 

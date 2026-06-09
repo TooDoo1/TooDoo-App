@@ -2,13 +2,9 @@ import { Linking, Pressable, Text, View } from 'react-native';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { uiTheme } from '@/lib/ui-theme';
 
-export type OfferMapProps = {
-  mapKey: string;
-  latitude: number;
-  longitude: number;
-  title?: string;
-  addressText: string;
-};
+import type { OfferMapProps } from './offer-map.types';
+
+export type { OfferMapProps };
 
 export function OfferMap({ latitude, longitude, title, addressText }: OfferMapProps) {
   const { mode } = useThemePreference();

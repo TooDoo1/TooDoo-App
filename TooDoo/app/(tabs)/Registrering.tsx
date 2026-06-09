@@ -3,6 +3,7 @@ import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-nativ
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '@/context/auth-context';
 import { apiUrl } from '@/lib/api';
+import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { uiTheme } from '@/lib/ui-theme';
 
@@ -50,7 +51,7 @@ export default function RegistreringScreen() {
 				}
 			}
 
-			router.replace({ pathname: '/(tabs)/Erbjudanden', params: parsedParams });
+			router.replace({ pathname: COMPANY_DETAIL_PATH, params: parsedParams });
 			return;
 		}
 

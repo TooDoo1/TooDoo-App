@@ -152,7 +152,7 @@ export function FavoriteOfferNotificationsProvider({ children }: { children: Rea
       };
       if (data?.businessId) {
         router.push({
-          pathname: '/(tabs)/Erbjudanden',
+          pathname: '/company-detail',
           params: {
             id: data.businessId,
             claimBusinessId: data.businessId,

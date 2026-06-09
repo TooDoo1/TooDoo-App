@@ -1,23 +1,74 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
+import { Text } from 'react-native';
 
 import { FloatingTabBar } from '@/components/floating-tab-bar';
+import { TabBarStackMotionReset } from '@/components/tab-bar-stack-motion-reset';
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/context/auth-context';
 import { useThemePreference } from '@/context/theme-preference-context';
+import { FAVORITE_HEART_COLOR, TAB_ACTIVE_COLORS } from '@/lib/tab-colors';
+
+function tabBarIcon(
+  name: React.ComponentProps<typeof IconSymbol>['name'],
+  activeColor: string
+) {
+  return ({ color, focused }: { color: string; focused: boolean }) => (
+    <IconSymbol size={26} name={name} color={focused ? activeColor : color} />
+  );
+}
+
+function selectedWhiteLabel({
+  focused,
+  color,
+  children,
+}: {
+  focused: boolean;
+  color: string;
+  children: string;
+}) {
+  return (
+    <Text
+      style={{
+        color: focused ? '#FFFFFF' : color,
+        fontSize: 11,
+        fontWeight: '600',
+        marginBottom: 2,
+      }}
+    >
+      {children}
+    </Text>
+  );
+}
+
+function coloredTabOptions(
+  title: string,
+  iconName: React.ComponentProps<typeof IconSymbol>['name'],
+  activeIconColor: string
+) {
+  return {
+    title,
+    tabBarActiveTintColor: '#FFFFFF',
+    tabBarIcon: tabBarIcon(iconName, activeIconColor),
+    tabBarLabel: selectedWhiteLabel,
+  };
+}
 
 export default function TabLayout() {
   const { effectiveScheme } = useThemePreference();
   const { isLoggedIn } = useAuth();
 
   return (
-    <Tabs
+    <>
+      <TabBarStackMotionReset />
+      <Tabs
       tabBar={(props) => <FloatingTabBar {...props} />}
       screenOptions={{
-        tabBarActiveTintColor: Colors[effectiveScheme].tabIconSelected,
+        tabBarActiveTintColor: '#FFFFFF',
         tabBarInactiveTintColor: Colors[effectiveScheme].tabIconDefault,
+        tabBarLabelPosition: 'below-icon',
         tabBarStyle: {
           backgroundColor: 'transparent',
           borderTopWidth: 0,
@@ -36,17 +87,11 @@ export default function TabLayout() {
       }}>
       <Tabs.Screen
         name="index"
-        options={{
-          title: 'Upptäck',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="house.fill" color={color} />,
-        }}
+        options={coloredTabOptions('Upptäck', 'house.fill', TAB_ACTIVE_COLORS.index)}
       />
       <Tabs.Screen
         name="Favoriter"
-        options={{
-          title: 'Favoriter',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="heart.fill" color={color} />,
-        }}
+        options={coloredTabOptions('Favoriter', 'heart.fill', FAVORITE_HEART_COLOR)}
       />
       <Tabs.Screen
         name="NaraDig"
@@ -57,25 +102,32 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="MinaDeals"
+        name="HetaErbjudanden"
         options={{
-          title: 'Mina Erbjudanden',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="ticket.fill" color={color} />,
+          href: null,
         }}
+      />
+      <Tabs.Screen
+        name="SlutarSnart"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="MinaDeals"
+        options={coloredTabOptions('Erbjudanden', 'ticket.fill', TAB_ACTIVE_COLORS.MinaDeals)}
       />
       <Tabs.Screen
         name="Loggain"
         options={{
-          title: 'Logga In',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="person.fill" color={color} />,
+          ...coloredTabOptions('Logga In', 'person.fill', TAB_ACTIVE_COLORS.Profile),
           href: isLoggedIn ? null : undefined,
         }}
       />
       <Tabs.Screen
         name="Profile"
         options={{
-          title: 'Profil',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="person.fill" color={color} />,
+          ...coloredTabOptions('Profil', 'gearshape.fill', TAB_ACTIVE_COLORS.Profile),
           href: isLoggedIn ? undefined : null,
         }}
       />
@@ -104,5 +156,6 @@ export default function TabLayout() {
         }}
       />
     </Tabs>
+    </>
   );
 }

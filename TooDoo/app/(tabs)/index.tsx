@@ -33,6 +33,15 @@ import { CardMedia } from '@/components/ui/card-media';
 import { haversineKm, formatDistanceKm, geocodeAddressCached, getUserCoords } from '@/lib/geo';
 import { prefetchImageUris } from '@/lib/image-prefetch';
 import { useFavorites } from '@/context/favorites-context';
+import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
+import {
+  HETA_ERBJUDANDEN_PATH,
+  NARA_DIG_PATH,
+  SLUTAR_SNART_PATH,
+} from '@/lib/stack-navigation';
+import { FAVORITE_HEART_COLOR } from '@/lib/tab-colors';
+import { getCategoryAccentColor, getCategoryIconName } from '@/lib/category-colors';
+import { computeDiscountLabel, getDiscountBadgeColor } from '@/lib/home-offers';
 
 const IMAGE_HYDRATE_CONCURRENCY = 5;
 
@@ -515,7 +524,7 @@ function ForYouOrderCarousel({
                     <Ionicons
                       name={isFavorite(card.id) ? 'heart' : 'heart-outline'}
                       size={18}
-                      color={isFavorite(card.id) ? '#ff3b30' : '#ffffff'}
+                      color={isFavorite(card.id) ? FAVORITE_HEART_COLOR : '#ffffff'}
                     />
                   </Pressable>
                 </View>
@@ -550,17 +559,6 @@ function ForYouOrderCarousel({
   );
 }
 
-function computeDiscountLabel(card: CardItem): string | null {
-  const priceArr = Array.isArray(card.erbjudandepris) ? card.erbjudandepris : [];
-  const origArr = Array.isArray(card.erbjudandeoriginalpris) ? card.erbjudandeoriginalpris : [];
-  const price = Number(priceArr[0]);
-  const orig = Number(origArr[0]);
-  if (!Number.isFinite(price) || !Number.isFinite(orig) || orig <= 0 || price >= orig) return null;
-  const pct = Math.round(((orig - price) / orig) * 100);
-  if (pct <= 0) return null;
-  return `-${pct}%`;
-}
-
 function getEndingDateParts(card: CardItem): { day: string; month: string } | null {
   const raw = Array.isArray(card.erbjudandelängd) ? card.erbjudandelängd[0] : card.erbjudandelängd;
   if (!raw) return null;
@@ -583,6 +581,7 @@ function FeaturedDealCard({
   titleSize?: 'sm' | 'lg';
 }) {
   const discount = computeDiscountLabel(card);
+  const discountColor = getDiscountBadgeColor(card);
   const offerLabel = Array.isArray(card.erbjudande) ? card.erbjudande[0] : card.erbjudande;
   return (
     <Pressable
@@ -616,7 +615,7 @@ function FeaturedDealCard({
         {discount ? (
           <View
             className="mt-2 self-start rounded-md px-2 py-0.5"
-            style={{ backgroundColor: '#ff3b30' }}
+            style={{ backgroundColor: discountColor }}
           >
             <Text className="text-[11px] font-semibold text-white">{discount}</Text>
           </View>
@@ -1611,23 +1610,7 @@ export default function HomeScreen() {
 
   const quickCategories = useMemo(() => {
     const pool = categoryOptions.filter((cat) => cat.id !== ALL_CATEGORIES_ID);
-
-    const getIconName = (label: string): React.ComponentProps<typeof Ionicons>['name'] => {
-      const name = label.toLowerCase();
-      if (name.includes('erbjud')) return 'pricetag-outline';
-      if (name.includes('mat') || name.includes('food') || name.includes('restaur')) return 'restaurant-outline';
-      if (name.includes('event') || name.includes('evenemang')) return 'calendar-outline';
-      if (name.includes('familj') || name.includes('family') || name.includes('barn')) return 'people-outline';
-      if (name.includes('sport') || name.includes('träning') || name.includes('fitness')) return 'football-outline';
-      if (name.includes('hälsa') || name.includes('health')) return 'heart-outline';
-      if (name.includes('skön') || name.includes('beauty') || name.includes('spa')) return 'sparkles-outline';
-      if (name.includes('nöje') || name.includes('entertain') || name.includes('bio')) return 'film-outline';
-      if (name.includes('kläder') || name.includes('shopping') || name.includes('butik')) return 'bag-outline';
-      if (name.includes('resa') || name.includes('travel')) return 'airplane-outline';
-      return 'grid-outline';
-    };
-
-    return pool.map((cat) => ({ ...cat, icon: getIconName(cat.label) }));
+    return pool.map((cat) => ({ ...cat, icon: getCategoryIconName(cat.label) }));
   }, [categoryOptions]);
 
   useEffect(() => {
@@ -1670,19 +1653,6 @@ export default function HomeScreen() {
     });
   }, [filteredDeals, searchQuery]);
 
-  const getCategoryIconName = (label: string): React.ComponentProps<typeof Ionicons>['name'] => {
-    const name = label.toLowerCase();
-    if (name.includes('mat') || name.includes('food') || name.includes('restaur')) return 'restaurant-outline';
-    if (name.includes('familj') || name.includes('family') || name.includes('barn')) return 'people-outline';
-    if (name.includes('sport') || name.includes('träning') || name.includes('fitness')) return 'football-outline';
-    if (name.includes('hälsa') || name.includes('health')) return 'heart-outline';
-    if (name.includes('skön') || name.includes('beauty') || name.includes('spa')) return 'sparkles-outline';
-    if (name.includes('nöje') || name.includes('entertain') || name.includes('bio')) return 'film-outline';
-    if (name.includes('kläder') || name.includes('shopping') || name.includes('butik')) return 'bag-outline';
-    if (name.includes('resa') || name.includes('travel')) return 'airplane-outline';
-    return 'grid-outline';
-  };
-
   const handleCardPress = (card: CardItem) => {
     didOpenCardRef.current = true;
     const encodeListParam = (value: string | string[] | number | number[] | Date | Date[] | undefined) => {
@@ -1705,8 +1675,9 @@ export default function HomeScreen() {
         : '';
 
     router.push({
-      pathname: '/(tabs)/Erbjudanden',
+      pathname: COMPANY_DETAIL_PATH,
       params: {
+        returnTo: 'index',
         mapResetNonce: `${Date.now()}-${Math.random()}`,
         id: card.id,
         claimBusinessId: card.id,
@@ -1873,34 +1844,10 @@ export default function HomeScreen() {
                 <View className="flex-row gap-2">
                   {quickCategories.map((cat) => (
                     (() => {
-                      const getAccent = () => {
-                        // Make "Erbjudanden" stand out with orange.
-                        if (cat.id === OFFERS_CATEGORY_ID || cat.label.toLowerCase().includes('erbjud')) return '#ff7a00';
-                        // Otherwise, pick a stable accent based on icon.
-                        switch (cat.icon) {
-                          case 'restaurant-outline':
-                            return '#34c759';
-                          case 'calendar-outline':
-                            return '#ff3b30';
-                          case 'film-outline':
-                          case 'sparkles-outline':
-                            return '#af52de';
-                          case 'people-outline':
-                            return '#0a84ff';
-                          case 'football-outline':
-                            return '#32ade6';
-                          case 'heart-outline':
-                            return '#ff2d55';
-                          case 'bag-outline':
-                            return '#ffd60a';
-                          case 'airplane-outline':
-                            return '#64d2ff';
-                          default:
-                            return '#9b5de5';
-                        }
-                      };
-
-                      const accent = getAccent();
+                      const accent =
+                        cat.id === OFFERS_CATEGORY_ID
+                          ? '#ff7a00'
+                          : getCategoryAccentColor(cat.label);
                       const isActive = activeCategory === cat.id;
 
                       return (
@@ -1935,7 +1882,7 @@ export default function HomeScreen() {
             title="Nära dig"
             icon="navigate"
             iconColor="#ff3b30"
-            onSeeAllPress={() => router.push('/(tabs)/NaraDig')}
+            onSeeAllPress={() => router.push(NARA_DIG_PATH)}
           />
           {isLoadingData && filteredDeals.length === 0 ? (
             <Text style={{ color: theme.textMuted }}>Laddar...</Text>
@@ -1958,6 +1905,7 @@ export default function HomeScreen() {
             icon="flame"
             iconColor="#ff3b30"
             subtitle="Baserat på dina intressen"
+            onSeeAllPress={() => router.push(HETA_ERBJUDANDEN_PATH)}
           />
           {isLoadingData && hotOfferCards.length === 0 ? (
             <Text style={{ color: theme.textMuted }}>Laddar...</Text>
@@ -1975,6 +1923,7 @@ export default function HomeScreen() {
             title="Slutar snart"
             icon="hourglass-outline"
             subtitle="Baserat på dina intressen"
+            onSeeAllPress={() => router.push(SLUTAR_SNART_PATH)}
           />
           {isLoadingData && nearYouCards.length === 0 ? (
             <Text style={{ color: theme.textMuted }}>Laddar...</Text>
