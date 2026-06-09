@@ -1,78 +1,49 @@
-import { BottomTabBar, type BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { Dimensions, StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { type BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { useEffect } from 'react';
 
-import { LiquidGlassTabBarBackground } from '@/components/ui/liquid-glass-tab-bar-background';
-import { useThemePreference } from '@/context/theme-preference-context';
+import { useTabBarMotion } from '@/context/tab-bar-motion-context';
 
 export const TAB_BAR_HEIGHT = 64;
 export const TAB_BAR_RADIUS = 32;
 /** Horizontal inset from each screen edge — lower = wider bar */
 export const TAB_BAR_MARGIN_H = 12;
-/** Gap above the home-indicator safe area */
-export const TAB_BAR_EXTRA_BOTTOM = 8;
+/** On wide web viewports, cap bar width so tabs match iPhone proportions */
+export const TAB_BAR_MAX_WIDTH_WEB = 480;
+/** Mimics iPhone float when the browser reports no safe-area inset */
+export const TAB_BAR_WEB_BOTTOM_INSET = 16;
+/** Offset from safe-area bottom — negative moves the bar closer to the screen edge */
+export const TAB_BAR_EXTRA_BOTTOM = -10;
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
-
-export function FloatingTabBar(props: BottomTabBarProps) {
-  const insets = useSafeAreaInsets();
-  const { effectiveScheme } = useThemePreference();
-  const isDark = effectiveScheme === 'dark';
-
-  const focusedRoute = props.state.routes[props.state.index];
-  const focusedTabBarStyle = StyleSheet.flatten(
-    props.descriptors[focusedRoute.key].options.tabBarStyle
-  );
-
-  if (focusedTabBarStyle?.display === 'none') {
-    return null;
+export function getTabBarWidth(windowWidth: number, platform: string = 'ios') {
+  const naturalWidth = Math.max(windowWidth - TAB_BAR_MARGIN_H * 2, 0);
+  if (platform === 'web' && windowWidth > 500) {
+    return Math.min(naturalWidth, TAB_BAR_MAX_WIDTH_WEB);
   }
-
-  const bottomOffset = insets.bottom + TAB_BAR_EXTRA_BOTTOM;
-  const barWidth = SCREEN_WIDTH - TAB_BAR_MARGIN_H * 2;
-
-  return (
-    <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-      <View
-        pointerEvents="box-none"
-        style={[
-          styles.shell,
-          {
-            width: barWidth,
-            height: TAB_BAR_HEIGHT,
-            borderRadius: TAB_BAR_RADIUS,
-            bottom: bottomOffset,
-            shadowOpacity: isDark ? 0.18 : 0.08,
-          },
-        ]}
-      >
-        <LiquidGlassTabBarBackground isDark={isDark} borderRadius={TAB_BAR_RADIUS} />
-        <BottomTabBar
-          {...props}
-          style={{
-            height: TAB_BAR_HEIGHT,
-            backgroundColor: 'transparent',
-            borderTopWidth: 0,
-            paddingBottom: 0,
-            paddingTop: 0,
-            paddingHorizontal: 0,
-            margin: 0,
-            elevation: 0,
-          }}
-        />
-      </View>
-    </View>
-  );
+  return naturalWidth;
 }
 
-const styles = StyleSheet.create({
-  shell: {
-    position: 'absolute',
-    alignSelf: 'center',
-    overflow: 'hidden',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowRadius: 16,
-    elevation: 8,
-  },
-});
+export function getTabBarLeft(windowWidth: number, barWidth: number) {
+  return Math.max((windowWidth - barWidth) / 2, TAB_BAR_MARGIN_H);
+}
+
+export function getTabBarBottomOffset(insetsBottom: number, platform: string = 'ios') {
+  const raw = insetsBottom + TAB_BAR_EXTRA_BOTTOM;
+  if (platform === 'web') {
+    return Math.max(raw, TAB_BAR_WEB_BOTTOM_INSET);
+  }
+  return Math.max(raw, 0);
+}
+
+export function FloatingTabBar(props: BottomTabBarProps) {
+  const { setTabBarProps } = useTabBarMotion();
+
+  useEffect(() => {
+    setTabBarProps(props);
+  }, [props, setTabBarProps]);
+
+  useEffect(() => {
+    return () => setTabBarProps(null);
+  }, [setTabBarProps]);
+
+  return null;
+}

@@ -13,6 +13,8 @@ import { useFavorites } from '@/context/favorites-context';
 import { apiUrl, normalizeImageUrl } from '@/lib/api';
 import { CardMedia } from '@/components/ui/card-media';
 import { prefetchImageUris } from '@/lib/image-prefetch';
+import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
+import { FAVORITE_HEART_COLOR } from '@/lib/tab-colors';
 
 export default function FavoriterScreen() {
   const router = useRouter();
@@ -85,7 +87,7 @@ export default function FavoriterScreen() {
           }
         >
           <View className="flex-row items-center">
-            <Ionicons name="heart" size={22} color="#ff3b30" />
+            <Ionicons name="heart" size={22} color={FAVORITE_HEART_COLOR} />
             <Text className="ml-2 text-2xl font-semibold" style={{ color: theme.text }}>
               Favoriter
             </Text>
@@ -121,15 +123,19 @@ export default function FavoriterScreen() {
                     key={id}
                     onPress={() =>
                       router.push({
-                        pathname: '/(tabs)/Erbjudanden',
+                        pathname: COMPANY_DETAIL_PATH,
                         params: {
+                          returnTo: 'favoriter',
                           id,
                           claimBusinessId: id,
                           title: company?.name ?? 'Okänd verksamhet',
+                          deal: '1',
                           imageUri: imageUri ?? '',
                           Adress: address,
                           latitude: company?.latitude?.toString(),
                           longitude: company?.longitude?.toString(),
+                          Telefon: company?.contactPhone ?? '',
+                          Website: company?.website ?? '',
                           kortbeskrivning: company?.description ?? '',
                           långbeskrivning: company?.description ?? '',
                           mapResetNonce: `${Date.now()}-${Math.random()}`,
@@ -169,7 +175,7 @@ export default function FavoriterScreen() {
                             <Ionicons
                               name={isFavorite(id) ? 'heart' : 'heart-outline'}
                               size={18}
-                              color={isFavorite(id) ? '#ff3b30' : '#ffffff'}
+                              color={isFavorite(id) ? FAVORITE_HEART_COLOR : '#ffffff'}
                             />
                           </Pressable>
                         </View>

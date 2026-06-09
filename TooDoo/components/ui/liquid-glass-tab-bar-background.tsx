@@ -8,11 +8,13 @@ type Props = {
 };
 
 export function LiquidGlassTabBarBackground({ isDark, borderRadius }: Props) {
+  const blurIntensity = Platform.OS === 'android' ? 40 : 48;
+
   return (
     <View style={[StyleSheet.absoluteFill, { borderRadius, overflow: 'hidden' }]}>
       <BlurView
         tint={isDark ? 'dark' : 'light'}
-        intensity={Platform.OS === 'ios' ? 48 : 40}
+        intensity={blurIntensity}
         style={StyleSheet.absoluteFill}
       />
       <View

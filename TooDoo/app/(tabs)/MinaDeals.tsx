@@ -297,7 +297,7 @@ export default function MinaDealsScreen() {
 					statusText: isQrExpired || isStatusExpired ? 'Utgånget' : claim.status ?? 'Aktiv',
 					code,
 					onOpen: orderId
-						? () => router.push({ pathname: '/(tabs)/Erbjudanden', params: { claimOrderId: orderId, claimBusinessId: businessId ?? '', title: embeddedOrder?.title ?? 'Erbjudande' } })
+						? () => router.push({ pathname: '/company-detail', params: { returnTo: 'minadeals', claimOrderId: orderId, claimBusinessId: businessId ?? '', title: embeddedOrder?.title ?? 'Erbjudande', deal: '1' } })
 						: undefined,
 				};
 			});

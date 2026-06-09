@@ -1,13 +1,9 @@
 import { Platform } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 
-export type OfferMapProps = {
-  mapKey: string;
-  latitude: number;
-  longitude: number;
-  title?: string;
-  addressText: string;
-};
+import type { OfferMapProps } from './offer-map.types';
+
+export type { OfferMapProps };
 
 export function OfferMap({ mapKey, latitude, longitude, title, addressText }: OfferMapProps) {
   return (

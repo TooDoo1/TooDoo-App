@@ -34,7 +34,9 @@ export default function PersonalityScreen() {
   const [isLoadingCategories, setIsLoadingCategories] = useState(false);
   const [categoryLoadError, setCategoryLoadError] = useState('');
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
-  const [resolvedCity, setResolvedCity] = useState('');
+  const [city, setCity] = useState('');
+  const [isResolvingLocation, setIsResolvingLocation] = useState(false);
+  const [locationAutoAttempted, setLocationAutoAttempted] = useState(false);
   const progressPercent = totalCount > 0 ? Math.min((claimedCount / totalCount) * 100, 100) : 0;
   const lastPendingEmailRef = useRef<string | null>(null);
 
@@ -53,7 +55,9 @@ export default function PersonalityScreen() {
     setIsIosDatePickerVisible(false);
     setSelectedGender(null);
     setSelectedCategoryIds([]);
-    setResolvedCity('');
+    setCity('');
+    setIsResolvingLocation(false);
+    setLocationAutoAttempted(false);
   }, [pendingRegistration?.email]);
 
   useEffect(() => {
@@ -62,12 +66,25 @@ export default function PersonalityScreen() {
     let cancelled = false;
 
     const autoDetectLocation = async () => {
-      if (Platform.OS === 'web') return;
-      if (!(await hasForegroundLocationPermission())) return;
+      if (Platform.OS === 'web') {
+        setLocationAutoAttempted(true);
+        return;
+      }
 
-      const result = await resolveUserCityFromDevice({ requestPermission: false });
-      if (cancelled || !result) return;
-      setResolvedCity(result.city);
+      setIsResolvingLocation(true);
+      try {
+        if (await hasForegroundLocationPermission()) {
+          const result = await resolveUserCityFromDevice({ requestPermission: false });
+          if (!cancelled && result?.city) {
+            setCity(result.city);
+          }
+        }
+      } finally {
+        if (!cancelled) {
+          setIsResolvingLocation(false);
+          setLocationAutoAttempted(true);
+        }
+      }
     };
 
     void autoDetectLocation();
@@ -154,6 +171,21 @@ export default function PersonalityScreen() {
       cancelled = true;
     };
   }, []);
+
+  const resolveRegistrationLocation = async (): Promise<string | null> => {
+    const trimmed = city.trim();
+    if (trimmed) return trimmed;
+
+    if (Platform.OS !== 'web') {
+      const detected = await resolveUserCityFromDevice({ requestPermission: true });
+      if (detected?.city) {
+        setCity(detected.city);
+        return detected.city;
+      }
+    }
+
+    return null;
+  };
 
   const genderOptions = [
     { label: 'Man', value: 'MALE' as const },
@@ -244,6 +276,28 @@ export default function PersonalityScreen() {
                 <Text className="text-center font-medium text-white">Klar</Text>
               </Pressable>
             </View>
+          ) : null}
+
+          {locationAutoAttempted && !city.trim() ? (
+            <>
+              <Text className="pt-4 text-lg" style={{ color: theme.text }}>Stad:</Text>
+              <Text className="pt-1 text-sm" style={{ color: theme.textMuted }}>
+                Behövs för att visa erbjudanden nära dig.
+              </Text>
+              <TextInput
+                value={city}
+                onChangeText={setCity}
+                placeholder="T.ex. Helsingborg"
+                placeholderTextColor={theme.textFaint}
+                autoCapitalize="words"
+                className="mt-2 rounded-2xl border px-4 py-3"
+                style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
+              />
+            </>
+          ) : isResolvingLocation ? (
+            <Text className="pt-4 text-sm" style={{ color: theme.textMuted }}>
+              Hämtar din plats...
+            </Text>
           ) : null}
 
         </View>
@@ -384,6 +438,10 @@ export default function PersonalityScreen() {
                   Alert.alert("Saknad information", "Välj din födelsedag innan du går vidare.");
                   return;
                 }
+                if (claimedCount === 1 && locationAutoAttempted && !city.trim()) {
+                  Alert.alert("Saknad stad", "Ange din stad eller aktivera platsåtkomst innan du går vidare.");
+                  return;
+                }
                 if (claimedCount === 3) {
                   if (!pendingRegistration) {
                     Alert.alert("Saknad registrering", "Fyll i registrering först innan du fortsätter.");
@@ -393,6 +451,15 @@ export default function PersonalityScreen() {
 
                   setIsSubmittingCreate(true);
                   try {
+                    const registrationLocation = await resolveRegistrationLocation();
+                    if (!registrationLocation) {
+                      Alert.alert(
+                        'Saknad stad',
+                        'Vi behöver din stad för att skapa konto. Gå tillbaka till steg 1 och ange stad, eller aktivera platsåtkomst.'
+                      );
+                      return;
+                    }
+
                     const response = await fetch(apiUrl('/user/register'), {
                       method: 'POST',
                       headers: {
@@ -406,11 +473,13 @@ export default function PersonalityScreen() {
                         gender: selectedGender,
                         password: pendingRegistration.password,
                         interests: selectedCategoryIds,
+                        location: registrationLocation,
                       }),
                     });
 
                     const data = (await response.json().catch(() => ({}))) as {
                       error?: string;
+                      details?: Array<{ field?: string; message?: string }>;
                       token?: string;
                       refreshToken?: string;
                       user?: { role?: string };
@@ -443,22 +512,6 @@ export default function PersonalityScreen() {
                         roleToUse = loginData.user?.role ?? roleToUse;
                       }
 
-                      const registrationLocation = resolvedCity.trim();
-                      if (tokenToUse && registrationLocation) {
-                        try {
-                          await fetch(apiUrl('/user/me'), {
-                            method: 'PUT',
-                            headers: {
-                              'Content-Type': 'application/json',
-                              Authorization: `Bearer ${tokenToUse}`,
-                            },
-                            body: JSON.stringify({ location: registrationLocation }),
-                          });
-                        } catch {
-                          // Profile location is best-effort; account creation already succeeded.
-                        }
-                      }
-
                       if (tokenToUse) {
                         await signIn(tokenToUse, refreshToUse, roleToUse);
                       } else {
@@ -475,7 +528,13 @@ export default function PersonalityScreen() {
                       return;
                     }
 
-                    Alert.alert('Fel', data.error ?? 'Kunde inte registrera just nu.');
+                    const validationDetail = data.details?.[0]?.message;
+                    Alert.alert(
+                      'Fel',
+                      validationDetail
+                        ? `${data.error ?? 'Kunde inte registrera just nu.'}: ${validationDetail}`
+                        : data.error ?? 'Kunde inte registrera just nu.'
+                    );
                     return;
                   } catch {
                     Alert.alert('Nätverksfel', 'Kunde inte ansluta till servern.');
