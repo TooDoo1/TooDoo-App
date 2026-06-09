@@ -1,23 +1,27 @@
 import type { ThemeMode } from '@/context/theme-preference-context';
+import { BrandColors, brandInkRgba, brandNavyRgba } from '@/lib/brand-colors';
 
 export function uiTheme(mode: ThemeMode) {
   const isDark = mode === 'dark';
+  const palette = isDark ? BrandColors.dark : BrandColors.light;
+
   return {
     isDark,
     // App surfaces
-    screenBg: isDark ? '#000b2a' : '#f5f7ff',
-    cardBg: isDark ? '#0a1535' : '#ffffff',
-    cardBgMuted: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,11,42,0.06)',
-    border: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,11,42,0.12)',
+    screenBg: palette.background,
+    cardBg: isDark ? BrandColors.dark.card : palette.card,
+    cardBgMuted: isDark ? 'rgba(255,255,255,0.06)' : brandInkRgba(0.06),
+    border: isDark ? 'rgba(255,255,255,0.12)' : brandInkRgba(0.12),
     // Text
-    text: isDark ? '#ffffff' : '#000b2a',
-    textMuted: isDark ? 'rgba(255,255,255,0.70)' : 'rgba(0,11,42,0.65)',
-    textFaint: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,11,42,0.45)',
+    text: isDark ? palette.foreground : palette.foreground,
+    textMuted: isDark ? 'rgba(255,255,255,0.70)' : brandInkRgba(0.65),
+    textFaint: isDark ? 'rgba(255,255,255,0.55)' : brandInkRgba(0.45),
     // Accents
-    // Light mode: match star colors. Dark mode: keep original blue/orange accents.
-    primary: isDark ? '#007AFF' : '#EBBBD0', // blue -> pink (light only)
-    accentGreen: isDark ? '#ff9b46' : '#BADBC2', // orange -> green (light only)
+    // Light mode: match star colors. Dark mode: beta primary blue.
+    primary: isDark ? BrandColors.dark.primary : '#EBBBD0',
+    accentGreen: isDark ? '#ff9b46' : '#BADBC2',
     danger: '#ff3b30',
+    link: palette.primary,
+    linkSoft: palette.primarySoft,
   };
 }
-

@@ -29,6 +29,8 @@ import { CompanyDetailTabBarSync } from "@/components/company-detail-tab-bar-syn
 import { WebStackSwipeContainer } from "@/components/web-stack-edge-swipe-back";
 import { navigateBackFromDetail } from "@/lib/detail-navigation";
 import { isActiveOffer } from "@/lib/home-offers";
+import { BrandColors, brandInkRgba, brandNavyRgba } from "@/lib/brand-colors";
+import { getOrderNotClaimableReason, getOrderPublishEndMs } from "@/lib/order-claim-window";
 
 const skanetrafikenLogo = require("../assets/images/Skanetrafiken.png");
 const voiLogo = require("../assets/images/Voi.png");
@@ -288,9 +290,8 @@ export default function CompanyDetailScreen() {
       ? live.claimed
       : Number(order?.claimedRedemptions ?? order?.claimedCount ?? 0);
     const totalCount = live && live.total > 0 ? live.total : Number(order?.maxRedemptions ?? 0);
-    const endText = order?.orderTimeTo ?? order?.validTo;
-    const parsedEndDate = endText ? new Date(endText) : undefined;
-    const endDate = parsedEndDate && Number.isFinite(parsedEndDate.getTime()) ? parsedEndDate : undefined;
+    const publishEndMs = getOrderPublishEndMs(order);
+    const endDate = publishEndMs != null ? new Date(publishEndMs) : undefined;
     const timeLeftMs = endDate ? Math.max(endDate.getTime() - nowMs, 0) : 0;
 
     return {
@@ -337,8 +338,8 @@ export default function CompanyDetailScreen() {
       const claimedCount = live ? live.claimed : Number(claimedText ?? 0);
       const totalCount = live && live.total > 0 ? live.total : Number(amountText ?? 0);
       const progressPercent = totalCount > 0 ? Math.min((claimedCount / totalCount) * 100, 100) : 0;
-      const parsedEndDate = endText ? new Date(endText) : undefined;
-      const endDate = parsedEndDate && Number.isFinite(parsedEndDate.getTime()) ? parsedEndDate : undefined;
+      const publishEndMs = endText ? Date.parse(endText) : NaN;
+      const endDate = Number.isFinite(publishEndMs) ? new Date(publishEndMs) : undefined;
       const timeLeftMs = endDate ? Math.max(endDate.getTime() - nowMs, 0) : 0;
 
       return {
@@ -483,40 +484,6 @@ export default function CompanyDetailScreen() {
     return detailParts.join('\n');
   };
 
-  const getOrderNotClaimableMessage = (order: any) => {
-    if (!order) {
-      return 'Ordern går inte att claima just nu.';
-    }
-
-    if (order?.isActive === false) {
-      return 'Ordern är inaktiv.';
-    }
-
-    const now = Date.now();
-    const startValue = order?.validFrom ?? order?.orderTimeFrom;
-    const endValue = order?.validTo ?? order?.orderTimeTo;
-    const startMs = startValue ? new Date(startValue).getTime() : NaN;
-    const endMs = endValue ? new Date(endValue).getTime() : NaN;
-
-    if (Number.isFinite(startMs) && now < startMs) {
-      return 'Ordern har inte startat ännu.';
-    }
-
-    if (Number.isFinite(endMs) && now > endMs) {
-      return 'Ordern har gått ut.';
-    }
-
-    const maxRedemptions = Number(order?.maxRedemptions ?? 0);
-    const claimedCount = Number(
-      order?.claimedRedemptions ?? order?.claimedCount ?? 0
-    );
-    if (maxRedemptions > 0 && Number.isFinite(claimedCount) && claimedCount >= maxRedemptions) {
-      return 'Ordern är fullclaimad (max antal uppnått).';
-    }
-
-    return 'Ordern går inte att claima just nu.';
-  };
-
   const claimOffer = async (offer: (typeof offers)[number]) => {
     if (!isLoggedIn) {
       setIsLoginOpen(true);
@@ -544,6 +511,12 @@ export default function CompanyDetailScreen() {
       const orderResponse = await fetch(apiUrl(`/orders/${encodeURIComponent(offer.orderId)}`));
       const orderPayload = await orderResponse.json().catch(() => ({}));
       const order = orderPayload?.order ?? orderPayload?.data ?? orderPayload;
+
+      const notClaimableReason = getOrderNotClaimableReason(order);
+      if (notClaimableReason) {
+        Alert.alert('Kunde inte claima', notClaimableReason);
+        return;
+      }
 
       const claimPayload: { orderId: string } = {
         orderId: offer.orderId,
@@ -599,7 +572,7 @@ export default function CompanyDetailScreen() {
         }
 
         if (response.status === 409 && String(payload?.reason ?? '') === 'ORDER_NOT_CLAIMABLE') {
-          const notClaimableMessage = getOrderNotClaimableMessage(order);
+          const notClaimableMessage = getOrderNotClaimableReason(order) ?? 'Ordern går inte att claima just nu.';
           Alert.alert(
             'Kunde inte claima',
             `${notClaimableMessage}\n\n${contextLines.join('\n')}`
@@ -860,7 +833,7 @@ export default function CompanyDetailScreen() {
         <View className="relative h-72 w-full overflow-hidden rounded-xl">
           {effectiveImageSource ? <CardMedia source={effectiveImageSource} rasterResizeMode="cover" svgContain /> : null}
           <LinearGradient
-            colors={mode === "dark" ? ["rgba(0, 11, 42, 0)", "#000b2a"] : ["rgba(245, 247, 255, 0)", "#f5f7ff"]}
+            colors={mode === "dark" ? [brandNavyRgba(0), BrandColors.dark.background] : [brandInkRgba(0), BrandColors.light.background]}
             start={{ x: 0, y: 0 }}
             end={{ x: 0, y: 1 }}
             style={{
@@ -935,7 +908,7 @@ export default function CompanyDetailScreen() {
                       ) : null;
                     })()}
                     <LinearGradient
-                      colors={["rgba(0, 11, 42, 0)", "rgba(0, 11, 42, 0.9)"]}
+                      colors={[brandNavyRgba(0), brandNavyRgba(0.9)]}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 0, y: 1 }}
                       style={{
@@ -949,7 +922,7 @@ export default function CompanyDetailScreen() {
                     <View
                       className="absolute bottom-1 left-2 rounded-full border px-2 py-1"
                       style={{
-                        backgroundColor: theme.isDark ? "rgba(0,0,0,0.6)" : "rgba(10, 21, 53, 0.06)",
+                        backgroundColor: theme.isDark ? "rgba(0,0,0,0.6)" : brandInkRgba(0.06),
                         borderColor: theme.isDark ? "rgba(255,255,255,0.15)" : theme.border,
                       }}
                     >
@@ -1012,7 +985,7 @@ export default function CompanyDetailScreen() {
           <View className="rounded-t-3xl px-6 pb-9 pt-6" style={{ backgroundColor: theme.cardBg }}>
             <View
               className="mb-4 h-1 w-10 self-center rounded-full"
-              style={{ backgroundColor: theme.isDark ? "rgba(255,255,255,0.30)" : "rgba(0,11,42,0.10)" }}
+              style={{ backgroundColor: theme.isDark ? "rgba(255,255,255,0.30)" : brandInkRgba(0.10) }}
             />
             <Text className="text-2xl font-semibold" style={{ color: theme.text }}>
               Välkommen!
@@ -1140,7 +1113,7 @@ export default function CompanyDetailScreen() {
               style={{ backgroundColor: theme.primary }}
               onPress={() => setClaimSuccess(null)}
             >
-              <Text className="text-center font-medium" style={{ color: theme.isDark ? '#ffffff' : '#061A47' }}>
+              <Text className="text-center font-medium" style={{ color: theme.isDark ? '#ffffff' : BrandColors.light.foreground }}>
                 Stäng
               </Text>
             </Pressable>

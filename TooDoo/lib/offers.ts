@@ -1,3 +1,5 @@
+import { isWithinOrderPublishWindow } from '@/lib/order-claim-window';
+
 export function isActiveOffer(order: any, nowMs: number = Date.now()): boolean {
   if (order?.isActive === false) return false;
   const status = String(order?.status ?? '').toUpperCase();
@@ -7,13 +9,7 @@ export function isActiveOffer(order: any, nowMs: number = Date.now()): boolean {
   const claimed = Number(order?.claimedRedemptions ?? order?.claimedCount ?? 0);
   if (max > 0 && claimed >= max) return false;
 
-  const fromMs = order?.orderTimeFrom ? Date.parse(order.orderTimeFrom) : NaN;
-  if (!Number.isNaN(fromMs) && fromMs > nowMs) return false;
-
-  const toMs = order?.orderTimeTo ? Date.parse(order.orderTimeTo) : NaN;
-  if (!Number.isNaN(toMs) && toMs < nowMs) return false;
-
-  return true;
+  return isWithinOrderPublishWindow(order, nowMs);
 }
 
 export function parseOrdersList(json: unknown): any[] {

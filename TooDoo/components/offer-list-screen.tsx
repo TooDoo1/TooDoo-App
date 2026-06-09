@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { BrandColors } from '@/lib/brand-colors';
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
 import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
 import { ScreenBackButton } from '@/components/ui/screen-back-button';
@@ -144,10 +145,10 @@ function EndingSoonOfferCard({
             minWidth: 36,
           }}
         >
-          <Text style={{ fontSize: 14, fontWeight: '700', color: '#0b1a45', lineHeight: 16 }}>
+          <Text style={{ fontSize: 14, fontWeight: '700', color: BrandColors.dark.secondary, lineHeight: 16 }}>
             {date.day}
           </Text>
-          <Text style={{ fontSize: 9, fontWeight: '700', color: '#0b1a45', lineHeight: 11 }}>
+          <Text style={{ fontSize: 9, fontWeight: '700', color: BrandColors.dark.secondary, lineHeight: 11 }}>
             {date.month}
           </Text>
         </View>

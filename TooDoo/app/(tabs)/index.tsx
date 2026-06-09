@@ -27,6 +27,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StarrySkyScreenBackground } from '@/components/ui/starry-background';
 import { useThemePreference } from '@/context/theme-preference-context';
+import { BrandColors, brandInkRgba, FilterChipTheme } from '@/lib/brand-colors';
 import { uiTheme } from '@/lib/ui-theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CardMedia } from '@/components/ui/card-media';
@@ -40,7 +41,13 @@ import {
   SLUTAR_SNART_PATH,
 } from '@/lib/stack-navigation';
 import { FAVORITE_HEART_COLOR } from '@/lib/tab-colors';
-import { getCategoryAccentColor, getCategoryIconName } from '@/lib/category-colors';
+import {
+  darkenHexColor,
+  getCategoryAccentColor,
+  getCategoryIconName,
+  getOnAccentTextColor,
+  OFFERS_CATEGORY_ACCENT,
+} from '@/lib/category-colors';
 import { computeDiscountLabel, getDiscountBadgeColor } from '@/lib/home-offers';
 
 const IMAGE_HYDRATE_CONCURRENCY = 5;
@@ -409,7 +416,7 @@ function mapApiOrderToCardItem(order: any, index: number): CardItem {
     erbjudande: [order?.title ?? 'Erbjudande'],
     erbjudandeclaimade: [String(order?.claimedRedemptions ?? order?.claimedCount ?? 0)],
     erbjudandemängd: [String(order?.maxRedemptions ?? 0)],
-    erbjudandelängd: [order?.orderTimeTo ?? order?.validTo ?? ''],
+    erbjudandelängd: [order?.orderTimeTo ?? ''],
   };
 }
 
@@ -713,10 +720,10 @@ function EndingSoonPortraitRow({
                   minWidth: 36,
                 }}
               >
-                <Text style={{ fontSize: 14, fontWeight: '700', color: '#0b1a45', lineHeight: 16 }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: BrandColors.dark.secondary, lineHeight: 16 }}>
                   {date.day}
                 </Text>
-                <Text style={{ fontSize: 9, fontWeight: '700', color: '#0b1a45', lineHeight: 11 }}>
+                <Text style={{ fontSize: 9, fontWeight: '700', color: BrandColors.dark.secondary, lineHeight: 11 }}>
                   {date.month}
                 </Text>
               </View>
@@ -787,6 +794,7 @@ function SectionTitleRow({
 function QuickFiltersRow() {
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
+  const filterSurfaceStyle = FilterChipTheme.surface;
 
   const filters = [
     { id: 'tonight', label: 'Ikväll', icon: 'time-outline' as const },
@@ -802,10 +810,10 @@ function QuickFiltersRow() {
           <View
             key={filter.id}
             className="flex-row items-center rounded-full px-3 py-2"
-            style={{ backgroundColor: theme.cardBg, borderWidth: 1, borderColor: theme.border }}
+            style={filterSurfaceStyle}
           >
-            <Ionicons name={filter.icon} size={14} color={theme.textMuted} />
-            <Text className="ml-2 text-xs" style={{ color: theme.textMuted }}>{filter.label}</Text>
+            <Ionicons name={filter.icon} size={14} color={FilterChipTheme.textMuted} />
+            <Text className="ml-2 text-xs" style={{ color: FilterChipTheme.textMuted }}>{filter.label}</Text>
           </View>
         ))}
       </View>
@@ -844,7 +852,7 @@ export default function HomeScreen() {
   const hotAnim = useRef(new Animated.Value(0)).current;
   const endingSoonAnim = useRef(new Animated.Value(0)).current;
   const tooDooLetters = ['T', 'o', 'o', 'D', 'o', 'o'] as const;
-  const tooDooColors = ['#ff4d6d', '#ff7a00', '#ffd60a', '#00d4ff', '#3a86ff', '#9b5de5'] as const;
+  const tooDooColors = ['#ff4d6d', '#ff7a00', '#ffd60a', '#3c7fdd', '#478beb', '#9b5de5'] as const;
   const tooDooBounceValues = useRef(tooDooLetters.map(() => new Animated.Value(0))).current;
   const didScrollAfterExpandRef = useRef(false);
   const didOpenCardRef = useRef(false);
@@ -864,6 +872,7 @@ export default function HomeScreen() {
   const { token } = useAuth();
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
+  const filterSurfaceStyle = FilterChipTheme.surface;
   const { width: screenWidth } = Dimensions.get('window');
   // Decreased card width ratio to make side cards visibly occupy more space on screen
   const featuredCardWidth = Math.min(screenWidth * 0.68, 300);
@@ -1226,7 +1235,7 @@ export default function HomeScreen() {
             String(order.claimedRedemptions ?? order.claimedCount ?? 0)
           );
           const offerAmount = visibleOrders.map((order) => String(order.maxRedemptions ?? 0));
-          const offerEnd = visibleOrders.map((order) => order.orderTimeTo ?? order.validTo ?? '');
+          const offerEnd = visibleOrders.map((order) => order.orderTimeTo ?? '');
           const firstVisibleOrder = visibleOrders[0] as any | undefined;
 
           const cachedBusinessImageUrl = cachedImageUrlByBusinessId.get(String(businessId));
@@ -1767,12 +1776,12 @@ export default function HomeScreen() {
             borderRightWidth: 1,
             borderTopWidth: 1,
             borderBottomWidth: 1,
-            borderColor: theme.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,11,42,0.10)',
+            borderColor: theme.isDark ? 'rgba(255,255,255,0.10)' : brandInkRgba(0.10),
             overflow: 'hidden',
           }}
         >
           <LinearGradient
-            colors={theme.isDark ? ['#0b1a45', '#0b1a45'] : ['#f5f7ff', '#f5f7ff']}
+            colors={theme.isDark ? [BrandColors.dark.background, BrandColors.dark.background] : [BrandColors.light.background, BrandColors.light.background]}
             start={{ x: 0, y: 0 }}
             end={{ x: 0, y: 1 }}
             style={{ paddingTop: insets.top + 4, paddingBottom: 10 }}
@@ -1812,29 +1821,25 @@ export default function HomeScreen() {
             <View className="px-6" style={{ marginTop: -2 }}>
               <View
                 className="flex-row items-center rounded-full px-4 py-2.5"
-                style={{
-                  borderWidth: 1,
-                  borderColor: theme.isDark ? 'rgba(255,255,255,0.40)' : 'rgba(0,11,42,0.25)',
-                  backgroundColor: theme.cardBg,
-                }}
+                style={filterSurfaceStyle}
               >
-                <Ionicons name="search" size={18} color={theme.text} style={{ marginRight: 8 }} />
+                <Ionicons name="search" size={18} color={FilterChipTheme.textMuted} style={{ marginRight: 8 }} />
                 <TextInput
                   value={searchQuery}
                   onChangeText={setSearchQuery}
                   placeholder="Sök restauranger, events, upplevelser"
-                  placeholderTextColor={theme.textFaint}
+                  placeholderTextColor={FilterChipTheme.placeholder}
                   className="flex-1"
-                  style={{ color: theme.text }}
+                  style={{ color: FilterChipTheme.text }}
                   returnKeyType="search"
                 />
                 {searchQuery.trim() ? (
                   <Pressable onPress={() => setSearchQuery('')} className="ml-2 rounded-full px-2 py-1">
-                    <Ionicons name="close-circle" size={18} color={theme.text} />
+                    <Ionicons name="close-circle" size={18} color={FilterChipTheme.textMuted} />
                   </Pressable>
                 ) : null}
                 <Pressable className="ml-1 rounded-full p-1">
-                  <Ionicons name="options-outline" size={18} color={theme.text} />
+                  <Ionicons name="options-outline" size={18} color={FilterChipTheme.textMuted} />
                 </Pressable>
               </View>
             </View>
@@ -1844,11 +1849,18 @@ export default function HomeScreen() {
                 <View className="flex-row gap-2">
                   {quickCategories.map((cat) => (
                     (() => {
-                      const accent =
-                        cat.id === OFFERS_CATEGORY_ID
-                          ? '#ff7a00'
-                          : getCategoryAccentColor(cat.label);
-                      const isActive = activeCategory === cat.id;
+                      const isOffersCategory = cat.id === OFFERS_CATEGORY_ID;
+                      const isSelected = activeCategory === cat.id;
+                      const baseAccent = isOffersCategory
+                        ? OFFERS_CATEGORY_ACCENT
+                        : getCategoryAccentColor(cat.label);
+                      const isHighlighted = isOffersCategory || isSelected;
+                      const chipColor = isOffersCategory
+                        ? isSelected
+                          ? darkenHexColor(baseAccent)
+                          : baseAccent
+                        : baseAccent;
+                      const chipTextColor = getOnAccentTextColor(chipColor);
 
                       return (
                     <Pressable
@@ -1857,14 +1869,21 @@ export default function HomeScreen() {
                         setActiveCategory((prev) => (prev === cat.id ? ALL_CATEGORIES_ID : cat.id))
                       }
                       className="flex-row items-center rounded-full px-3 py-2"
-                      style={{
-                        backgroundColor: isActive ? `${accent}22` : theme.cardBg,
-                        borderColor: accent,
-                        borderWidth: 1,
-                      }}
+                      style={
+                        isHighlighted
+                          ? { backgroundColor: chipColor, borderColor: chipColor, borderWidth: 1 }
+                          : filterSurfaceStyle
+                      }
                     >
-                      <Ionicons name={cat.icon} size={14} color={isActive ? accent : theme.textMuted} />
-                      <Text className="ml-2 text-xs" style={{ color: isActive ? accent : theme.textMuted }}>
+                      <Ionicons
+                        name={cat.icon}
+                        size={14}
+                        color={isHighlighted ? chipTextColor : FilterChipTheme.textMuted}
+                      />
+                      <Text
+                        className="ml-2 text-xs"
+                        style={{ color: isHighlighted ? chipTextColor : FilterChipTheme.textMuted }}
+                      >
                         {cat.label}
                       </Text>
                     </Pressable>
@@ -1881,7 +1900,7 @@ export default function HomeScreen() {
           <SectionTitleRow
             title="Nära dig"
             icon="navigate"
-            iconColor="#ff3b30"
+            iconColor={OFFERS_CATEGORY_ACCENT}
             onSeeAllPress={() => router.push(NARA_DIG_PATH)}
           />
           {isLoadingData && filteredDeals.length === 0 ? (
@@ -1891,7 +1910,7 @@ export default function HomeScreen() {
               cards={filteredDeals}
               onCardPress={handleCardPress}
               badgeLabel="Nära dig"
-              badgeColor="rgba(0,11,42,0.75)"
+              badgeColor={brandInkRgba(0.75)}
               getBadgeLabel={getNearbyBadge}
               showFavoriteButton
               emptyText="Inga erbjudanden nära dig just nu."
@@ -1903,7 +1922,7 @@ export default function HomeScreen() {
           <SectionTitleRow
             title="Heta erbjudanden"
             icon="flame"
-            iconColor="#ff3b30"
+            iconColor={OFFERS_CATEGORY_ACCENT}
             subtitle="Baserat på dina intressen"
             onSeeAllPress={() => router.push(HETA_ERBJUDANDEN_PATH)}
           />
@@ -1948,7 +1967,7 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#000b2a',
+    backgroundColor: BrandColors.dark.background,
   },
   scroll: {
     flex: 1,

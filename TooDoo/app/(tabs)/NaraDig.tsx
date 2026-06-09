@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StarrySkyScreenBackground } from '@/components/ui/starry-background';
 import { useThemePreference } from '@/context/theme-preference-context';
+import { brandInkRgba } from '@/lib/brand-colors';
 import { uiTheme } from '@/lib/ui-theme';
 import { apiUrl, normalizeImageUrl } from '@/lib/api';
 import { CardMedia } from '@/components/ui/card-media';
@@ -267,14 +268,14 @@ export default function NaraDigScreen() {
                       {distance ? (
                         <View
                           className="absolute left-2 top-2 rounded-full px-2 py-1"
-                          style={{ backgroundColor: 'rgba(0,11,42,0.75)' }}
+                          style={{ backgroundColor: brandInkRgba(0.75) }}
                         >
                           <Text className="text-[10px] font-semibold text-white">{distance}</Text>
                         </View>
                       ) : (
                         <View
                           className="absolute left-2 top-2 rounded-full px-2 py-1"
-                          style={{ backgroundColor: 'rgba(0,11,42,0.75)' }}
+                          style={{ backgroundColor: brandInkRgba(0.75) }}
                         >
                           <Text className="text-[10px] font-semibold text-white">Nära dig</Text>
                         </View>

@@ -1,13 +1,14 @@
 import { StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BrandColors } from '@/lib/brand-colors';
 
 type StarryVariant = 'dark' | 'light';
 
 export function StarrySkyScreenBackground({ variant = 'dark' }: { variant?: StarryVariant }) {
   const gradientColors =
     variant === 'light'
-      ? ['#f9fbff', '#eef4ff', '#f7faff']
-      : ['#000b2a', '#061a47', '#000b2a'];
+      ? ['#fbfaf9', '#f3f1ef', '#fbfaf9']
+      : [BrandColors.dark.background, BrandColors.dark.secondary, BrandColors.dark.background];
 
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>

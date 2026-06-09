@@ -2,6 +2,7 @@ import type { ImageSourcePropType } from 'react-native';
 
 import { apiUrl, normalizeImageUrl } from '@/lib/api';
 import { getCategoryAccentForItem } from '@/lib/category-colors';
+import { isWithinOrderPublishWindow } from '@/lib/order-claim-window';
 
 export type OfferCardItem = {
   id: string;
@@ -72,11 +73,7 @@ export function isActiveOffer(order: any, nowMs: number = Date.now()): boolean {
     return false;
   }
 
-  const toMs = order?.orderTimeTo ? new Date(order.orderTimeTo).getTime() : NaN;
-  if (Number.isFinite(toMs) && toMs < nowMs) return false;
-
-  const fromMs = order?.orderTimeFrom ? new Date(order.orderTimeFrom).getTime() : NaN;
-  if (Number.isFinite(fromMs) && fromMs > nowMs) return false;
+  if (!isWithinOrderPublishWindow(order, nowMs)) return false;
 
   const max = Number(order?.maxRedemptions);
   const claimed = Number(order?.claimedRedemptions ?? order?.claimedCount);
@@ -180,7 +177,7 @@ function mapApiOrderToCardItem(order: any, index: number): OfferCardItem {
     erbjudande: [order?.title ?? 'Erbjudande'],
     erbjudandeclaimade: [String(order?.claimedRedemptions ?? order?.claimedCount ?? 0)],
     erbjudandemängd: [String(order?.maxRedemptions ?? 0)],
-    erbjudandelängd: [order?.orderTimeTo ?? order?.validTo ?? ''],
+    erbjudandelängd: [order?.orderTimeTo ?? ''],
   };
 }
 
@@ -322,7 +319,7 @@ function buildBusinessCards(
       String(order.claimedRedemptions ?? order.claimedCount ?? 0)
     );
     const offerAmount = visibleOrders.map((order) => String(order.maxRedemptions ?? 0));
-    const offerEnd = visibleOrders.map((order) => order.orderTimeTo ?? order.validTo ?? '');
+    const offerEnd = visibleOrders.map((order) => order.orderTimeTo ?? '');
 
     const normalizedImageUri = normalizeImageUrl(business.imageUrl);
 
