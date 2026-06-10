@@ -28,8 +28,8 @@ function isIosWeb(): boolean {
 }
 
 function iosWebTopFallback(): number {
-  // Mobile Safari often reports env(safe-area-inset-top) as 0 until layout settles.
-  if (!isIosWeb()) return 0;
+  // Only home-screen PWAs need a hard fallback; in-browser Safari usually has env().
+  if (!isIosWeb() || !isStandaloneWebApp()) return 0;
   return 47;
 }
 

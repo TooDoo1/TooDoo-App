@@ -792,8 +792,10 @@ export default function HomeScreen() {
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [searchHeaderHeight, setSearchHeaderHeight] = useState(112);
   const tabBarHeight = useBottomTabBarHeight();
   const heroTopInset = useHeroTopInset();
+  const heroBlockHeight = HERO_HEIGHT + heroTopInset;
   const scrollY = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollView>(null);
   const router = useRouter();
@@ -804,6 +806,12 @@ export default function HomeScreen() {
   const homePageBg = theme.cardBg;
   const homeHeaderPanelBg = theme.screenBg;
   const filterSurfaceStyle = FilterChipTheme.surface;
+  const searchBarTop = scrollY.interpolate({
+    inputRange: [0, Math.max(heroBlockHeight, 1)],
+    outputRange: [heroBlockHeight, heroTopInset],
+    extrapolate: 'clamp',
+  });
+  const searchPanelBorderColor = theme.isDark ? 'rgba(255,255,255,0.10)' : brandInkRgba(0.10);
 
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
@@ -1417,7 +1425,6 @@ export default function HomeScreen() {
           className="flex-1"
           style={styles.scroll}
           contentContainerStyle={{ paddingTop: 0, paddingBottom: tabBarHeight + 16 }}
-          stickyHeaderIndices={[0]}
           onScroll={Animated.event(
             [{ nativeEvent: { contentOffset: { y: scrollY } } }],
             { useNativeDriver: false }
@@ -1433,127 +1440,15 @@ export default function HomeScreen() {
             />
           }
         >
-        <View style={{ backgroundColor: homeHeaderPanelBg }}>
-          {(() => {
-            const heroHeight = scrollY.interpolate({
-              inputRange: [0, 120],
-              outputRange: [HERO_HEIGHT + heroTopInset, 0],
-              extrapolate: 'clamp',
-            });
-            const headerTopPadding = scrollY.interpolate({
-              inputRange: [0, 120],
-              outputRange: [8, heroTopInset + 8],
-              extrapolate: 'clamp',
-            });
-
-            return (
-              <>
-                <Animated.View style={{ height: heroHeight, overflow: 'hidden' }}>
-                  <HeroImageCarousel
-                    slides={heroSlides}
-                    panelBackgroundColor={homeHeaderPanelBg}
-                    topInset={heroTopInset}
-                  />
-                </Animated.View>
-                <View
-                  style={{
-                    borderBottomLeftRadius: 24,
-                    borderBottomRightRadius: 24,
-                    borderLeftWidth: 1,
-                    borderRightWidth: 1,
-                    borderBottomWidth: 1,
-                    borderColor: theme.isDark ? 'rgba(255,255,255,0.10)' : brandInkRgba(0.10),
-                    overflow: 'hidden',
-                  }}
-                >
-                  <Animated.View
-                    style={{
-                      paddingTop: headerTopPadding,
-                      paddingBottom: 10,
-                      backgroundColor: homeHeaderPanelBg,
-                    }}
-                  >
-            <View className="px-6">
-              <View
-                className="flex-row items-center rounded-full px-4 py-2.5"
-                style={filterSurfaceStyle}
-              >
-                <Ionicons name="search" size={18} color={FilterChipTheme.textMuted} style={{ marginRight: 8 }} />
-                <TextInput
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                  placeholder="Sök restauranger, events, upplevelser"
-                  placeholderTextColor={FilterChipTheme.placeholder}
-                  className="flex-1"
-                  style={{ color: FilterChipTheme.text }}
-                  returnKeyType="search"
-                />
-                {searchQuery.trim() ? (
-                  <Pressable onPress={() => setSearchQuery('')} className="ml-2 rounded-full px-2 py-1">
-                    <Ionicons name="close-circle" size={18} color={FilterChipTheme.textMuted} />
-                  </Pressable>
-                ) : null}
-                <Pressable className="ml-1 rounded-full p-1">
-                  <Ionicons name="options-outline" size={18} color={FilterChipTheme.textMuted} />
-                </Pressable>
-              </View>
-            </View>
-
-            <View className="mt-4">
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 24 }}>
-                <View className="flex-row gap-2">
-                  {quickCategories.map((cat) => (
-                    (() => {
-                      const isOffersCategory = cat.id === OFFERS_CATEGORY_ID;
-                      const isSelected = activeCategory === cat.id;
-                      const baseAccent = isOffersCategory
-                        ? OFFERS_CATEGORY_ACCENT
-                        : getCategoryAccentColor(cat.label);
-                      const isHighlighted = isOffersCategory || isSelected;
-                      const chipColor = isOffersCategory
-                        ? isSelected
-                          ? darkenHexColor(baseAccent)
-                          : baseAccent
-                        : baseAccent;
-                      const chipTextColor = getOnAccentTextColor(chipColor);
-
-                      return (
-                    <Pressable
-                      key={cat.id}
-                      onPress={() =>
-                        setActiveCategory((prev) => (prev === cat.id ? ALL_CATEGORIES_ID : cat.id))
-                      }
-                      className="flex-row items-center rounded-full px-3 py-2"
-                      style={
-                        isHighlighted
-                          ? { backgroundColor: chipColor, borderColor: chipColor, borderWidth: 1 }
-                          : filterSurfaceStyle
-                      }
-                    >
-                      <Ionicons
-                        name={cat.icon}
-                        size={14}
-                        color={isHighlighted ? chipTextColor : FilterChipTheme.textMuted}
-                      />
-                      <Text
-                        className="ml-2 text-xs"
-                        style={{ color: isHighlighted ? chipTextColor : FilterChipTheme.textMuted }}
-                      >
-                        {cat.label}
-                      </Text>
-                    </Pressable>
-                      );
-                    })()
-                  ))}
-                </View>
-              </ScrollView>
-            </View>
-                  </Animated.View>
-                </View>
-              </>
-            );
-          })()}
+        <View style={{ height: heroBlockHeight, overflow: 'hidden', backgroundColor: homeHeaderPanelBg }}>
+          <HeroImageCarousel
+            slides={heroSlides}
+            panelBackgroundColor={homeHeaderPanelBg}
+            topInset={heroTopInset}
+          />
         </View>
+
+        <View style={{ height: searchHeaderHeight }} />
 
         <View className="mt-6 px-6">
           <SectionTitleRow
@@ -1618,6 +1513,107 @@ export default function HomeScreen() {
           <QuickFiltersRow />
         </View>
         </ScrollView>
+
+        <Animated.View
+          onLayout={(event) => {
+            const nextHeight = Math.ceil(event.nativeEvent.layout.height);
+            if (nextHeight > 0 && nextHeight !== searchHeaderHeight) {
+              setSearchHeaderHeight(nextHeight);
+            }
+          }}
+          style={{
+            position: 'absolute',
+            top: searchBarTop,
+            left: 0,
+            right: 0,
+            zIndex: 10,
+            paddingTop: 12,
+            paddingBottom: 10,
+            backgroundColor: homeHeaderPanelBg,
+            borderBottomLeftRadius: 24,
+            borderBottomRightRadius: 24,
+            borderLeftWidth: 1,
+            borderRightWidth: 1,
+            borderBottomWidth: 1,
+            borderColor: searchPanelBorderColor,
+          }}
+        >
+          <View className="px-6">
+            <View
+              className="flex-row items-center rounded-full px-4 py-2.5"
+              style={filterSurfaceStyle}
+            >
+              <Ionicons name="search" size={18} color={FilterChipTheme.textMuted} style={{ marginRight: 8 }} />
+              <TextInput
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Sök restauranger, events, upplevelser"
+                placeholderTextColor={FilterChipTheme.placeholder}
+                className="flex-1"
+                style={{ color: FilterChipTheme.text }}
+                returnKeyType="search"
+              />
+              {searchQuery.trim() ? (
+                <Pressable onPress={() => setSearchQuery('')} className="ml-2 rounded-full px-2 py-1">
+                  <Ionicons name="close-circle" size={18} color={FilterChipTheme.textMuted} />
+                </Pressable>
+              ) : null}
+              <Pressable className="ml-1 rounded-full p-1">
+                <Ionicons name="options-outline" size={18} color={FilterChipTheme.textMuted} />
+              </Pressable>
+            </View>
+          </View>
+
+          <View className="mt-4">
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 24 }}>
+              <View className="flex-row gap-2">
+                {quickCategories.map((cat) => (
+                  (() => {
+                    const isOffersCategory = cat.id === OFFERS_CATEGORY_ID;
+                    const isSelected = activeCategory === cat.id;
+                    const baseAccent = isOffersCategory
+                      ? OFFERS_CATEGORY_ACCENT
+                      : getCategoryAccentColor(cat.label);
+                    const isHighlighted = isOffersCategory || isSelected;
+                    const chipColor = isOffersCategory
+                      ? isSelected
+                        ? darkenHexColor(baseAccent)
+                        : baseAccent
+                      : baseAccent;
+                    const chipTextColor = getOnAccentTextColor(chipColor);
+
+                    return (
+                  <Pressable
+                    key={cat.id}
+                    onPress={() =>
+                      setActiveCategory((prev) => (prev === cat.id ? ALL_CATEGORIES_ID : cat.id))
+                    }
+                    className="flex-row items-center rounded-full px-3 py-2"
+                    style={
+                      isHighlighted
+                        ? { backgroundColor: chipColor, borderColor: chipColor, borderWidth: 1 }
+                        : filterSurfaceStyle
+                    }
+                  >
+                    <Ionicons
+                      name={cat.icon}
+                      size={14}
+                      color={isHighlighted ? chipTextColor : FilterChipTheme.textMuted}
+                    />
+                    <Text
+                      className="ml-2 text-xs"
+                      style={{ color: isHighlighted ? chipTextColor : FilterChipTheme.textMuted }}
+                    >
+                      {cat.label}
+                    </Text>
+                  </Pressable>
+                    );
+                  })()
+                ))}
+              </View>
+            </ScrollView>
+          </View>
+        </Animated.View>
       </View>
     </View>
   );
