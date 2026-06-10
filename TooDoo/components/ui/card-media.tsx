@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { ImageSourcePropType, StyleSheet, View } from 'react-native';
+import { ImageSourcePropType, Platform, StyleSheet, View } from 'react-native';
 import { Image as ExpoImage, type ImageContentFit } from 'expo-image';
 
 const PLACEHOLDER_BLURHASH = 'L6PZfSi_.AyE_3t7t7R**0o#DgR4';
@@ -60,10 +60,10 @@ function CardMediaComponent({
         contentFit={contentFit}
         style={styles.container}
         contentPosition="top center"
-        cachePolicy="memory-disk"
+        cachePolicy={Platform.OS === 'web' ? 'disk' : 'memory-disk'}
         priority={priority}
-        transition={isSvg ? 0 : 180}
-        placeholder={{ blurhash: PLACEHOLDER_BLURHASH }}
+        transition={Platform.OS === 'web' || isSvg ? 0 : 180}
+        placeholder={Platform.OS === 'web' ? undefined : { blurhash: PLACEHOLDER_BLURHASH }}
       />
     </View>
   );

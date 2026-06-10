@@ -7,4 +7,15 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-self.addEventListener('fetch', () => {});
+/* Passthrough only: never cache API or image responses (avoids stale/broken PWA loads). */
+self.addEventListener('fetch', (event) => {
+  if (
+    event.request.method !== 'GET' ||
+    event.request.url.includes('/orders') ||
+    event.request.url.includes('/business') ||
+    event.request.url.includes('railway.app') ||
+    event.request.url.includes('picsum.photos')
+  ) {
+    return;
+  }
+});

@@ -782,15 +782,15 @@ function isLikelyPicsumUrl(uri: string) {
 
 const heroSlides = [
   {
-    uri: 'https://images.unsplash.com/photo-1511895426328-dc8714191300?w=800&h=400&fit=crop',
+    source: require('../../assets/images/TooDoo.jpg'),
     title: 'Vad vill ni göra idag?',
   },
   {
-    uri: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&h=400&fit=crop',
+    source: require('../../assets/images/testbild.jpg'),
     title: 'Registrera dig idag och ta del av erbjudanden',
   },
   {
-    uri: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800&h=400&fit=crop',
+    source: require('../../assets/images/splash-icon.png'),
     title: 'Upptäck restauranger och upplevelser nära dig',
   },
 ];

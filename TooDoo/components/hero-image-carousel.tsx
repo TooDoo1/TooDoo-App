@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import {
+  ImageSourcePropType,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 
 export type HeroSlide = {
-  uri: string;
+  source: ImageSourcePropType;
   title: string;
 };
 
@@ -109,7 +118,7 @@ function HeroImageCarouselInner({
         horizontal
         nestedScrollEnabled
         pagingEnabled
-        removeClippedSubviews
+        removeClippedSubviews={Platform.OS !== 'web'}
         showsHorizontalScrollIndicator={false}
         decelerationRate="fast"
         snapToInterval={slideStride}
@@ -124,13 +133,13 @@ function HeroImageCarouselInner({
         onMomentumScrollEnd={(event) => handleScrollEnd(event.nativeEvent.contentOffset.x)}
       >
         {loopSlides.map((slide, idx) => (
-          <View key={`hero-${idx}-${slide.uri}`} style={{ width: slideStride, height: shellHeight }}>
+          <View key={`hero-${idx}-${slide.title}`} style={{ width: slideStride, height: shellHeight }}>
             <Image
-              source={{ uri: slide.uri }}
+              source={slide.source}
               style={styles.coverImage}
               contentFit="cover"
-              cachePolicy="memory-disk"
-              recyclingKey={`${idx}-${slide.uri}`}
+              cachePolicy={Platform.OS === 'web' ? 'disk' : 'memory-disk'}
+              recyclingKey={`hero-${idx}-${slide.title}`}
             />
             <LinearGradient
               colors={['rgba(0,0,0,0.2)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.7)']}
