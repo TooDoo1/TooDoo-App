@@ -40,7 +40,14 @@
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon.png",
+      "name": "TooDoo",
+      "shortName": "TooDoo",
+      "description": "Upptäck restauranger, events och erbjudanden nära dig.",
+      "themeColor": "#0e1325",
+      "backgroundColor": "#0e1325",
+      "display": "standalone",
+      "orientation": "portrait"
     },
     "plugins": [
       "expo-router",
