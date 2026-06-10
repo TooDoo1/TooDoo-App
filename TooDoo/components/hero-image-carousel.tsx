@@ -18,6 +18,7 @@ export type { HeroSlide };
 
 const HERO_HEIGHT = 210;
 const HERO_AUTO_MS = 3000;
+const HERO_SCROLL_ANIM_MS = 450;
 
 function buildLoopSlides(slides: HeroSlide[]): HeroSlide[] {
   if (slides.length <= 1) return slides;
@@ -102,31 +103,50 @@ function HeroImageCarouselInner({
     });
   }, [loopStartIndex, slideCount, slideStride]);
 
+  const snapCloneIfNeeded = useCallback(
+    (loopIndex: number): number => {
+      if (slideCount <= 1 || slideStride <= 0) return loopIndex;
+
+      if (loopIndex <= 0) {
+        const snapped = slideCount;
+        scrollRef.current?.scrollTo({ x: snapped * slideStride, animated: false });
+        return snapped;
+      }
+
+      if (loopIndex >= slideCount + 1) {
+        const snapped = 1;
+        scrollRef.current?.scrollTo({ x: snapped * slideStride, animated: false });
+        return snapped;
+      }
+
+      return loopIndex;
+    },
+    [slideCount, slideStride]
+  );
+
+  const settleLoopIndex = useCallback(
+    (loopIndex: number) => {
+      const snapped = snapCloneIfNeeded(loopIndex);
+      currentLoopIndexRef.current = snapped;
+      setActiveDot(loopIndexToLogical(snapped, slideCount));
+      return snapped;
+    },
+    [slideCount, snapCloneIfNeeded]
+  );
+
   const handleScrollEnd = useCallback(
     (offsetX: number) => {
       isInteractingRef.current = false;
       if (slideStride <= 0 || slideCount === 0) return;
 
-      let loopIndex = Math.round(offsetX / slideStride);
-
-      if (slideCount > 1) {
-        if (loopIndex <= 0) {
-          loopIndex = slideCount;
-          scrollRef.current?.scrollTo({ x: loopIndex * slideStride, animated: false });
-        } else if (loopIndex >= slideCount + 1) {
-          loopIndex = 1;
-          scrollRef.current?.scrollTo({ x: loopIndex * slideStride, animated: false });
-        }
-      }
-
-      currentLoopIndexRef.current = loopIndex;
-      setActiveDot(loopIndexToLogical(loopIndex, slideCount));
+      const loopIndex = Math.round(offsetX / slideStride);
+      settleLoopIndex(loopIndex);
     },
-    [slideCount, slideStride]
+    [slideCount, slideStride, settleLoopIndex]
   );
 
   useEffect(() => {
-    if (slideCount === 0 || slideStride <= 0) return;
+    if (slideCount <= 1 || slideStride <= 0) return;
 
     const timer = setInterval(() => {
       if (isInteractingRef.current) return;
@@ -134,10 +154,16 @@ function HeroImageCarouselInner({
       const nextLoopIndex = currentLoopIndexRef.current + 1;
       currentLoopIndexRef.current = nextLoopIndex;
       scrollRef.current?.scrollTo({ x: nextLoopIndex * slideStride, animated: true });
+      setActiveDot(loopIndexToLogical(nextLoopIndex, slideCount));
+
+      // Programmatic scrolls don't always fire onMomentumScrollEnd (especially on web).
+      setTimeout(() => {
+        settleLoopIndex(currentLoopIndexRef.current);
+      }, HERO_SCROLL_ANIM_MS);
     }, HERO_AUTO_MS);
 
     return () => clearInterval(timer);
-  }, [slideCount, slideStride]);
+  }, [slideCount, slideStride, settleLoopIndex]);
 
   const scrollToLogicalIndex = (logicalIndex: number) => {
     if (slideCount === 0 || slideStride <= 0) return;
