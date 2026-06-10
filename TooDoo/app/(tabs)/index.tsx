@@ -20,6 +20,7 @@ import { useAuth } from '@/context/auth-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { HeroImageCarousel, HERO_HEIGHT } from '@/components/hero-image-carousel';
+import { heroSlides } from '@/lib/hero-slides';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { BrandColors, brandInkRgba, FilterChipTheme } from '@/lib/brand-colors';
 import { uiTheme } from '@/lib/ui-theme';
@@ -780,21 +781,6 @@ function isLikelyPicsumUrl(uri: string) {
   return uri.includes('picsum.photos/');
 }
 
-const heroSlides = [
-  {
-    source: require('../../assets/images/TooDoo.jpg'),
-    title: 'Vad vill ni göra idag?',
-  },
-  {
-    source: require('../../assets/images/testbild.jpg'),
-    title: 'Registrera dig idag och ta del av erbjudanden',
-  },
-  {
-    source: require('../../assets/images/splash-icon.png'),
-    title: 'Upptäck restauranger och upplevelser nära dig',
-  },
-];
-
 export default function HomeScreen() {
   const [activeCategory, setActiveCategory] = useState<string>(ALL_CATEGORIES_ID);
   const [categoryFilters, setCategoryFilters] = useState<FilterCategory[]>([]);
@@ -1453,14 +1439,9 @@ export default function HomeScreen() {
         >
         <View style={{ backgroundColor: homeHeaderPanelBg }}>
           {(() => {
-            const collapse = scrollY.interpolate({
+            const heroHeight = scrollY.interpolate({
               inputRange: [0, 120],
-              outputRange: [1, 0],
-              extrapolate: 'clamp',
-            });
-            const heroHeight = collapse.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0, HERO_HEIGHT + insets.top],
+              outputRange: [HERO_HEIGHT + insets.top, 0],
               extrapolate: 'clamp',
             });
             const headerTopPadding = scrollY.interpolate({
@@ -1471,7 +1452,7 @@ export default function HomeScreen() {
 
             return (
               <>
-                <Animated.View style={{ height: heroHeight, opacity: collapse, overflow: 'hidden' }}>
+                <Animated.View style={{ height: heroHeight, overflow: 'hidden' }}>
                   <HeroImageCarousel
                     slides={heroSlides}
                     panelBackgroundColor={homeHeaderPanelBg}

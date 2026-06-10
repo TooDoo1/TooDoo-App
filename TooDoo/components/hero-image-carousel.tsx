@@ -9,13 +9,12 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { Image } from 'expo-image';
+import { Image as ExpoImage } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 
-export type HeroSlide = {
-  source: ImageSourcePropType;
-  title: string;
-};
+import { resolveHeroImageUri, type HeroSlide } from '@/lib/hero-slides';
+
+export type { HeroSlide };
 
 const HERO_HEIGHT = 210;
 const HERO_AUTO_MS = 3000;
@@ -30,6 +29,46 @@ function loopIndexToLogical(loopIndex: number, slideCount: number): number {
   if (loopIndex === 0) return slideCount - 1;
   if (loopIndex === slideCount + 1) return 0;
   return loopIndex - 1;
+}
+
+function HeroSlideImage({
+  source,
+  width,
+  height,
+}: {
+  source: ImageSourcePropType;
+  width: number;
+  height: number;
+}) {
+  const uri = resolveHeroImageUri(source);
+
+  if (Platform.OS === 'web' && uri) {
+    return (
+      <img
+        src={uri}
+        alt=""
+        draggable={false}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width,
+          height,
+          objectFit: 'cover',
+          display: 'block',
+        }}
+      />
+    );
+  }
+
+  return (
+    <ExpoImage
+      source={source}
+      style={{ width, height }}
+      contentFit="cover"
+      cachePolicy="memory-disk"
+    />
+  );
 }
 
 function HeroImageCarouselInner({
@@ -109,7 +148,7 @@ function HeroImageCarouselInner({
     scrollRef.current?.scrollTo({ x: targetLoopIndex * slideStride, animated: true });
   };
 
-  if (slideCount === 0) return null;
+  if (slideCount === 0 || slideStride <= 0) return null;
 
   return (
     <View style={[styles.shell, { height: shellHeight }]}>
@@ -133,14 +172,11 @@ function HeroImageCarouselInner({
         onMomentumScrollEnd={(event) => handleScrollEnd(event.nativeEvent.contentOffset.x)}
       >
         {loopSlides.map((slide, idx) => (
-          <View key={`hero-${idx}-${slide.title}`} style={{ width: slideStride, height: shellHeight }}>
-            <Image
-              source={slide.source}
-              style={styles.coverImage}
-              contentFit="cover"
-              cachePolicy={Platform.OS === 'web' ? 'disk' : 'memory-disk'}
-              recyclingKey={`hero-${idx}-${slide.title}`}
-            />
+          <View
+            key={`hero-${idx}-${slide.title}`}
+            style={{ width: slideStride, height: shellHeight, position: 'relative', overflow: 'hidden' }}
+          >
+            <HeroSlideImage source={slide.source} width={slideStride} height={shellHeight} />
             <LinearGradient
               colors={['rgba(0,0,0,0.2)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.7)']}
               locations={[0, 0.45, 1]}
@@ -183,11 +219,6 @@ const styles = StyleSheet.create({
   shell: {
     overflow: 'hidden',
   },
-  coverImage: {
-    ...StyleSheet.absoluteFillObject,
-    width: '100%',
-    height: '100%',
-  },
   titleWrap: {
     position: 'absolute',
     left: 24,
@@ -195,6 +226,7 @@ const styles = StyleSheet.create({
     bottom: 28,
     alignItems: 'center',
     justifyContent: 'flex-end',
+    zIndex: 2,
   },
   titleText: {
     color: '#ffffff',
@@ -212,6 +244,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     height: 52,
+    zIndex: 1,
   },
   dotsOverlay: {
     position: 'absolute',
@@ -222,7 +255,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     gap: 6,
-    zIndex: 2,
+    zIndex: 3,
   },
   dot: {
     width: 8,
