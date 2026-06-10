@@ -2,6 +2,7 @@ import type { ImageSourcePropType } from 'react-native';
 
 import { apiUrl, normalizeImageUrl } from '@/lib/api';
 import { getCategoryAccentForItem } from '@/lib/category-colors';
+import { isWithinOrderPublishWindow } from '@/lib/order-claim-window';
 
 export type OfferCardItem = {
   id: string;
@@ -72,11 +73,7 @@ export function isActiveOffer(order: any, nowMs: number = Date.now()): boolean {
     return false;
   }
 
-  const toMs = order?.orderTimeTo ? new Date(order.orderTimeTo).getTime() : NaN;
-  if (Number.isFinite(toMs) && toMs < nowMs) return false;
-
-  const fromMs = order?.orderTimeFrom ? new Date(order.orderTimeFrom).getTime() : NaN;
-  if (Number.isFinite(fromMs) && fromMs > nowMs) return false;
+  if (!isWithinOrderPublishWindow(order, nowMs)) return false;
 
   const max = Number(order?.maxRedemptions);
   const claimed = Number(order?.claimedRedemptions ?? order?.claimedCount);
@@ -180,7 +177,7 @@ function mapApiOrderToCardItem(order: any, index: number): OfferCardItem {
     erbjudande: [order?.title ?? 'Erbjudande'],
     erbjudandeclaimade: [String(order?.claimedRedemptions ?? order?.claimedCount ?? 0)],
     erbjudandemängd: [String(order?.maxRedemptions ?? 0)],
-    erbjudandelängd: [order?.orderTimeTo ?? order?.validTo ?? ''],
+    erbjudandelängd: [order?.orderTimeTo ?? ''],
   };
 }
 
@@ -322,7 +319,7 @@ function buildBusinessCards(
       String(order.claimedRedemptions ?? order.claimedCount ?? 0)
     );
     const offerAmount = visibleOrders.map((order) => String(order.maxRedemptions ?? 0));
-    const offerEnd = visibleOrders.map((order) => order.orderTimeTo ?? order.validTo ?? '');
+    const offerEnd = visibleOrders.map((order) => order.orderTimeTo ?? '');
 
     const normalizedImageUri = normalizeImageUrl(business.imageUrl);
 
@@ -390,6 +387,25 @@ export async function fetchOfferListCards(
 ): Promise<OfferCardItem[]> {
   const limit = options.limit ?? 50;
   const { token, coords } = options;
+  const nowMs = Date.now();
+
+  if (token) {
+    const authHeaders = { Authorization: `Bearer ${token}` };
+    const endpoint =
+      mode === 'hot'
+        ? `/orders/for-you/hot?take=${limit}`
+        : coords
+          ? `/orders/for-you/close?take=${limit}&lat=${coords.lat}&lng=${coords.lng}`
+          : `/orders/for-you/close?take=${limit}`;
+    const res = await fetch(apiUrl(endpoint), { headers: authHeaders });
+    const json = res.ok ? await res.json().catch(() => ({})) : {};
+    const fromApi = parseOrdersPayload(json)
+      .filter((order) => isActiveOffer(order, nowMs))
+      .map(mapApiOrderToCardItem);
+    if (fromApi.length > 0) {
+      return fromApi.slice(0, limit);
+    }
+  }
 
   const [businessRes, ordersRes] = await Promise.all([
     fetch(apiUrl('/business?status=APPROVED')),
@@ -422,32 +438,10 @@ export async function fetchOfferListCards(
   const ordersFromBusinessList = businessesRaw.flatMap(parseOrdersFromBusinessRecord);
   let allOrdersRaw = mergeOrdersById(ordersRaw, ordersFromBusinessList);
   if (!token) {
-    const fromBusinessDetails = await fetchOrdersFromBusinessDetails(approvedBusinesses);
+    const fromBusinessDetails = await fetchOrdersFromBusinessDetails(approvedBusinesses, 12);
     allOrdersRaw = mergeOrdersById(allOrdersRaw, fromBusinessDetails);
   } else if (allOrdersRaw.length === 0) {
-    allOrdersRaw = await fetchOrdersFromBusinessDetails(approvedBusinesses.slice(0, 16));
-  }
-
-  const nowMs = Date.now();
-  let fromApi: OfferCardItem[] = [];
-
-  if (token) {
-    const authHeaders = { Authorization: `Bearer ${token}` };
-    const endpoint =
-      mode === 'hot'
-        ? `/orders/for-you/hot?take=${limit}`
-        : coords
-          ? `/orders/for-you/close?take=${limit}&lat=${coords.lat}&lng=${coords.lng}`
-          : `/orders/for-you/close?take=${limit}`;
-    const res = await fetch(apiUrl(endpoint), { headers: authHeaders });
-    const json = res.ok ? await res.json().catch(() => ({})) : {};
-    fromApi = parseOrdersPayload(json)
-      .filter((order) => isActiveOffer(order, nowMs))
-      .map(mapApiOrderToCardItem);
-  }
-
-  if (fromApi.length > 0) {
-    return fromApi.slice(0, limit);
+    allOrdersRaw = await fetchOrdersFromBusinessDetails(approvedBusinesses.slice(0, 12));
   }
 
   const ordersByBusinessId = new Map<string, any[]>();

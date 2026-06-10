@@ -170,7 +170,7 @@ export default function LoadingSplash({ isExiting = false }: { isExiting?: boole
 const styles = StyleSheet.create({
 	container: {
 		flex: 1,
-		backgroundColor: '#000b2a',
+		backgroundColor: '#0e1325',
 		justifyContent: 'center',
 		alignItems: 'center',
 		overflow: 'visible',

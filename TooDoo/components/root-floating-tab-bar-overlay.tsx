@@ -12,6 +12,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { LiquidGlassTabBarBackground } from '@/components/ui/liquid-glass-tab-bar-background';
+import { brandInkRgba, brandNavyRgba } from '@/lib/brand-colors';
 import {
   getTabBarBottomOffset,
   getTabBarLeft,
@@ -110,8 +111,8 @@ function RootFloatingTabBarOverlayContent({
         <LinearGradient
           colors={
             isDark
-              ? ['rgba(0, 11, 42, 0)', 'rgba(0, 11, 42, 0.72)', 'rgba(0, 11, 42, 0.96)']
-              : ['rgba(0, 11, 42, 0)', 'rgba(0, 11, 42, 0.14)', 'rgba(0, 11, 42, 0.28)']
+              ? [brandNavyRgba(0), brandNavyRgba(0.72), brandNavyRgba(0.96)]
+              : [brandInkRgba(0), brandInkRgba(0.14), brandInkRgba(0.28)]
           }
           locations={[0, 0.45, 1]}
           start={{ x: 0.5, y: 0 }}

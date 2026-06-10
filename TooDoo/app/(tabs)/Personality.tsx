@@ -14,6 +14,7 @@ import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/d
 import { apiUrl } from "@/lib/api";
 import { hasForegroundLocationPermission, resolveUserCityFromDevice } from "@/lib/geo";
 import { useThemePreference } from "@/context/theme-preference-context";
+import { BrandColors } from "@/lib/brand-colors";
 import { uiTheme } from "@/lib/ui-theme";
 
 export default function PersonalityScreen() {
@@ -322,7 +323,7 @@ export default function PersonalityScreen() {
                       key={option.value}
                       className="mb-3 w-[48%] rounded-2xl border px-4 py-3"
                       style={{
-                        backgroundColor: isSelected ? accentColor : '#061A47',
+                        backgroundColor: isSelected ? accentColor : BrandColors.dark.secondary,
                         borderColor: isSelected ? accentColor : '#ffffff',
                       }}
                       onPress={() => setSelectedGender(option.value)}
@@ -371,7 +372,7 @@ export default function PersonalityScreen() {
                     key={option.id ?? option.name}
                       className="rounded-2xl border px-5 py-3"
                       style={{
-                        backgroundColor: isSelected ? accentColor : '#061A47',
+                        backgroundColor: isSelected ? accentColor : BrandColors.dark.secondary,
                         borderColor: isSelected ? accentColor : '#ffffff',
                       }}
                       onPress={() => {

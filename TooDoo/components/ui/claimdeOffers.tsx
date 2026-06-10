@@ -239,7 +239,7 @@ export default function ClaimedOffers({ items, scrollEnabled = true }: Props) {
 									<View className="mt-3 flex-row items-center gap-2">
 										<Text style={{ color: theme.text }}>{item.priceText ?? '-'}</Text>
 										{item.originalPriceText ? (
-											<Text style={{ color: '#8cc7ff' }} className="line-through">
+											<Text style={{ color: '#6c9ef5' }} className="line-through">
 												{item.originalPriceText}
 											</Text>
 										) : null}
@@ -330,7 +330,7 @@ export default function ClaimedOffers({ items, scrollEnabled = true }: Props) {
 									<View className="mt-3 flex-row items-center gap-2">
 										<Text style={{ color: theme.text }}>{item.priceText ?? '-'}</Text>
 										{item.originalPriceText ? (
-											<Text style={{ color: '#8cc7ff' }} className="line-through">
+											<Text style={{ color: '#6c9ef5' }} className="line-through">
 												{item.originalPriceText}
 											</Text>
 										) : null}

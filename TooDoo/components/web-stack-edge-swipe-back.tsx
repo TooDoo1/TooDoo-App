@@ -12,6 +12,7 @@ import { DETAIL_SCREEN_MOTION_EASING, DETAIL_SCREEN_MOTION_MS } from '@/lib/deta
 import { performWebStackBack } from '@/lib/web-stack-navigation';
 import {
   FULL_SCREEN_STACK_SEGMENTS,
+  shouldRevealTabBarOnStackSwipeBack,
   SWIPE_BACK_EDGE_FRACTION,
 } from '@/lib/stack-navigation';
 
@@ -33,6 +34,8 @@ export function WebStackEdgeSwipeBack() {
   const { translateX } = useWebStackSwipe();
 
   const isOnStackScreen = segments.some(isFullScreenStackSegment);
+  const topSegment = segments[segments.length - 1];
+  const revealTabBarOnBack = shouldRevealTabBarOnStackSwipeBack(topSegment, params.returnTo);
 
   const performBack = useCallback(() => {
     const topSegment = segments[segments.length - 1];
@@ -54,14 +57,15 @@ export function WebStackEdgeSwipeBack() {
     let startX = 0;
     let startY = 0;
 
-    const resetGesture = (revealTabBar: boolean) => {
+    const resetGesture = (cancelled: boolean) => {
       tracking = false;
       decided = false;
       translateX.value = withTiming(0, {
         duration: DETAIL_SCREEN_MOTION_MS,
         easing: DETAIL_SCREEN_MOTION_EASING,
       });
-      stackHideProgress.value = withTiming(revealTabBar ? 1 : 0, {
+      const hideProgress = cancelled || !revealTabBarOnBack ? 1 : 0;
+      stackHideProgress.value = withTiming(hideProgress, {
         duration: DETAIL_SCREEN_MOTION_MS,
         easing: DETAIL_SCREEN_MOTION_EASING,
       });
@@ -71,7 +75,7 @@ export function WebStackEdgeSwipeBack() {
       tracking = false;
       decided = false;
       translateX.value = withTiming(windowWidth, { duration: 180, easing: DETAIL_SCREEN_MOTION_EASING });
-      stackHideProgress.value = withTiming(0, {
+      stackHideProgress.value = withTiming(revealTabBarOnBack ? 0 : 1, {
         duration: 180,
         easing: DETAIL_SCREEN_MOTION_EASING,
       });
@@ -108,7 +112,11 @@ export function WebStackEdgeSwipeBack() {
       event.preventDefault();
       const clampedX = Math.max(0, Math.min(deltaX, windowWidth));
       translateX.value = clampedX;
-      stackHideProgress.value = 1 - Math.min(clampedX / (windowWidth * SWIPE_PREVIEW_FRACTION), 1);
+      if (revealTabBarOnBack) {
+        stackHideProgress.value = 1 - Math.min(clampedX / (windowWidth * SWIPE_PREVIEW_FRACTION), 1);
+      } else {
+        stackHideProgress.value = 1;
+      }
     };
 
     const onPointerEnd = (event: PointerEvent) => {
@@ -140,6 +148,7 @@ export function WebStackEdgeSwipeBack() {
   }, [
     isOnStackScreen,
     performBack,
+    revealTabBarOnBack,
     stackHideProgress,
     translateX,
     windowWidth,

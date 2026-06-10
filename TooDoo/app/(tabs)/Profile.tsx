@@ -3,6 +3,7 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, Switch, Text, TextInpu
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/auth-context';
 import { useThemePreference } from '@/context/theme-preference-context';
+import { BrandColors } from '@/lib/brand-colors';
 import { uiTheme } from '@/lib/ui-theme';
 
 type UserProfile = {
@@ -132,7 +133,7 @@ export default function ProfileScreen() {
 
 				{isLoading ? (
 					<View className="mt-8 items-center">
-						<ActivityIndicator color={theme.isDark ? '#ffffff' : '#000b2a'} />
+						<ActivityIndicator color={theme.isDark ? '#ffffff' : BrandColors.light.foreground} />
 						<Text className="mt-3" style={{ color: theme.textMuted }}>Laddar profil...</Text>
 					</View>
 				) : (

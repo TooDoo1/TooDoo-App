@@ -2,9 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
-  Platform,
-  Dimensions,
-  Image,
   ImageSourcePropType,
   RefreshControl,
   Pressable,
@@ -12,21 +9,19 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  UIManager,
   View,
 } from 'react-native';
-import { Easing } from 'react-native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useRouter } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppReady } from '@/context/app-ready-context';
 import { apiUrl } from '@/lib/api';
 import { useAuth } from '@/context/auth-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { StarrySkyScreenBackground } from '@/components/ui/starry-background';
+import { HeroImageCarousel, HERO_HEIGHT } from '@/components/hero-image-carousel';
 import { useThemePreference } from '@/context/theme-preference-context';
+import { BrandColors, brandInkRgba, FilterChipTheme } from '@/lib/brand-colors';
 import { uiTheme } from '@/lib/ui-theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CardMedia } from '@/components/ui/card-media';
@@ -40,14 +35,24 @@ import {
   SLUTAR_SNART_PATH,
 } from '@/lib/stack-navigation';
 import { FAVORITE_HEART_COLOR } from '@/lib/tab-colors';
-import { getCategoryAccentColor, getCategoryIconName } from '@/lib/category-colors';
-import { computeDiscountLabel, getDiscountBadgeColor } from '@/lib/home-offers';
+import {
+  darkenHexColor,
+  getCategoryAccentColor,
+  getCategoryIconName,
+  getOnAccentTextColor,
+  OFFERS_CATEGORY_ACCENT,
+} from '@/lib/category-colors';
+import { computeDiscountLabel, getDiscountBadgeColor, type OfferCardItem } from '@/lib/home-offers';
+import {
+  setHomeEndingSoonCache,
+  setHomeHotOffersCache,
+  setHomeNearbyBusinessesCache,
+} from '@/lib/home-list-cache';
 
 const IMAGE_HYDRATE_CONCURRENCY = 5;
 
 const ALL_CATEGORIES_ID = 'all';
 const OFFERS_CATEGORY_ID = 'offers';
-const FEATURED_REPEAT_COUNT = 600;
 
 type CardItem = {
   id: string;
@@ -71,13 +76,6 @@ type CardItem = {
   erbjudandemängd?: number | string[];
   erbjudandelängd?: string | string[];
   distanceKm?: number;
-};
-
-type SectionItem = {
-  id: string;
-  categoryId: string;
-  title: string;
-  cards: CardItem[];
 };
 
 type FilterCategory = {
@@ -409,49 +407,8 @@ function mapApiOrderToCardItem(order: any, index: number): CardItem {
     erbjudande: [order?.title ?? 'Erbjudande'],
     erbjudandeclaimade: [String(order?.claimedRedemptions ?? order?.claimedCount ?? 0)],
     erbjudandemängd: [String(order?.maxRedemptions ?? 0)],
-    erbjudandelängd: [order?.orderTimeTo ?? order?.validTo ?? ''],
+    erbjudandelängd: [order?.orderTimeTo ?? ''],
   };
-}
-
-function SectionHeader({ title }: { title: string }) {
-  const { mode } = useThemePreference();
-  const theme = uiTheme(mode);
-
-  return (
-    <View className="mb-3 flex-row items-center justify-between">
-      <Text className="text-lg font-semibold" style={{ color: theme.text }}>{title}</Text>
-      <Pressable>
-        <Text style={{ color: theme.textMuted }}>Visa alla</Text>
-      </Pressable>
-    </View>
-  );
-}
-
-function PromoCarousel({ images, activeIndex, theme }: { images: string[]; activeIndex: number; theme: ReturnType<typeof uiTheme> }) {
-  const image = images[activeIndex % images.length];
-
-  return (
-    <View>
-      <View className="overflow-hidden rounded-2xl" style={{ backgroundColor: theme.cardBg }}>
-        <View className="relative h-36 w-full">
-          <Image source={{ uri: image }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-          <View className="absolute inset-0 bg-black/30" />
-          <View className="absolute left-4 top-4">
-            <Text className="text-2xl font-semibold" style={{ color: '#ffffff' }}>Sommarens</Text>
-            <Text className="text-2xl font-semibold" style={{ color: '#ffffff' }}>deals</Text>
-            <View className="mt-2 self-start rounded-full bg-[#ff3b30] px-3 py-1">
-              <Text className="text-xs font-semibold text-white">-50%</Text>
-            </View>
-          </View>
-        </View>
-      </View>
-      <View style={styles.dotsRow}>
-        {images.map((_, idx) => (
-          <View key={`promo-dot-${idx}`} style={idx === activeIndex ? styles.dotActive : styles.dot} />
-        ))}
-      </View>
-    </View>
-  );
 }
 
 function ForYouOrderCarousel({
@@ -483,7 +440,12 @@ function ForYouOrderCarousel({
   }
 
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 2 }}>
+    <ScrollView
+      horizontal
+      removeClippedSubviews
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ paddingHorizontal: 2 }}
+    >
       <View className="flex-row gap-3 pb-2">
         {items.map((card, idx) => (
           <Pressable
@@ -713,10 +675,10 @@ function EndingSoonPortraitRow({
                   minWidth: 36,
                 }}
               >
-                <Text style={{ fontSize: 14, fontWeight: '700', color: '#0b1a45', lineHeight: 16 }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: BrandColors.dark.secondary, lineHeight: 16 }}>
                   {date.day}
                 </Text>
-                <Text style={{ fontSize: 9, fontWeight: '700', color: '#0b1a45', lineHeight: 11 }}>
+                <Text style={{ fontSize: 9, fontWeight: '700', color: BrandColors.dark.secondary, lineHeight: 11 }}>
                   {date.month}
                 </Text>
               </View>
@@ -787,6 +749,7 @@ function SectionTitleRow({
 function QuickFiltersRow() {
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
+  const filterSurfaceStyle = FilterChipTheme.surface;
 
   const filters = [
     { id: 'tonight', label: 'Ikväll', icon: 'time-outline' as const },
@@ -802,10 +765,10 @@ function QuickFiltersRow() {
           <View
             key={filter.id}
             className="flex-row items-center rounded-full px-3 py-2"
-            style={{ backgroundColor: theme.cardBg, borderWidth: 1, borderColor: theme.border }}
+            style={filterSurfaceStyle}
           >
-            <Ionicons name={filter.icon} size={14} color={theme.textMuted} />
-            <Text className="ml-2 text-xs" style={{ color: theme.textMuted }}>{filter.label}</Text>
+            <Ionicons name={filter.icon} size={14} color={FilterChipTheme.textMuted} />
+            <Text className="ml-2 text-xs" style={{ color: FilterChipTheme.textMuted }}>{filter.label}</Text>
           </View>
         ))}
       </View>
@@ -817,245 +780,49 @@ function isLikelyPicsumUrl(uri: string) {
   return uri.includes('picsum.photos/');
 }
 
-const sliderImages = [
-  'https://picsum.photos/id/1011/800/400',
-  'https://picsum.photos/id/1015/800/400',
-  'https://picsum.photos/id/1016/800/400',
+const heroSlides = [
+  {
+    uri: 'https://images.unsplash.com/photo-1511895426328-dc8714191300?w=800&h=400&fit=crop',
+    title: 'Vad vill ni göra idag?',
+  },
+  {
+    uri: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&h=400&fit=crop',
+    title: 'Registrera dig idag och ta del av erbjudanden',
+  },
+  {
+    uri: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800&h=400&fit=crop',
+    title: 'Upptäck restauranger och upplevelser nära dig',
+  },
 ];
-const appLogo = require('../../assets/images/BgLogo.png');
 
 export default function HomeScreen() {
-  const [sliderIndex, setSliderIndex] = useState(0);
   const [activeCategory, setActiveCategory] = useState<string>(ALL_CATEGORIES_ID);
   const [categoryFilters, setCategoryFilters] = useState<FilterCategory[]>([]);
   const [deals, setDeals] = useState<CardItem[]>([]);
   const [nearYouCards, setNearYouCards] = useState<CardItem[]>([]);
   const [hotOfferCards, setHotOfferCards] = useState<CardItem[]>([]);
-  const [featuredBusinesses, setFeaturedBusinesses] = useState<CardItem[]>([]);
-  const [sections, setSections] = useState<SectionItem[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
-  const [firstName, setFirstName] = useState<string | null>(null);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [expandedSection, setExpandedSection] = useState<'nearby' | 'hot' | 'endingSoon' | null>(null);
-  const nearbyAnim = useRef(new Animated.Value(0)).current;
-  const hotAnim = useRef(new Animated.Value(0)).current;
-  const endingSoonAnim = useRef(new Animated.Value(0)).current;
-  const tooDooLetters = ['T', 'o', 'o', 'D', 'o', 'o'] as const;
-  const tooDooColors = ['#ff4d6d', '#ff7a00', '#ffd60a', '#00d4ff', '#3a86ff', '#9b5de5'] as const;
-  const tooDooBounceValues = useRef(tooDooLetters.map(() => new Animated.Value(0))).current;
-  const didScrollAfterExpandRef = useRef(false);
-  const didOpenCardRef = useRef(false);
   const tabBarHeight = useBottomTabBarHeight();
   const insets = useSafeAreaInsets();
   const scrollY = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollView>(null);
-  const featuredScrollRef = useRef<any>(null);
-  const featuredScrollX = useRef(new Animated.Value(0)).current;
-  const [activeFeaturedDot, setActiveFeaturedDot] = useState(0);
-  const activeFeaturedDotRef = useRef(0);
-  const isInteracting = useRef(false);
-  const lastInteractionTime = useRef(Date.now());
-  const currentFeaturedIndex = useRef(0);
   const router = useRouter();
   const { markDataReady } = useAppReady();
   const { token } = useAuth();
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
-  const { width: screenWidth } = Dimensions.get('window');
-  // Decreased card width ratio to make side cards visibly occupy more space on screen
-  const featuredCardWidth = Math.min(screenWidth * 0.68, 300);
-  const featuredCardSpacing = 8;
-  const featuredSnapInterval = featuredCardWidth + featuredCardSpacing;
-  const featuredSidePadding = Math.max((screenWidth - featuredSnapInterval) / 2, 0);
-
-  // Start the sticky transition only once the top "Hej" header is beginning to scroll away.
-  // This avoids adding safe-area spacing too early (which looks like a big gap).
-  const stickyStartY = Math.max(0, insets.top + 56);
-  const stickyEndY = stickyStartY + 18;
-
-  const stickyBgOpacity = scrollY.interpolate({
-    inputRange: [stickyStartY, stickyEndY],
-    outputRange: [0, 1],
-    extrapolate: 'clamp',
-  });
-
+  const homePageBg = theme.cardBg;
+  const homeHeaderPanelBg = theme.screenBg;
+  const filterSurfaceStyle = FilterChipTheme.surface;
 
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
     setRefreshNonce((prev) => prev + 1);
   }, []);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setSliderIndex((prev) => (prev + 1) % sliderImages.length);
-    }, 4000);
-
-    return () => clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    if (Platform.OS === 'android') {
-      UIManager.setLayoutAnimationEnabledExperimental?.(true);
-    }
-  }, []);
-
-
-  useEffect(() => {
-    const run = (value: Animated.Value, toValue: number) => {
-      Animated.timing(value, {
-        toValue,
-        duration: 650,
-        easing: Easing.inOut(Easing.cubic),
-        useNativeDriver: false,
-      }).start();
-    };
-
-    run(nearbyAnim, expandedSection === 'nearby' ? 1 : 0);
-    run(hotAnim, expandedSection === 'hot' ? 1 : 0);
-    run(endingSoonAnim, expandedSection === 'endingSoon' ? 1 : 0);
-  }, [expandedSection, nearbyAnim, hotAnim, endingSoonAnim]);
-
-  useEffect(() => {
-    if (!expandedSection) {
-      return;
-    }
-
-    didScrollAfterExpandRef.current = false;
-    didOpenCardRef.current = false;
-    const current = expandedSection;
-    const timer = setTimeout(() => {
-      if (expandedSection === current && !didScrollAfterExpandRef.current && !didOpenCardRef.current) {
-        setExpandedSection(null);
-      }
-    }, 3000);
-
-    return () => clearTimeout(timer);
-  }, [expandedSection]);
-
-  useFocusEffect(
-    useCallback(() => {
-      // Reset "opened card" tracking when returning to this screen.
-      didOpenCardRef.current = false;
-      // Play the same "bounce letters" feel as the login screen.
-      tooDooBounceValues.forEach((value) => value.setValue(0));
-      const bounceOneLetter = Animated.stagger(
-        80,
-        tooDooBounceValues.map((value) =>
-          Animated.sequence([
-            Animated.timing(value, { toValue: -10, duration: 140, useNativeDriver: true }),
-            Animated.timing(value, { toValue: 0, duration: 140, useNativeDriver: true }),
-          ])
-        )
-      );
-      bounceOneLetter.start();
-      return () => {};
-    }, [tooDooBounceValues])
-  );
-
-  const markExpandedSectionScrolled = () => {
-    didScrollAfterExpandRef.current = true;
-  };
-
-  const repeatedFeaturedBusinesses = useMemo(() => {
-    if (featuredBusinesses.length === 0) return [];
-    // Repeat the featured businesses many times to create a seamless infinite loop
-    return Array(FEATURED_REPEAT_COUNT).fill(featuredBusinesses).flat();
-  }, [featuredBusinesses]);
-
-  // Start perfectly in the middle of our massive array so users can comfortably manual-scroll left or right
-  const INITIAL_INDEX =
-    featuredBusinesses.length > 0 ? featuredBusinesses.length * Math.floor(FEATURED_REPEAT_COUNT / 2) : 0;
-
-  const FEATURED_RECENTER_BUFFER = 10;
-
-  const recenterFeaturedIndexIfNeeded = useCallback(
-    (
-      rawIndex: number,
-      opts?: {
-        animated?: boolean;
-        applyScroll?: boolean;
-      }
-    ) => {
-      const animated = opts?.animated ?? false;
-      const applyScroll = opts?.applyScroll ?? true;
-    const featuredCount = featuredBusinesses.length;
-    if (featuredCount === 0) {
-      return { index: rawIndex, didRecenter: false };
-    }
-
-    const listLength = repeatedFeaturedBusinesses.length;
-    if (listLength === 0) {
-      return { index: rawIndex, didRecenter: false };
-    }
-
-    const nearEnd = rawIndex >= listLength - FEATURED_RECENTER_BUFFER;
-    const nearStart = rawIndex <= FEATURED_RECENTER_BUFFER;
-
-    if (!nearEnd && !nearStart) {
-      return { index: rawIndex, didRecenter: false };
-    }
-
-    // Snap to the equivalent position in the middle block for a seamless wrap.
-    const wrappedIndex =
-      INITIAL_INDEX + ((rawIndex % featuredCount) + featuredCount) % featuredCount;
-
-    if (wrappedIndex !== rawIndex) {
-      if (applyScroll) {
-        featuredScrollRef.current?.scrollToOffset?.({
-          offset: wrappedIndex * featuredSnapInterval,
-          animated,
-        });
-      }
-
-      return { index: wrappedIndex, didRecenter: true };
-    }
-
-    return { index: rawIndex, didRecenter: false };
-    },
-    [
-      featuredBusinesses.length,
-      INITIAL_INDEX,
-      featuredSnapInterval,
-      featuredSidePadding,
-      repeatedFeaturedBusinesses.length,
-    ]
-  );
-
-  useEffect(() => {
-    if (featuredBusinesses.length === 0) {
-      return;
-    }
-
-    if (currentFeaturedIndex.current === 0 && featuredBusinesses.length > 0) {
-      currentFeaturedIndex.current = INITIAL_INDEX;
-    }
-
-    const timer = setInterval(() => {
-      // Don't auto-scroll if the user is currently touching the screen
-      if (isInteracting.current) return;
-      // Don't auto-scroll until a few seconds after they let go
-      if (Date.now() - lastInteractionTime.current < 4000) return;
-
-      currentFeaturedIndex.current += 1;
-
-      const { index: wrappedIndex, didRecenter } = recenterFeaturedIndexIfNeeded(currentFeaturedIndex.current);
-      currentFeaturedIndex.current = wrappedIndex;
-
-      if (didRecenter) return;
-
-      const nextOffset = currentFeaturedIndex.current * featuredSnapInterval;
-      
-      // Use scrollToOffset to support FlatList
-      if (featuredScrollRef.current?.scrollToOffset) {
-        featuredScrollRef.current.scrollToOffset({ offset: nextOffset, animated: true });
-      }
-    }, 3500);
-
-    return () => clearInterval(timer);
-  }, [featuredBusinesses.length, featuredSnapInterval, INITIAL_INDEX, repeatedFeaturedBusinesses.length, recenterFeaturedIndexIfNeeded]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1226,7 +993,7 @@ export default function HomeScreen() {
             String(order.claimedRedemptions ?? order.claimedCount ?? 0)
           );
           const offerAmount = visibleOrders.map((order) => String(order.maxRedemptions ?? 0));
-          const offerEnd = visibleOrders.map((order) => order.orderTimeTo ?? order.validTo ?? '');
+          const offerEnd = visibleOrders.map((order) => order.orderTimeTo ?? '');
           const firstVisibleOrder = visibleOrders[0] as any | undefined;
 
           const cachedBusinessImageUrl = cachedImageUrlByBusinessId.get(String(businessId));
@@ -1358,18 +1125,6 @@ export default function HomeScreen() {
               return Number(b.deal) - Number(a.deal);
             })
           : [...cardsWithDistance].sort((a, b) => Number(b.deal) - Number(a.deal));
-        const shuffledBusinesses = [...cards].sort(() => Math.random() - 0.5);
-        const featuredList = shuffledBusinesses.slice(0, 5);
-
-        const nextSections: SectionItem[] = apiCategoryFilters.map((category) => ({
-          id: category.id,
-          categoryId: category.id,
-          title: category.label,
-          cards: cards.filter((card) => card.categoryId === category.id),
-        }));
-
-        const filteredSections = nextSections.filter((section) => section.cards.length > 0);
-
         const businessOfferCards = buildOfferCardsFromBusinessCards(cards);
         const catalogCardsFlat = buildCatalogOfferCardsFlat(allOrdersRaw, approvedBusinessesEarly);
 
@@ -1390,19 +1145,39 @@ export default function HomeScreen() {
           setDeals(dealsList);
           setNearYouCards(nearYouFromApi);
           setHotOfferCards(hotFromApi);
-          setFeaturedBusinesses(featuredList);
-          currentFeaturedIndex.current =
-            featuredList.length > 0 ? featuredList.length * Math.floor(FEATURED_REPEAT_COUNT / 2) : 0;
-          setSections(filteredSections);
+
+          setHomeNearbyBusinessesCache(
+            dealsList.map((card) => {
+              const uri =
+                typeof card.image === 'object' &&
+                card.image &&
+                'uri' in card.image &&
+                typeof card.image.uri === 'string'
+                  ? card.image.uri
+                  : '';
+              return {
+                id: card.id,
+                title: card.title,
+                image: { uri },
+                Adress: card.Adress,
+                kortbeskrivning: card.kortbeskrivning,
+                långbeskrivning: card.långbeskrivning,
+                latitude: card.latitude,
+                longitude: card.longitude,
+                distanceKm: card.distanceKm,
+              };
+            })
+          );
+          setHomeHotOffersCache(hotFromApi as OfferCardItem[]);
+          setHomeEndingSoonCache(nearYouFromApi as OfferCardItem[]);
 
           void prefetchImageUris(
             [
               ...dealsList.slice(0, 12).map((c) => c.image),
               ...nearYouFromApi.slice(0, 6).map((c) => c.image),
               ...hotFromApi.slice(0, 6).map((c) => c.image),
-              ...featuredList.slice(0, 4).map((c) => c.image),
             ],
-            24
+            20
           );
         }
 
@@ -1510,10 +1285,6 @@ export default function HomeScreen() {
             });
 
           setDeals(patchCardImage);
-          setFeaturedBusinesses(patchCardImage);
-          setSections((prev) =>
-            prev.map((section) => ({ ...section, cards: patchCardImage(section.cards) }))
-          );
 
           void prefetchImageUris([...imageByBusinessId.values()], imageByBusinessId.size);
 
@@ -1531,8 +1302,6 @@ export default function HomeScreen() {
           setDeals([]);
           setNearYouCards([]);
           setHotOfferCards([]);
-          setFeaturedBusinesses([]);
-          setSections([]);
           Alert.alert('Fel', 'Kunde inte ladda startsidan just nu.');
         }
       } finally {
@@ -1550,46 +1319,6 @@ export default function HomeScreen() {
       cancelled = true;
     };
   }, [markDataReady, refreshNonce, token, coords]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!token) {
-      setFirstName(null);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    (async () => {
-      try {
-        const res = await fetch(apiUrl('/user/me'), {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const json = await res.json().catch(() => ({}));
-        if (!cancelled) {
-          setFirstName(typeof json?.firstName === 'string' ? json.firstName : null);
-        }
-      } catch {
-        if (!cancelled) setFirstName(null);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
-
-  const filteredSections = useMemo(() => {
-    if (activeCategory === ALL_CATEGORIES_ID) {
-      return sections;
-    }
-
-    if (activeCategory === OFFERS_CATEGORY_ID) {
-      return [];
-    }
-
-    return sections.filter((section) => section.categoryId === activeCategory);
-  }, [activeCategory, sections]);
 
   const filteredDeals = useMemo(() => {
     if (activeCategory === ALL_CATEGORIES_ID || activeCategory === OFFERS_CATEGORY_ID) {
@@ -1619,42 +1348,34 @@ export default function HomeScreen() {
     }
   }, [activeCategory, categoryOptions]);
 
-  const featuredBusiness = featuredBusinesses.length > 0
-    ? featuredBusinesses[currentFeaturedIndex.current % featuredBusinesses.length]
-    : undefined;
+  const filterCardsBySearch = useCallback(
+    (cards: CardItem[]) => {
+      const q = searchQuery.trim().toLowerCase();
+      if (!q) return cards;
+      return cards.filter((card) => {
+        const hay = `${card.title} ${card.kortbeskrivning} ${card.långbeskrivning}`.toLowerCase();
+        return hay.includes(q);
+      });
+    },
+    [searchQuery]
+  );
 
-  const isSectionEnlarged = useCallback((sectionTitle: string) => {
-    const now = new Date();
-    const hour = now.getHours();
-    const day = now.getDay(); // 0=Sun, 1=Mon, ..., 5=Fri, 6=Sat
-    const name = sectionTitle.toLowerCase();
+  const searchedDeals = useMemo(
+    () => filterCardsBySearch(filteredDeals),
+    [filterCardsBySearch, filteredDeals]
+  );
 
-    if (name.includes('food') || name.includes('mat') || name.includes('restaurang')) {
-      return hour >= 11 && hour < 13;
-    }
-    if (name.includes('entertainment') || name.includes('underhållning') || name.includes('family') || name.includes('familj')) {
-      return day === 5 || day === 6; // Friday or Saturday
-    }
-    if (name.includes('sport') || name.includes('träning') || name.includes('fitness')) {
-      return hour >= 15;
-    }
-    if (name.includes('shop') || name.includes('shopping') || name.includes('butik')) {
-      return (day === 0 || day === 6) && hour >= 11 && hour < 16; // Sat/Sun 11-16
-    }
-    return false;
-  }, []);
+  const searchedHotOffers = useMemo(
+    () => filterCardsBySearch(hotOfferCards),
+    [filterCardsBySearch, hotOfferCards]
+  );
 
-  const searchedDeals = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return filteredDeals;
-    return filteredDeals.filter((card) => {
-      const hay = `${card.title} ${card.kortbeskrivning} ${card.långbeskrivning}`.toLowerCase();
-      return hay.includes(q);
-    });
-  }, [filteredDeals, searchQuery]);
+  const searchedEndingSoon = useMemo(
+    () => filterCardsBySearch(nearYouCards),
+    [filterCardsBySearch, nearYouCards]
+  );
 
   const handleCardPress = (card: CardItem) => {
-    didOpenCardRef.current = true;
     const encodeListParam = (value: string | string[] | number | number[] | Date | Date[] | undefined) => {
       if (value === undefined || value === null) {
         return undefined;
@@ -1702,35 +1423,8 @@ export default function HomeScreen() {
     });
   };
 
-  const setExpandedSectionAnimated = (next: typeof expandedSection) => setExpandedSection(next);
-
-  const handleNearbyCardPress = (card: CardItem) => {
-    if (expandedSection !== 'nearby') {
-      setExpandedSectionAnimated('nearby');
-      return;
-    }
-    handleCardPress(card);
-  };
-
-  const handleHotCardPress = (card: CardItem) => {
-    if (expandedSection !== 'hot') {
-      setExpandedSectionAnimated('hot');
-      return;
-    }
-    handleCardPress(card);
-  };
-
-  const handleEndingSoonCardPress = (card: CardItem) => {
-    if (expandedSection !== 'endingSoon') {
-      setExpandedSectionAnimated('endingSoon');
-      return;
-    }
-    handleCardPress(card);
-  };
-
   return (
-    <View style={{ flex: 1, backgroundColor: theme.screenBg }}>
-      <StarrySkyScreenBackground variant={theme.isDark ? 'dark' : 'light'} />
+    <View style={{ flex: 1, backgroundColor: homePageBg }}>
       <SafeAreaView
         edges={['left', 'right']}
         className="flex-1"
@@ -1757,84 +1451,73 @@ export default function HomeScreen() {
             />
           }
         >
-        <View
-          style={{
-            borderTopLeftRadius: 24,
-            borderTopRightRadius: 24,
-            borderBottomLeftRadius: 24,
-            borderBottomRightRadius: 24,
-            borderLeftWidth: 1,
-            borderRightWidth: 1,
-            borderTopWidth: 1,
-            borderBottomWidth: 1,
-            borderColor: theme.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,11,42,0.10)',
-            overflow: 'hidden',
-          }}
-        >
-          <LinearGradient
-            colors={theme.isDark ? ['#0b1a45', '#0b1a45'] : ['#f5f7ff', '#f5f7ff']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0, y: 1 }}
-            style={{ paddingTop: insets.top + 4, paddingBottom: 10 }}
-          >
-            {(() => {
-              const collapse = scrollY.interpolate({
-                inputRange: [0, 70],
-                outputRange: [1, 0],
-                extrapolate: 'clamp',
-              });
-              const greetingHeight = collapse.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0, 36],
-                extrapolate: 'clamp',
-              });
+        <View style={{ backgroundColor: homeHeaderPanelBg }}>
+          {(() => {
+            const collapse = scrollY.interpolate({
+              inputRange: [0, 120],
+              outputRange: [1, 0],
+              extrapolate: 'clamp',
+            });
+            const heroHeight = collapse.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0, HERO_HEIGHT + insets.top],
+              extrapolate: 'clamp',
+            });
+            const headerTopPadding = scrollY.interpolate({
+              inputRange: [0, 120],
+              outputRange: [8, insets.top + 8],
+              extrapolate: 'clamp',
+            });
 
-              return (
-                <Animated.View style={{ height: greetingHeight, opacity: collapse, overflow: 'hidden' }}>
-                  <View
+            return (
+              <>
+                <Animated.View style={{ height: heroHeight, opacity: collapse, overflow: 'hidden' }}>
+                  <HeroImageCarousel
+                    slides={heroSlides}
+                    panelBackgroundColor={homeHeaderPanelBg}
+                    topInset={insets.top}
+                  />
+                </Animated.View>
+                <View
+                  style={{
+                    borderBottomLeftRadius: 24,
+                    borderBottomRightRadius: 24,
+                    borderLeftWidth: 1,
+                    borderRightWidth: 1,
+                    borderBottomWidth: 1,
+                    borderColor: theme.isDark ? 'rgba(255,255,255,0.10)' : brandInkRgba(0.10),
+                    overflow: 'hidden',
+                  }}
+                >
+                  <Animated.View
                     style={{
-                      paddingLeft: 24,
-                      paddingTop: 0,
-                      paddingBottom: 0,
-                      paddingRight: 24,
-                      alignItems: 'center',
-                      justifyContent: 'center',
+                      paddingTop: headerTopPadding,
+                      paddingBottom: 10,
+                      backgroundColor: homeHeaderPanelBg,
                     }}
                   >
-                    <Text className="text-xl font-semibold" style={{ color: theme.text, textAlign: 'center' }}>
-                      Vad vill du göra idag?
-                    </Text>
-                  </View>
-                </Animated.View>
-              );
-            })()}
-
-            <View className="px-6" style={{ marginTop: -2 }}>
+            <View className="px-6">
               <View
                 className="flex-row items-center rounded-full px-4 py-2.5"
-                style={{
-                  borderWidth: 1,
-                  borderColor: theme.isDark ? 'rgba(255,255,255,0.40)' : 'rgba(0,11,42,0.25)',
-                  backgroundColor: theme.cardBg,
-                }}
+                style={filterSurfaceStyle}
               >
-                <Ionicons name="search" size={18} color={theme.text} style={{ marginRight: 8 }} />
+                <Ionicons name="search" size={18} color={FilterChipTheme.textMuted} style={{ marginRight: 8 }} />
                 <TextInput
                   value={searchQuery}
                   onChangeText={setSearchQuery}
                   placeholder="Sök restauranger, events, upplevelser"
-                  placeholderTextColor={theme.textFaint}
+                  placeholderTextColor={FilterChipTheme.placeholder}
                   className="flex-1"
-                  style={{ color: theme.text }}
+                  style={{ color: FilterChipTheme.text }}
                   returnKeyType="search"
                 />
                 {searchQuery.trim() ? (
                   <Pressable onPress={() => setSearchQuery('')} className="ml-2 rounded-full px-2 py-1">
-                    <Ionicons name="close-circle" size={18} color={theme.text} />
+                    <Ionicons name="close-circle" size={18} color={FilterChipTheme.textMuted} />
                   </Pressable>
                 ) : null}
                 <Pressable className="ml-1 rounded-full p-1">
-                  <Ionicons name="options-outline" size={18} color={theme.text} />
+                  <Ionicons name="options-outline" size={18} color={FilterChipTheme.textMuted} />
                 </Pressable>
               </View>
             </View>
@@ -1844,11 +1527,18 @@ export default function HomeScreen() {
                 <View className="flex-row gap-2">
                   {quickCategories.map((cat) => (
                     (() => {
-                      const accent =
-                        cat.id === OFFERS_CATEGORY_ID
-                          ? '#ff7a00'
-                          : getCategoryAccentColor(cat.label);
-                      const isActive = activeCategory === cat.id;
+                      const isOffersCategory = cat.id === OFFERS_CATEGORY_ID;
+                      const isSelected = activeCategory === cat.id;
+                      const baseAccent = isOffersCategory
+                        ? OFFERS_CATEGORY_ACCENT
+                        : getCategoryAccentColor(cat.label);
+                      const isHighlighted = isOffersCategory || isSelected;
+                      const chipColor = isOffersCategory
+                        ? isSelected
+                          ? darkenHexColor(baseAccent)
+                          : baseAccent
+                        : baseAccent;
+                      const chipTextColor = getOnAccentTextColor(chipColor);
 
                       return (
                     <Pressable
@@ -1857,14 +1547,21 @@ export default function HomeScreen() {
                         setActiveCategory((prev) => (prev === cat.id ? ALL_CATEGORIES_ID : cat.id))
                       }
                       className="flex-row items-center rounded-full px-3 py-2"
-                      style={{
-                        backgroundColor: isActive ? `${accent}22` : theme.cardBg,
-                        borderColor: accent,
-                        borderWidth: 1,
-                      }}
+                      style={
+                        isHighlighted
+                          ? { backgroundColor: chipColor, borderColor: chipColor, borderWidth: 1 }
+                          : filterSurfaceStyle
+                      }
                     >
-                      <Ionicons name={cat.icon} size={14} color={isActive ? accent : theme.textMuted} />
-                      <Text className="ml-2 text-xs" style={{ color: isActive ? accent : theme.textMuted }}>
+                      <Ionicons
+                        name={cat.icon}
+                        size={14}
+                        color={isHighlighted ? chipTextColor : FilterChipTheme.textMuted}
+                      />
+                      <Text
+                        className="ml-2 text-xs"
+                        style={{ color: isHighlighted ? chipTextColor : FilterChipTheme.textMuted }}
+                      >
                         {cat.label}
                       </Text>
                     </Pressable>
@@ -1874,24 +1571,28 @@ export default function HomeScreen() {
                 </View>
               </ScrollView>
             </View>
-          </LinearGradient>
+                  </Animated.View>
+                </View>
+              </>
+            );
+          })()}
         </View>
 
         <View className="mt-6 px-6">
           <SectionTitleRow
             title="Nära dig"
             icon="navigate"
-            iconColor="#ff3b30"
+            iconColor={OFFERS_CATEGORY_ACCENT}
             onSeeAllPress={() => router.push(NARA_DIG_PATH)}
           />
-          {isLoadingData && filteredDeals.length === 0 ? (
+          {isLoadingData && searchedDeals.length === 0 ? (
             <Text style={{ color: theme.textMuted }}>Laddar...</Text>
           ) : (
             <ForYouOrderCarousel
-              cards={filteredDeals}
+              cards={searchedDeals}
               onCardPress={handleCardPress}
               badgeLabel="Nära dig"
-              badgeColor="rgba(0,11,42,0.75)"
+              badgeColor={brandInkRgba(0.75)}
               getBadgeLabel={getNearbyBadge}
               showFavoriteButton
               emptyText="Inga erbjudanden nära dig just nu."
@@ -1903,15 +1604,15 @@ export default function HomeScreen() {
           <SectionTitleRow
             title="Heta erbjudanden"
             icon="flame"
-            iconColor="#ff3b30"
+            iconColor={OFFERS_CATEGORY_ACCENT}
             subtitle="Baserat på dina intressen"
             onSeeAllPress={() => router.push(HETA_ERBJUDANDEN_PATH)}
           />
-          {isLoadingData && hotOfferCards.length === 0 ? (
+          {isLoadingData && searchedHotOffers.length === 0 ? (
             <Text style={{ color: theme.textMuted }}>Laddar...</Text>
           ) : (
             <FeaturedDealsSplit
-              cards={hotOfferCards}
+              cards={searchedHotOffers}
               onCardPress={handleCardPress}
               emptyText="Inga heta erbjudanden just nu."
             />
@@ -1925,11 +1626,11 @@ export default function HomeScreen() {
             subtitle="Baserat på dina intressen"
             onSeeAllPress={() => router.push(SLUTAR_SNART_PATH)}
           />
-          {isLoadingData && nearYouCards.length === 0 ? (
+          {isLoadingData && searchedEndingSoon.length === 0 ? (
             <Text style={{ color: theme.textMuted }}>Laddar...</Text>
           ) : (
             <EndingSoonPortraitRow
-              cards={nearYouCards}
+              cards={searchedEndingSoon}
               onCardPress={handleCardPress}
               emptyText="Inga tidsbegränsade erbjudanden just nu."
             />
@@ -1948,305 +1649,8 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#000b2a',
   },
   scroll: {
     flex: 1,
   },
-  sliderContainer: {
-    height: 240,
-    overflow: 'hidden',
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-  },
-  sliderImage: {
-    ...StyleSheet.absoluteFillObject,
-    width: '100%',
-    height: '100%',
-  },
-  dotsRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 12,
-    gap: 8,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-  },
-  dotActive: {
-    backgroundColor: '#ff3b30',
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  featuredCardClip: {
-    borderRadius: 24,
-    overflow: 'hidden',
-  },
-  featuredCardImage: {
-    width: '100%',
-    height: '100%',
-  },
 });
-
-function CardRow({ cards, onCardPress, enlarged }: { cards: CardItem[]; onCardPress?: (card: CardItem) => void; enlarged?: boolean }) {
-  const { mode } = useThemePreference();
-  const theme = uiTheme(mode);
-
-  if (enlarged) {
-    return (
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        <View className="flex-row gap-3 pb-2">
-          {cards.map((card, index) => (
-            <View
-              key={`${card.id}-${index}-shadow`}
-              style={{
-                shadowColor: '#000',
-                shadowOpacity: theme.isDark ? 0.22 : 0.14,
-                shadowRadius: theme.isDark ? 14 : 12,
-                shadowOffset: { width: 0, height: theme.isDark ? 8 : 6 },
-                elevation: theme.isDark ? 6 : 4,
-              }}
-            >
-              <Pressable
-                key={`${card.id}-${index}`}
-                className="w-64 overflow-hidden rounded-2xl"
-                style={{
-                  backgroundColor: theme.cardBg,
-                  borderWidth: 1,
-                  borderColor: theme.isDark ? theme.border : 'rgba(255,255,255,0.60)',
-                }}
-                onPress={() => onCardPress?.(card)}
-              >
-              <View className="relative h-44 w-full">
-                <CardMedia source={card.image} svgFit="fill" priority={index < 4 ? 'high' : 'normal'} />
-                <View className="absolute inset-0 bg-black/20" />
-                {card.deal ? <DealTag /> : null}
-                <View className="absolute bottom-0 left-0 right-0 p-3">
-                  <View className="rounded-xl bg-black/50 px-3 py-2">
-                    <Text className="text-lg font-semibold" style={{ color: theme.text }} numberOfLines={1}>{card.title}</Text>
-                    <Text className="mt-0.5 text-xs" style={{ color: theme.textMuted }} numberOfLines={2}>
-                      {card.kortbeskrivning || 'Upptäck detta företag och deras erbjudanden.'}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-              </Pressable>
-            </View>
-          ))}
-        </View>
-      </ScrollView>
-    );
-  }
-
-  return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-      <View className="flex-row gap-3 pb-2">
-        {cards.map((card, index) => (
-          <View
-            key={`${card.id}-${index}-shadow`}
-            style={{
-              shadowColor: '#000',
-              shadowOpacity: theme.isDark ? 0.22 : 0.14,
-              shadowRadius: theme.isDark ? 14 : 12,
-              shadowOffset: { width: 0, height: theme.isDark ? 8 : 6 },
-              elevation: theme.isDark ? 6 : 4,
-            }}
-          >
-            <Pressable
-              key={`${card.id}-${index}`}
-              className="w-40 overflow-hidden rounded-2xl"
-              style={{
-                backgroundColor: theme.cardBg,
-                borderWidth: 1,
-                borderColor: theme.isDark ? theme.border : 'rgba(255,255,255,0.60)',
-              }}
-              onPress={() => onCardPress?.(card)}
-            >
-              <View className="relative h-28 w-full">
-                <CardMedia source={card.image} svgFit="fill" priority={index < 4 ? 'high' : 'normal'} />
-                {card.deal ? <DealTag /> : null}
-              </View>
-              <Text className="px-2 py-2 text-sm" style={{ color: theme.text }}>{card.title}</Text>
-            </Pressable>
-          </View>
-        ))}
-      </View>
-    </ScrollView>
-  );
-}
-
-function CardGrid({ cards, onCardPress }: { cards: CardItem[]; onCardPress?: (card: CardItem) => void }) {
-  const { mode } = useThemePreference();
-  const theme = uiTheme(mode);
-  const elements: React.ReactNode[] = [];
-  let i = 0;
-  let smallCount = 0;
-
-  while (i < cards.length) {
-    if (smallCount > 0 && smallCount % 8 === 0) {
-      const card = cards[i];
-      elements.push(
-          <View
-            key={`${card.id}-${i}-large-shadow`}
-            style={{
-              shadowColor: '#000',
-              shadowOpacity: theme.isDark ? 0.22 : 0.14,
-              shadowRadius: theme.isDark ? 14 : 12,
-              shadowOffset: { width: 0, height: theme.isDark ? 8 : 6 },
-              elevation: theme.isDark ? 6 : 4,
-            }}
-          >
-            <Pressable
-              key={`${card.id}-${i}-large`}
-              className="mb-3 w-full overflow-hidden rounded-2xl"
-              style={{
-                backgroundColor: theme.cardBg,
-                borderWidth: 1,
-                borderColor: theme.isDark ? theme.border : 'rgba(255,255,255,0.60)',
-              }}
-              onPress={() => onCardPress?.(card)}
-            >
-              <View className="relative h-52 w-full">
-                <CardMedia source={card.image} svgFit="fill" priority={i < 4 ? 'high' : 'normal'} />
-                <View className="absolute inset-0 bg-black/20" />
-                {card.deal ? <DealTag /> : null}
-                <View className="absolute bottom-0 left-0 right-0 p-3">
-                  <View className="rounded-xl bg-black/50 px-3 py-2">
-                    <Text className="text-lg font-semibold" style={{ color: theme.text }} numberOfLines={1}>
-                      {card.title}
-                    </Text>
-                    <Text className="mt-0.5 text-xs" style={{ color: theme.textMuted }} numberOfLines={2}>
-                      {card.kortbeskrivning || 'Upptäck detta företag och deras erbjudanden.'}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            </Pressable>
-          </View>
-      );
-      i += 1;
-      smallCount = 0;
-      continue;
-    }
-
-    const left = cards[i];
-    const right = i + 1 < cards.length ? cards[i + 1] : null;
-
-    elements.push(
-      <View key={`row-${i}`} className="mb-3 flex-row gap-3">
-        <View
-          style={{
-            flex: 1,
-            shadowColor: '#000',
-            shadowOpacity: theme.isDark ? 0.22 : 0.14,
-            shadowRadius: theme.isDark ? 14 : 12,
-            shadowOffset: { width: 0, height: theme.isDark ? 8 : 6 },
-            elevation: theme.isDark ? 6 : 4,
-          }}
-        >
-          <Pressable
-            className="flex-1 overflow-hidden rounded-2xl"
-            style={{
-              backgroundColor: theme.cardBg,
-              borderWidth: 1,
-              borderColor: theme.isDark ? theme.border : 'rgba(255,255,255,0.60)',
-            }}
-            onPress={() => onCardPress?.(left)}
-          >
-            <View className="relative h-28 w-full">
-              <CardMedia source={left.image} svgFit="fill" />
-              {left.deal ? <DealTag /> : null}
-            </View>
-            <Text className="px-2 py-2 text-sm" style={{ color: theme.text }} numberOfLines={1}>{left.title}</Text>
-          </Pressable>
-        </View>
-
-        {right ? (
-          <View
-            style={{
-              flex: 1,
-              shadowColor: '#000',
-              shadowOpacity: theme.isDark ? 0.22 : 0.14,
-              shadowRadius: theme.isDark ? 14 : 12,
-              shadowOffset: { width: 0, height: theme.isDark ? 8 : 6 },
-              elevation: theme.isDark ? 6 : 4,
-            }}
-          >
-            <Pressable
-              className="flex-1 overflow-hidden rounded-2xl"
-              style={{
-                backgroundColor: theme.cardBg,
-                borderWidth: 1,
-                borderColor: theme.isDark ? theme.border : 'rgba(255,255,255,0.60)',
-              }}
-              onPress={() => onCardPress?.(right)}
-            >
-              <View className="relative h-28 w-full">
-                <CardMedia source={right.image} svgFit="fill" />
-                {right.deal ? <DealTag /> : null}
-              </View>
-              <Text className="px-2 py-2 text-sm" style={{ color: theme.text }} numberOfLines={1}>{right.title}</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <View className="flex-1" />
-        )}
-      </View>
-    );
-
-    smallCount += right ? 2 : 1;
-    i += right ? 2 : 1;
-  }
-
-  return <View>{elements}</View>;
-}
-
-function DealTag() {
-  const wobble = useRef(new Animated.Value(0)).current;
-  const rotate = wobble.interpolate({
-    inputRange: [-1, 0, 1],
-    outputRange: ['-3deg', '0deg', '3deg'],
-  });
-
-  useEffect(() => {
-    const wobbleAnimation = Animated.loop(
-      Animated.sequence([
-        Animated.delay(1500),
-        Animated.timing(wobble, { toValue: -1, duration: 110, useNativeDriver: true }),
-        Animated.timing(wobble, { toValue: 1, duration: 110, useNativeDriver: true }),
-        Animated.timing(wobble, { toValue: -0.6, duration: 100, useNativeDriver: true }),
-        Animated.timing(wobble, { toValue: 0.6, duration: 100, useNativeDriver: true }),
-        Animated.timing(wobble, { toValue: 0, duration: 100, useNativeDriver: true }),
-      ])
-    );
-
-    wobbleAnimation.start();
-
-    return () => {
-      wobbleAnimation.stop();
-      wobble.setValue(0);
-    };
-  }, [wobble]);
-
-  return (
-    <Animated.View
-      style={{
-        position: 'absolute',
-        left: 8,
-        top: 8,
-        borderRadius: 999,
-        backgroundColor: '#ff3b30',
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        transform: [{ rotate }],
-      }}
-    >
-      <Text className="text-[10px] font-medium text-white">Erbjudande</Text>
-    </Animated.View>
-  );
-}

@@ -1,5 +1,7 @@
+import { BrandColors } from '@/lib/brand-colors';
+
 export const TAB_ACTIVE_COLORS = {
-  index: '#007AFF',
+  index: BrandColors.dark.primary,
   Favoriter: '#FF69B4',
   MinaDeals: '#FF7A00',
   Profile: '#34C759',

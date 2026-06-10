@@ -4,26 +4,26 @@
  */
 
 import { Platform } from 'react-native';
-import { opacity } from 'react-native-reanimated/lib/typescript/Colors';
+import { BrandColors } from '@/lib/brand-colors';
 
 const tintColorLight = '#ffffff';
 const tintColorDark = '#fff';
 
 export const Colors = {
   light: {
-    text: '#000b2a',
-    background: '#f5f7ff',
-    tint: '#000b2a',
-    icon: '#000b2a',
-    tabIconDefault: '#3e5592',
-    tabIconSelected: '#000b2a',
+    text: BrandColors.light.foreground,
+    background: BrandColors.light.background,
+    tint: BrandColors.light.foreground,
+    icon: BrandColors.light.foreground,
+    tabIconDefault: BrandColors.light.mutedForeground,
+    tabIconSelected: BrandColors.light.foreground,
   },
   dark: {
-    text: '#ECEDEE',
-    background: '#000b2a',
+    text: BrandColors.dark.foreground,
+    background: BrandColors.dark.background,
     tint: tintColorDark,
-    icon: '#9BA1A6',
-    tabIconDefault: '#9BA1A6',
+    icon: BrandColors.dark.mutedForeground,
+    tabIconDefault: BrandColors.dark.mutedForeground,
     tabIconSelected: tintColorDark,
   },
 };

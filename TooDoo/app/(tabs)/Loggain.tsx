@@ -1,9 +1,22 @@
 import { useEffect, useState, useRef } from 'react';
-import { View, Text, TextInput, Pressable, Alert, Animated, ScrollView, Easing, type StyleProp, type TextStyle } from 'react-native';
+import {
+	View,
+	Text,
+	TextInput,
+	Pressable,
+	Alert,
+	Animated,
+	ScrollView,
+	Easing,
+	Platform,
+	type StyleProp,
+	type TextStyle,
+} from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/auth-context';
 import { apiUrl } from '@/lib/api';
 import { useThemePreference } from '@/context/theme-preference-context';
+import { BrandColors } from '@/lib/brand-colors';
 import { uiTheme } from '@/lib/ui-theme';
 
 const USER_EXTRAS_MAX_HEIGHT = 280;
@@ -130,19 +143,17 @@ export default function MinaDealsScreen() {
 		});
 	};
 
-	const selectedGlowStyleUser = {
-		shadowColor: theme.accentGreen,
-		shadowOffset: { width: 0, height: 0 },
-		shadowOpacity: 0.8,
-		shadowRadius: 20,
-	};
-
-	const selectedGlowStyleCompany = {
-		shadowColor: theme.primary,
-		shadowOffset: { width: 0, height: 0 },
-		shadowOpacity: 0.8,
-		shadowRadius: 20,
-	};
+	const selectedTabTextStyle = (color: string) => ({
+		color,
+		fontWeight: '600' as const,
+		...(Platform.OS === 'web'
+			? { textShadow: `0 0 8px ${color}` }
+			: {
+					textShadowColor: color,
+					textShadowOffset: { width: 0, height: 0 },
+					textShadowRadius: 10,
+				}),
+	});
 
 	const [isLoginOpen, setIsLoginOpen] = useState(false);
 
@@ -225,14 +236,14 @@ export default function MinaDealsScreen() {
 							className="text-center font-medium"
 							textStyle={
 								selectedType === 'user'
-									? [selectedGlowStyleUser, { color: theme.accentGreen }]
+									? selectedTabTextStyle(theme.accentGreen)
 									: { color: theme.textMuted }
 							}
 							trigger={userBounceTrigger}
 						/>
 					</View>
                 </Pressable>
-                <View className="h-12 w-px bg-[#3e5592]" />
+                <View className="h-12 w-px bg-toodoo-muted" />
                 <Pressable 
 					className={`mb-3 mt-3 rounded-2xl py-3 w-1/2`}
 					disabled={isTypeAnimating}
@@ -244,7 +255,7 @@ export default function MinaDealsScreen() {
 							className="text-center font-medium"
 							textStyle={
 								selectedType === 'company'
-									? [selectedGlowStyleCompany, { color: theme.primary }]
+									? selectedTabTextStyle(theme.primary)
 									: { color: theme.textMuted }
 							}
 							trigger={companyBounceTrigger}
