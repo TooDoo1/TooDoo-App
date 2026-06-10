@@ -1,9 +1,20 @@
 import type { Router } from 'expo-router';
 import { Platform } from 'react-native';
 
-import { navigateBackFromDetail } from '@/lib/detail-navigation';
+import {
+  DETAIL_RETURN_ROUTES,
+  type DetailReturnKey,
+  navigateBackFromDetail,
+} from '@/lib/detail-navigation';
 
-/** Pop stack screens on web without using browser history (avoids full page reloads). */
+function webReplaceFromDetail(router: Router, returnTo?: string | string[]) {
+  const key = (Array.isArray(returnTo) ? returnTo[0] : returnTo) as DetailReturnKey | undefined;
+  const route =
+    key && key in DETAIL_RETURN_ROUTES ? DETAIL_RETURN_ROUTES[key] : DETAIL_RETURN_ROUTES.index;
+  router.replace(route);
+}
+
+/** Pop stack screens on web without browser history (router.back reloads the page). */
 export function performWebStackBack(
   router: Router,
   options?: { returnTo?: string | string[]; isCompanyDetail?: boolean }
@@ -24,12 +35,10 @@ export function performWebStackBack(
     return;
   }
 
-  if (router.canGoBack()) {
-    router.back();
+  if (options?.isCompanyDetail) {
+    webReplaceFromDetail(router, options.returnTo);
     return;
   }
 
-  if (options?.isCompanyDetail) {
-    navigateBackFromDetail(router, options.returnTo);
-  }
+  router.replace(DETAIL_RETURN_ROUTES.index);
 }

@@ -5,9 +5,17 @@ const PWA_THEME_COLOR = '#0e1325';
 
 const serviceWorkerRegistration = `
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function () {
-    navigator.serviceWorker.register('/sw.js').catch(function () {});
-  });
+  var host = location.hostname;
+  var isDevHost = host === 'localhost' || host === '127.0.0.1' || /^\\d+\\.\\d+\\.\\d+\\.\\d+$/.test(host);
+  if (isDevHost) {
+    navigator.serviceWorker.getRegistrations().then(function (regs) {
+      regs.forEach(function (r) { r.unregister(); });
+    });
+  } else {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('/sw.js').catch(function () {});
+    });
+  }
 }
 `;
 

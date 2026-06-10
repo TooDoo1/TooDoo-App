@@ -17,6 +17,7 @@ import { FavoriteOfferNotificationsProvider } from '@/context/favorite-offer-not
 import { AppReadyProvider, useAppReady } from '@/context/app-ready-context';
 import { RootFloatingTabBarOverlay } from '@/components/root-floating-tab-bar-overlay';
 import { WebStackEdgeSwipeBack } from '@/components/web-stack-edge-swipe-back';
+import { WebHistoryBackSync } from '@/components/web-history-back-sync';
 import LoadingSplash, { SPLASH_EXIT_DURATION_MS } from '@/components/ui/loading-splash';
 import { WebStackSwipeProvider } from '@/context/web-stack-swipe-context';
 import { getSwipeableStackScreenOptions } from '@/lib/stack-navigation';
@@ -102,6 +103,7 @@ function AppShell() {
 				<GestureHandlerRootView style={{ flex: 1 }}>
 					<ThemeProvider value={effectiveScheme === 'dark' ? DarkTheme : DefaultTheme}>
 						<WebStackEdgeSwipeBack />
+						<WebHistoryBackSync />
 						<Stack>
 							<Stack.Screen name="(tabs)" options={{ headerShown: false }} />
 							<Stack.Screen name="company-detail" options={swipeableStackScreenOptions} />

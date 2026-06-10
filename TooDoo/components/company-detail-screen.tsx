@@ -28,6 +28,7 @@ import { CardMedia } from "@/components/ui/card-media";
 import { CompanyDetailTabBarSync } from "@/components/company-detail-tab-bar-sync";
 import { WebStackSwipeContainer } from "@/components/web-stack-edge-swipe-back";
 import { navigateBackFromDetail } from "@/lib/detail-navigation";
+import { performWebStackBack } from "@/lib/web-stack-navigation";
 import { isActiveOffer } from "@/lib/home-offers";
 import { BrandColors, brandInkRgba, brandNavyRgba } from "@/lib/brand-colors";
 import { getOrderNotClaimableReason, getOrderPublishEndMs } from "@/lib/order-claim-window";
@@ -787,8 +788,8 @@ export default function CompanyDetailScreen() {
 
   const showCompanyDetail = Boolean(title || id || claimBusinessId);
   const handleDetailBack = useCallback(() => {
-    if (Platform.OS === 'web' && router.canDismiss()) {
-      router.dismiss();
+    if (Platform.OS === 'web') {
+      performWebStackBack(router, { returnTo, isCompanyDetail: true });
       return;
     }
     if (router.canGoBack()) {

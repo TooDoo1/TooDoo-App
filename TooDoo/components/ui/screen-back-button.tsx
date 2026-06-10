@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useThemePreference } from '@/context/theme-preference-context';
+import { performWebStackBack } from '@/lib/web-stack-navigation';
 import { uiTheme } from '@/lib/ui-theme';
 
 export function ScreenBackButton() {
@@ -17,8 +18,8 @@ export function ScreenBackButton() {
       accessibilityRole="button"
       accessibilityLabel="Tillbaka"
       onPress={() => {
-        if (Platform.OS === 'web' && router.canDismiss()) {
-          router.dismiss();
+        if (Platform.OS === 'web') {
+          performWebStackBack(router);
           return;
         }
         router.back();

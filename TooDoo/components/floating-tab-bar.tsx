@@ -1,5 +1,9 @@
-import { type BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { useEffect } from 'react';
+import {
+  type BottomTabBarProps,
+  BottomTabBarHeightCallbackContext,
+} from '@react-navigation/bottom-tabs';
+import { useContext, useEffect } from 'react';
+import { Platform } from 'react-native';
 
 import { useTabBarMotion } from '@/context/tab-bar-motion-context';
 
@@ -34,8 +38,18 @@ export function getTabBarBottomOffset(insetsBottom: number, platform: string = '
   return Math.max(raw, 0);
 }
 
+/** Real scroll padding — overlay tab bar is not in the tab navigator layout. */
+export function getFloatingTabBarScrollPadding(
+  insetsBottom: number,
+  platform: string = Platform.OS,
+  extra = 16
+) {
+  return TAB_BAR_HEIGHT + getTabBarBottomOffset(insetsBottom, platform) + extra;
+}
+
 export function FloatingTabBar(props: BottomTabBarProps) {
   const { setTabBarProps } = useTabBarMotion();
+  const setTabBarHeight = useContext(BottomTabBarHeightCallbackContext);
 
   useEffect(() => {
     setTabBarProps(props);
@@ -44,6 +58,11 @@ export function FloatingTabBar(props: BottomTabBarProps) {
   useEffect(() => {
     return () => setTabBarProps(null);
   }, [setTabBarProps]);
+
+  // Tab bar renders in RootFloatingTabBarOverlay — tell the navigator not to reserve ~83px.
+  useEffect(() => {
+    setTabBarHeight?.(0);
+  }, [setTabBarHeight]);
 
   return null;
 }

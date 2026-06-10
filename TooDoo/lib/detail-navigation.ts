@@ -21,8 +21,18 @@ export const DETAIL_RETURN_ROUTES = {
 export type DetailReturnKey = keyof typeof DETAIL_RETURN_ROUTES;
 
 export function navigateBackFromDetail(router: Router, returnTo?: string | string[]) {
-  if (Platform.OS === 'web' && router.canDismiss()) {
-    router.dismiss();
+  if (Platform.OS === 'web') {
+    if (router.canDismiss()) {
+      router.dismiss();
+      return;
+    }
+
+    const key = (Array.isArray(returnTo) ? returnTo[0] : returnTo) as DetailReturnKey | undefined;
+    if (key && key in DETAIL_RETURN_ROUTES) {
+      router.replace(DETAIL_RETURN_ROUTES[key]);
+      return;
+    }
+    router.replace(DETAIL_RETURN_ROUTES.index);
     return;
   }
 

@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { Text } from 'react-native';
+import { Text, View } from 'react-native';
 
 import { FloatingTabBar } from '@/components/floating-tab-bar';
 import { TabBarStackMotionReset } from '@/components/tab-bar-stack-motion-reset';
@@ -61,7 +61,7 @@ export default function TabLayout() {
   const { isLoggedIn } = useAuth();
 
   return (
-    <>
+    <View style={{ flex: 1 }}>
       <TabBarStackMotionReset />
       <Tabs
       tabBar={(props) => <FloatingTabBar {...props} />}
@@ -70,6 +70,10 @@ export default function TabLayout() {
         tabBarInactiveTintColor: Colors[effectiveScheme].tabIconDefault,
         tabBarLabelPosition: 'below-icon',
         tabBarStyle: {
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: 0,
           backgroundColor: 'transparent',
           borderTopWidth: 0,
           elevation: 0,
@@ -156,6 +160,6 @@ export default function TabLayout() {
         }}
       />
     </Tabs>
-    </>
+    </View>
   );
 }

@@ -12,6 +12,10 @@ fi
 
 PORT="${PORT:-8081}"
 
+if command -v fuser >/dev/null 2>&1; then
+  fuser -k "${PORT}/tcp" 2>/dev/null || true
+fi
+
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  TooDoo web over Wi-Fi"

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { getFloatingTabBarScrollPadding } from '@/components/floating-tab-bar';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,7 +21,8 @@ export default function FavoriterScreen() {
   const router = useRouter();
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
-  const tabBarHeight = useBottomTabBarHeight();
+  const insets = useSafeAreaInsets();
+  const scrollBottomPadding = getFloatingTabBarScrollPadding(insets.bottom, undefined, 24);
   const { token, isLoggedIn, role } = useAuth();
   const { favoriteBusinessIds, isFavorite, toggleFavorite } = useFavorites();
 
@@ -74,7 +76,7 @@ export default function FavoriterScreen() {
       <StarrySkyScreenBackground variant={theme.isDark ? 'dark' : 'light'} />
       <SafeAreaView edges={['left', 'right', 'top']} style={{ flex: 1 }}>
         <ScrollView
-          contentContainerStyle={{ padding: 24, paddingBottom: tabBarHeight + 24 }}
+          contentContainerStyle={{ padding: 24, paddingBottom: scrollBottomPadding }}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
