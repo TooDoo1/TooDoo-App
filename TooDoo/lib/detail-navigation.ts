@@ -26,13 +26,14 @@ export function navigateBackFromDetail(router: Router, returnTo?: string | strin
     return;
   }
 
+  if (router.canGoBack()) {
+    router.back();
+    return;
+  }
+
   const key = (Array.isArray(returnTo) ? returnTo[0] : returnTo) as DetailReturnKey | undefined;
   if (key && key in DETAIL_RETURN_ROUTES) {
     router.replace(DETAIL_RETURN_ROUTES[key]);
-    return;
-  }
-  if (router.canGoBack()) {
-    router.back();
     return;
   }
   router.replace(DETAIL_RETURN_ROUTES.index);

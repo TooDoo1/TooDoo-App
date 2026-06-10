@@ -177,7 +177,7 @@ function HeroImageCarouselInner({
   if (slideCount === 0 || slideStride <= 0) return null;
 
   return (
-    <View style={[styles.shell, { height: shellHeight }]}>
+    <View style={[styles.shell, { height: shellHeight, backgroundColor: panelBackgroundColor }]}>
       <ScrollView
         ref={scrollRef}
         horizontal

@@ -24,12 +24,12 @@ export function performWebStackBack(
     return;
   }
 
-  if (options?.isCompanyDetail) {
-    navigateBackFromDetail(router, options.returnTo);
+  if (router.canGoBack()) {
+    router.back();
     return;
   }
 
-  if (router.canGoBack()) {
-    router.back();
+  if (options?.isCompanyDetail) {
+    navigateBackFromDetail(router, options.returnTo);
   }
 }

@@ -13,7 +13,6 @@ import {
 } from 'react-native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useRouter } from 'expo-router';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppReady } from '@/context/app-ready-context';
 import { apiUrl } from '@/lib/api';
 import { useAuth } from '@/context/auth-context';
@@ -794,7 +793,6 @@ export default function HomeScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const tabBarHeight = useBottomTabBarHeight();
-  const insets = useSafeAreaInsets();
   const heroTopInset = useHeroTopInset();
   const scrollY = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollView>(null);
@@ -1412,17 +1410,13 @@ export default function HomeScreen() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: homePageBg }}>
-      <SafeAreaView
-        edges={['left', 'right']}
-        className="flex-1"
-        style={[styles.screen, { backgroundColor: 'transparent' }]}
-      >
+    <View style={{ flex: 1, backgroundColor: homeHeaderPanelBg }}>
+      <View className="flex-1" style={[styles.screen, { backgroundColor: 'transparent' }]}>
         <ScrollView
           ref={scrollRef}
           className="flex-1"
           style={styles.scroll}
-          contentContainerStyle={{ paddingBottom: tabBarHeight + 16 }}
+          contentContainerStyle={{ paddingTop: 0, paddingBottom: tabBarHeight + 16 }}
           stickyHeaderIndices={[0]}
           onScroll={Animated.event(
             [{ nativeEvent: { contentOffset: { y: scrollY } } }],
@@ -1624,7 +1618,7 @@ export default function HomeScreen() {
           <QuickFiltersRow />
         </View>
         </ScrollView>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }
