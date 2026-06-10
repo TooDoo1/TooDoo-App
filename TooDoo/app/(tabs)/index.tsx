@@ -21,6 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { HeroImageCarousel, HERO_HEIGHT } from '@/components/hero-image-carousel';
 import { heroSlides } from '@/lib/hero-slides';
+import { useHeroTopInset } from '@/lib/use-hero-top-inset';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { BrandColors, brandInkRgba, FilterChipTheme } from '@/lib/brand-colors';
 import { uiTheme } from '@/lib/ui-theme';
@@ -794,6 +795,7 @@ export default function HomeScreen() {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const tabBarHeight = useBottomTabBarHeight();
   const insets = useSafeAreaInsets();
+  const heroTopInset = useHeroTopInset();
   const scrollY = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollView>(null);
   const router = useRouter();
@@ -1441,12 +1443,12 @@ export default function HomeScreen() {
           {(() => {
             const heroHeight = scrollY.interpolate({
               inputRange: [0, 120],
-              outputRange: [HERO_HEIGHT + insets.top, 0],
+              outputRange: [HERO_HEIGHT + heroTopInset, 0],
               extrapolate: 'clamp',
             });
             const headerTopPadding = scrollY.interpolate({
               inputRange: [0, 120],
-              outputRange: [8, insets.top + 8],
+              outputRange: [8, heroTopInset + 8],
               extrapolate: 'clamp',
             });
 
@@ -1456,7 +1458,7 @@ export default function HomeScreen() {
                   <HeroImageCarousel
                     slides={heroSlides}
                     panelBackgroundColor={homeHeaderPanelBg}
-                    topInset={insets.top}
+                    topInset={heroTopInset}
                   />
                 </Animated.View>
                 <View
