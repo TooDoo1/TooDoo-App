@@ -1,6 +1,7 @@
 import type { OfferCardItem } from '@/lib/home-offers';
 
 const TTL_MS = 2 * 60 * 1000;
+const HOME_SNAPSHOT_TTL_MS = 15 * 60 * 1000;
 
 type CacheEntry<T> = {
   data: T;
@@ -49,4 +50,38 @@ export function setHomeEndingSoonCache(data: OfferCardItem[]) {
 
 export function getHomeEndingSoonCache(): OfferCardItem[] | null {
   return isFresh(endingSoonCache) ? endingSoonCache.data : null;
+}
+
+export type HomeFilterCategory = { id: string; label: string };
+
+/** Full Upptäck screen snapshot — keeps UI instant when popping stack on web. */
+export type HomeScreenSnapshot = {
+  categoryFilters: HomeFilterCategory[];
+  deals: unknown[];
+  nearYouCards: unknown[];
+  hotOfferCards: unknown[];
+};
+
+let homeScreenSnapshot: CacheEntry<HomeScreenSnapshot> | null = null;
+
+function isSnapshotFresh(entry: CacheEntry<HomeScreenSnapshot> | null): entry is CacheEntry<HomeScreenSnapshot> {
+  return Boolean(entry && Date.now() - entry.at < HOME_SNAPSHOT_TTL_MS);
+}
+
+export function setHomeScreenSnapshot(data: HomeScreenSnapshot) {
+  homeScreenSnapshot = { data, at: Date.now() };
+}
+
+export function getHomeScreenSnapshot(): HomeScreenSnapshot | null {
+  return isSnapshotFresh(homeScreenSnapshot) ? homeScreenSnapshot.data : null;
+}
+
+let homeScrollOffsetY = 0;
+
+export function setHomeScrollOffset(y: number) {
+  homeScrollOffsetY = Math.max(0, y);
+}
+
+export function getHomeScrollOffset() {
+  return homeScrollOffsetY;
 }

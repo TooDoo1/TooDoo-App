@@ -6,15 +6,17 @@ import {
   type DetailReturnKey,
   navigateBackFromDetail,
 } from '@/lib/detail-navigation';
+import { blurActiveElementOnWeb } from '@/lib/web-focus';
 
-function webReplaceFromDetail(router: Router, returnTo?: string | string[]) {
+function resolveDetailReturnRoute(returnTo?: string | string[]) {
   const key = (Array.isArray(returnTo) ? returnTo[0] : returnTo) as DetailReturnKey | undefined;
-  const route =
-    key && key in DETAIL_RETURN_ROUTES ? DETAIL_RETURN_ROUTES[key] : DETAIL_RETURN_ROUTES.index;
-  router.replace(route);
+  if (key && key in DETAIL_RETURN_ROUTES) {
+    return DETAIL_RETURN_ROUTES[key];
+  }
+  return DETAIL_RETURN_ROUTES.index;
 }
 
-/** Pop stack screens on web without browser history (router.back reloads the page). */
+/** Pop stack screens on web without replace (keeps tabs mounted in the background). */
 export function performWebStackBack(
   router: Router,
   options?: { returnTo?: string | string[]; isCompanyDetail?: boolean }
@@ -30,15 +32,12 @@ export function performWebStackBack(
     return;
   }
 
-  if (router.canDismiss()) {
-    router.dismiss();
-    return;
-  }
+  blurActiveElementOnWeb();
 
   if (options?.isCompanyDetail) {
-    webReplaceFromDetail(router, options.returnTo);
+    router.dismissTo(resolveDetailReturnRoute(options.returnTo));
     return;
   }
 
-  router.replace(DETAIL_RETURN_ROUTES.index);
+  router.dismiss();
 }

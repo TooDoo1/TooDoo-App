@@ -2,14 +2,21 @@ import { useGlobalSearchParams, useRouter, useSegments } from 'expo-router';
 import { useCallback, useEffect, type ReactNode } from 'react';
 import { Platform, useWindowDimensions } from 'react-native';
 import Animated, {
+  runOnJS,
   useAnimatedStyle,
   withTiming,
 } from 'react-native-reanimated';
 
 import { useTabBarMotion } from '@/context/tab-bar-motion-context';
 import { useWebStackSwipe } from '@/context/web-stack-swipe-context';
-import { DETAIL_SCREEN_MOTION_EASING, DETAIL_SCREEN_MOTION_MS } from '@/lib/detail-screen-motion';
+import {
+  DETAIL_SCREEN_MOTION_EASING,
+  getStackMotionMs,
+  WEB_STACK_MOTION_MS,
+} from '@/lib/detail-screen-motion';
+import { blurActiveElementOnWeb } from '@/lib/web-focus';
 import { performWebStackBack } from '@/lib/web-stack-navigation';
+import { BrandColors } from '@/lib/brand-colors';
 import {
   FULL_SCREEN_STACK_SEGMENTS,
   shouldRevealTabBarOnStackSwipeBack,
@@ -38,10 +45,10 @@ export function WebStackEdgeSwipeBack() {
   const revealTabBarOnBack = shouldRevealTabBarOnStackSwipeBack(topSegment, params.returnTo);
 
   const performBack = useCallback(() => {
-    const topSegment = segments[segments.length - 1];
+    const currentTop = segments[segments.length - 1];
     performWebStackBack(router, {
       returnTo: params.returnTo,
-      isCompanyDetail: topSegment === 'company-detail',
+      isCompanyDetail: currentTop === 'company-detail',
     });
   }, [params.returnTo, router, segments]);
 
@@ -51,6 +58,7 @@ export function WebStackEdgeSwipeBack() {
       return;
     }
 
+    const motionMs = getStackMotionMs();
     const edgeWidth = windowWidth * SWIPE_BACK_EDGE_FRACTION;
     let tracking = false;
     let decided = false;
@@ -61,12 +69,12 @@ export function WebStackEdgeSwipeBack() {
       tracking = false;
       decided = false;
       translateX.value = withTiming(0, {
-        duration: DETAIL_SCREEN_MOTION_MS,
+        duration: motionMs,
         easing: DETAIL_SCREEN_MOTION_EASING,
       });
       const hideProgress = cancelled || !revealTabBarOnBack ? 1 : 0;
       stackHideProgress.value = withTiming(hideProgress, {
-        duration: DETAIL_SCREEN_MOTION_MS,
+        duration: motionMs,
         easing: DETAIL_SCREEN_MOTION_EASING,
       });
     };
@@ -74,13 +82,21 @@ export function WebStackEdgeSwipeBack() {
     const completeBack = () => {
       tracking = false;
       decided = false;
-      translateX.value = withTiming(windowWidth, { duration: 180, easing: DETAIL_SCREEN_MOTION_EASING });
-      stackHideProgress.value = withTiming(revealTabBarOnBack ? 0 : 1, {
-        duration: 180,
-        easing: DETAIL_SCREEN_MOTION_EASING,
-      });
-      performBack();
-      translateX.value = 0;
+
+      if (revealTabBarOnBack) {
+        stackHideProgress.value = 0;
+      }
+
+      translateX.value = withTiming(
+        windowWidth,
+        { duration: WEB_STACK_MOTION_MS, easing: DETAIL_SCREEN_MOTION_EASING },
+        (finished) => {
+          if (finished) {
+            runOnJS(blurActiveElementOnWeb)();
+            runOnJS(performBack)();
+          }
+        }
+      );
     };
 
     const onPointerDown = (event: PointerEvent) => {
@@ -157,13 +173,29 @@ export function WebStackEdgeSwipeBack() {
   return null;
 }
 
+const STACK_SWIPE_SURFACE = BrandColors.dark.background;
+
 function WebStackSwipeContainerWeb({ children }: { children: ReactNode }) {
   const { translateX } = useWebStackSwipe();
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],
   }));
 
-  return <Animated.View style={[{ flex: 1 }, animatedStyle]}>{children}</Animated.View>;
+  return (
+    <Animated.View
+      style={[
+        {
+          flex: 1,
+          backgroundColor: STACK_SWIPE_SURFACE,
+          overflow: 'hidden',
+          backfaceVisibility: 'hidden',
+        },
+        animatedStyle,
+      ]}
+    >
+      {children}
+    </Animated.View>
+  );
 }
 
 export function WebStackSwipeContainer({ children }: { children: ReactNode }) {

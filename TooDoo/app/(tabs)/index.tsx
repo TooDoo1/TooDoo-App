@@ -1,8 +1,10 @@
+import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
   ImageSourcePropType,
+  Platform,
   RefreshControl,
   Pressable,
   ScrollView,
@@ -46,10 +48,15 @@ import {
 } from '@/lib/category-colors';
 import { computeDiscountLabel, getDiscountBadgeColor, type OfferCardItem } from '@/lib/home-offers';
 import {
+  getHomeScreenSnapshot,
+  getHomeScrollOffset,
   setHomeEndingSoonCache,
   setHomeHotOffersCache,
   setHomeNearbyBusinessesCache,
+  setHomeScreenSnapshot,
+  setHomeScrollOffset,
 } from '@/lib/home-list-cache';
+import { blurActiveElementOnWeb } from '@/lib/web-focus';
 
 const IMAGE_HYDRATE_CONCURRENCY = 5;
 
@@ -551,7 +558,10 @@ function FeaturedDealCard({
     <Pressable
       onPress={() => onPress?.(card)}
       className="overflow-hidden rounded-2xl"
-      style={{ height, backgroundColor: '#000' }}
+      style={[
+        { height, backgroundColor: '#000' },
+        Platform.OS === 'web' ? ({ outlineStyle: 'none', outlineWidth: 0 } as const) : null,
+      ]}
     >
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
         <CardMedia source={card.image} svgFit="fill" />
@@ -783,12 +793,19 @@ function isLikelyPicsumUrl(uri: string) {
 }
 
 export default function HomeScreen() {
+  const homeSnapshot = getHomeScreenSnapshot();
   const [activeCategory, setActiveCategory] = useState<string>(ALL_CATEGORIES_ID);
-  const [categoryFilters, setCategoryFilters] = useState<FilterCategory[]>([]);
-  const [deals, setDeals] = useState<CardItem[]>([]);
-  const [nearYouCards, setNearYouCards] = useState<CardItem[]>([]);
-  const [hotOfferCards, setHotOfferCards] = useState<CardItem[]>([]);
-  const [isLoadingData, setIsLoadingData] = useState(true);
+  const [categoryFilters, setCategoryFilters] = useState<FilterCategory[]>(
+    (homeSnapshot?.categoryFilters as FilterCategory[]) ?? []
+  );
+  const [deals, setDeals] = useState<CardItem[]>((homeSnapshot?.deals as CardItem[]) ?? []);
+  const [nearYouCards, setNearYouCards] = useState<CardItem[]>(
+    (homeSnapshot?.nearYouCards as CardItem[]) ?? []
+  );
+  const [hotOfferCards, setHotOfferCards] = useState<CardItem[]>(
+    (homeSnapshot?.hotOfferCards as CardItem[]) ?? []
+  );
+  const [isLoadingData, setIsLoadingData] = useState(!homeSnapshot);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
@@ -796,8 +813,9 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const scrollBottomPadding = getFloatingTabBarScrollPadding(insets.bottom);
   const heroTopInset = useHeroTopInset();
-  const scrollY = useRef(new Animated.Value(0)).current;
+  const scrollY = useRef(new Animated.Value(getHomeScrollOffset())).current;
   const scrollRef = useRef<ScrollView>(null);
+  const scrollOffsetRef = useRef(getHomeScrollOffset());
   const router = useRouter();
   const { markDataReady } = useAppReady();
   const { token } = useAuth();
@@ -812,6 +830,26 @@ export default function HomeScreen() {
     setIsRefreshing(true);
     setRefreshNonce((prev) => prev + 1);
   }, []);
+
+  const restoreHomeScroll = useCallback(() => {
+    const y = getHomeScrollOffset();
+    if (y <= 0) return;
+    scrollY.setValue(y);
+    scrollRef.current?.scrollTo({ y, animated: false });
+  }, [scrollY]);
+
+  useFocusEffect(
+    useCallback(() => {
+      blurActiveElementOnWeb();
+      requestAnimationFrame(() => {
+        requestAnimationFrame(restoreHomeScroll);
+      });
+
+      return () => {
+        setHomeScrollOffset(scrollOffsetRef.current);
+      };
+    }, [restoreHomeScroll])
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -832,7 +870,10 @@ export default function HomeScreen() {
     let cancelled = false;
 
     const loadHomeData = async () => {
-      setIsLoadingData(true);
+      const hasSnapshot = Boolean(getHomeScreenSnapshot());
+      if (!hasSnapshot) {
+        setIsLoadingData(true);
+      }
       try {
         const [categoryRes, businessRes, ordersRes] = await Promise.all([
           fetch(apiUrl('/category')),
@@ -1135,6 +1176,13 @@ export default function HomeScreen() {
           setNearYouCards(nearYouFromApi);
           setHotOfferCards(hotFromApi);
 
+          setHomeScreenSnapshot({
+            categoryFilters: apiCategoryFilters,
+            deals: dealsList,
+            nearYouCards: nearYouFromApi,
+            hotOfferCards: hotFromApi,
+          });
+
           setHomeNearbyBusinessesCache(
             dealsList.map((card) => {
               const uri =
@@ -1337,6 +1385,12 @@ export default function HomeScreen() {
     }
   }, [activeCategory, categoryOptions]);
 
+  useEffect(() => {
+    if (isLoadingData) return;
+    if (getHomeScrollOffset() <= 0) return;
+    requestAnimationFrame(() => restoreHomeScroll());
+  }, [isLoadingData, restoreHomeScroll]);
+
   const filterCardsBySearch = useCallback(
     (cards: CardItem[]) => {
       const q = searchQuery.trim().toLowerCase();
@@ -1383,6 +1437,8 @@ export default function HomeScreen() {
       typeof card.image === 'object' && card.image && 'uri' in card.image && typeof card.image.uri === 'string'
         ? card.image.uri
         : '';
+
+    setHomeScrollOffset(scrollOffsetRef.current);
 
     router.push({
       pathname: COMPANY_DETAIL_PATH,
@@ -1503,7 +1559,12 @@ export default function HomeScreen() {
           stickyHeaderIndices={[0]}
           onScroll={Animated.event(
             [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-            { useNativeDriver: false }
+            {
+              useNativeDriver: false,
+              listener: (event: { nativeEvent: { contentOffset: { y: number } } }) => {
+                scrollOffsetRef.current = event.nativeEvent.contentOffset.y;
+              },
+            }
           )}
           scrollEventThrottle={16}
           refreshControl={

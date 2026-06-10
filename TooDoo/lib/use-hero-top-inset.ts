@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { isStandaloneWebApp } from '@/lib/pwa-standalone';
+
 function readWebSafeAreaTop(): number {
   if (typeof document === 'undefined') return 0;
 
@@ -12,14 +14,6 @@ function readWebSafeAreaTop(): number {
   const top = parseFloat(getComputedStyle(probe).paddingTop) || 0;
   document.body.removeChild(probe);
   return top;
-}
-
-function isStandaloneWebApp(): boolean {
-  if (typeof window === 'undefined') return false;
-  return (
-    window.matchMedia('(display-mode: standalone)').matches ||
-    (window.navigator as Navigator & { standalone?: boolean }).standalone === true
-  );
 }
 
 function isIosWeb(): boolean {

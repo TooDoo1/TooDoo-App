@@ -15,7 +15,9 @@ import { AuthProvider } from '@/context/auth-context';
 import { FavoritesProvider } from '@/context/favorites-context';
 import { FavoriteOfferNotificationsProvider } from '@/context/favorite-offer-notifications';
 import { AppReadyProvider, useAppReady } from '@/context/app-ready-context';
+import { PwaStandaloneViewport } from '@/components/pwa-standalone-viewport';
 import { RootFloatingTabBarOverlay } from '@/components/root-floating-tab-bar-overlay';
+import { useStandalonePwa } from '@/lib/use-standalone-pwa';
 import { WebStackEdgeSwipeBack } from '@/components/web-stack-edge-swipe-back';
 import { WebHistoryBackSync } from '@/components/web-history-back-sync';
 import LoadingSplash, { SPLASH_EXIT_DURATION_MS } from '@/components/ui/loading-splash';
@@ -55,6 +57,7 @@ function NativeStackMotionProvider({ children }: { children: ReactNode }) {
 function AppShell() {
 	const { width: windowWidth } = useWindowDimensions();
 	const { effectiveScheme } = useThemePreference();
+	const isStandalonePwa = useStandalonePwa();
 	const { isDataReady, markDataReady } = useAppReady();
 	const swipeableStackScreenOptions = useMemo(
 		() => getSwipeableStackScreenOptions(windowWidth),
@@ -96,15 +99,32 @@ function AppShell() {
 		return () => clearTimeout(unmountTimer);
 	}, [isExiting, isSplashMounted]);
 
+	const appShellStyle =
+		Platform.OS === 'web' && isStandalonePwa
+			? { flex: 1, height: '100%', minHeight: 0, backgroundColor: '#0e1325' as const }
+			: Platform.OS === 'web'
+				? { flex: 1, height: '100%' }
+				: { flex: 1 };
+
 	return (
 		<TabBarMotionProvider>
 			<WebStackSwipeProvider>
 			<NativeStackMotionProvider>
-				<GestureHandlerRootView style={{ flex: 1 }}>
+				<PwaStandaloneViewport />
+				<GestureHandlerRootView
+					nativeID={Platform.OS === 'web' && isStandalonePwa ? 'app-shell' : undefined}
+					style={appShellStyle}
+				>
 					<ThemeProvider value={effectiveScheme === 'dark' ? DarkTheme : DefaultTheme}>
 						<WebStackEdgeSwipeBack />
 						<WebHistoryBackSync />
-						<Stack>
+						<View style={appShellStyle}>
+						<Stack
+							screenOptions={{
+								contentStyle: { flex: 1, backgroundColor: '#0e1325' },
+								...(Platform.OS === 'web' ? { detachInactiveScreens: false } : {}),
+							}}
+						>
 							<Stack.Screen name="(tabs)" options={{ headerShown: false }} />
 							<Stack.Screen name="company-detail" options={swipeableStackScreenOptions} />
 							<Stack.Screen name="nara-dig" options={swipeableStackScreenOptions} />
@@ -112,6 +132,7 @@ function AppShell() {
 							<Stack.Screen name="slutar-snart" options={swipeableStackScreenOptions} />
 							<Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
 						</Stack>
+						</View>
 						{!isSplashMounted ? <RootFloatingTabBarOverlay /> : null}
 						<StatusBar style={effectiveScheme === 'dark' ? 'light' : 'dark'} />
 						{isSplashMounted ? (

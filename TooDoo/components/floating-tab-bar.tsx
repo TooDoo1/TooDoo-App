@@ -2,10 +2,11 @@ import {
   type BottomTabBarProps,
   BottomTabBarHeightCallbackContext,
 } from '@react-navigation/bottom-tabs';
-import { useContext, useEffect } from 'react';
+import { useContext, useEffect, useLayoutEffect } from 'react';
 import { Platform } from 'react-native';
 
 import { useTabBarMotion } from '@/context/tab-bar-motion-context';
+import { isStandaloneWebApp } from '@/lib/pwa-standalone';
 
 export const TAB_BAR_HEIGHT = 64;
 export const TAB_BAR_RADIUS = 32;
@@ -31,10 +32,18 @@ export function getTabBarLeft(windowWidth: number, barWidth: number) {
 }
 
 export function getTabBarBottomOffset(insetsBottom: number, platform: string = 'ios') {
-  const raw = insetsBottom + TAB_BAR_EXTRA_BOTTOM;
   if (platform === 'web') {
-    return Math.max(raw, TAB_BAR_WEB_BOTTOM_INSET);
+    // Standalone viewport already reaches the screen bottom — don't double safe-area offset.
+    if (isStandaloneWebApp()) {
+      return TAB_BAR_WEB_BOTTOM_INSET;
+    }
+    if (insetsBottom > 0) {
+      return Math.max(insetsBottom + TAB_BAR_EXTRA_BOTTOM, TAB_BAR_WEB_BOTTOM_INSET);
+    }
+    return TAB_BAR_WEB_BOTTOM_INSET;
   }
+
+  const raw = insetsBottom + TAB_BAR_EXTRA_BOTTOM;
   return Math.max(raw, 0);
 }
 
@@ -44,25 +53,26 @@ export function getFloatingTabBarScrollPadding(
   platform: string = Platform.OS,
   extra = 16
 ) {
-  return TAB_BAR_HEIGHT + getTabBarBottomOffset(insetsBottom, platform) + extra;
+  const bottomOffset = getTabBarBottomOffset(insetsBottom, platform);
+  // Standalone: content scrolls under the overlay fade — only reserve tab bar height.
+  if (platform === 'web' && isStandaloneWebApp()) {
+    return TAB_BAR_HEIGHT + bottomOffset + 8;
+  }
+  return TAB_BAR_HEIGHT + bottomOffset + extra;
 }
 
 export function FloatingTabBar(props: BottomTabBarProps) {
   const { setTabBarProps } = useTabBarMotion();
   const setTabBarHeight = useContext(BottomTabBarHeightCallbackContext);
 
-  useEffect(() => {
-    setTabBarProps(props);
-  }, [props, setTabBarProps]);
-
-  useEffect(() => {
-    return () => setTabBarProps(null);
-  }, [setTabBarProps]);
-
-  // Tab bar renders in RootFloatingTabBarOverlay — tell the navigator not to reserve ~83px.
-  useEffect(() => {
+  useLayoutEffect(() => {
     setTabBarHeight?.(0);
   }, [setTabBarHeight]);
+
+  useEffect(() => {
+    setTabBarProps(props);
+    return () => setTabBarProps(null);
+  }, [props, setTabBarProps]);
 
   return null;
 }

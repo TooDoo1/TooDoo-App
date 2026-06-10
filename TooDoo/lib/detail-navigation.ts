@@ -20,19 +20,17 @@ export const DETAIL_RETURN_ROUTES = {
 
 export type DetailReturnKey = keyof typeof DETAIL_RETURN_ROUTES;
 
+function resolveDetailReturnRoute(returnTo?: string | string[]) {
+  const key = (Array.isArray(returnTo) ? returnTo[0] : returnTo) as DetailReturnKey | undefined;
+  if (key && key in DETAIL_RETURN_ROUTES) {
+    return DETAIL_RETURN_ROUTES[key];
+  }
+  return DETAIL_RETURN_ROUTES.index;
+}
+
 export function navigateBackFromDetail(router: Router, returnTo?: string | string[]) {
   if (Platform.OS === 'web') {
-    if (router.canDismiss()) {
-      router.dismiss();
-      return;
-    }
-
-    const key = (Array.isArray(returnTo) ? returnTo[0] : returnTo) as DetailReturnKey | undefined;
-    if (key && key in DETAIL_RETURN_ROUTES) {
-      router.replace(DETAIL_RETURN_ROUTES[key]);
-      return;
-    }
-    router.replace(DETAIL_RETURN_ROUTES.index);
+    router.dismissTo(resolveDetailReturnRoute(returnTo));
     return;
   }
 
@@ -41,10 +39,5 @@ export function navigateBackFromDetail(router: Router, returnTo?: string | strin
     return;
   }
 
-  const key = (Array.isArray(returnTo) ? returnTo[0] : returnTo) as DetailReturnKey | undefined;
-  if (key && key in DETAIL_RETURN_ROUTES) {
-    router.replace(DETAIL_RETURN_ROUTES[key]);
-    return;
-  }
-  router.replace(DETAIL_RETURN_ROUTES.index);
+  router.replace(resolveDetailReturnRoute(returnTo));
 }

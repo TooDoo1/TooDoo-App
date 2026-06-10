@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { Text, View } from 'react-native';
+import { Platform, Text, View } from 'react-native';
 
 import { FloatingTabBar } from '@/components/floating-tab-bar';
 import { TabBarStackMotionReset } from '@/components/tab-bar-stack-motion-reset';
@@ -15,8 +15,8 @@ function tabBarIcon(
   name: React.ComponentProps<typeof IconSymbol>['name'],
   activeColor: string
 ) {
-  return ({ color, focused }: { color: string; focused: boolean }) => (
-    <IconSymbol size={26} name={name} color={focused ? activeColor : color} />
+  return ({ color, focused, size = 24 }: { color: string; focused: boolean; size?: number }) => (
+    <IconSymbol size={size} name={name} color={focused ? activeColor : color} />
   );
 }
 
@@ -35,7 +35,7 @@ function selectedWhiteLabel({
         color: focused ? '#FFFFFF' : color,
         fontSize: 11,
         fontWeight: '600',
-        marginBottom: 2,
+        lineHeight: 13,
       }}
     >
       {children}
@@ -59,13 +59,13 @@ function coloredTabOptions(
 export default function TabLayout() {
   const { effectiveScheme } = useThemePreference();
   const { isLoggedIn } = useAuth();
-
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, ...(Platform.OS === 'web' ? { minHeight: 0 } : {}) }}>
       <TabBarStackMotionReset />
       <Tabs
       tabBar={(props) => <FloatingTabBar {...props} />}
       screenOptions={{
+        ...(Platform.OS === 'web' ? { sceneStyle: { flex: 1 } } : {}),
         tabBarActiveTintColor: '#FFFFFF',
         tabBarInactiveTintColor: Colors[effectiveScheme].tabIconDefault,
         tabBarLabelPosition: 'below-icon',
@@ -74,17 +74,11 @@ export default function TabLayout() {
           left: 0,
           right: 0,
           bottom: 0,
+          height: 0,
+          overflow: 'visible',
           backgroundColor: 'transparent',
           borderTopWidth: 0,
           elevation: 0,
-        },
-        tabBarItemStyle: {
-          paddingTop: 6,
-        },
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: '600',
-          marginBottom: 2,
         },
         headerShown: false,
         tabBarButton: HapticTab,

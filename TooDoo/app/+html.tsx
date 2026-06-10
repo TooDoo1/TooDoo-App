@@ -3,6 +3,33 @@ import { type PropsWithChildren } from 'react';
 
 const PWA_THEME_COLOR = '#0e1325';
 
+const pwaViewportHeight = `
+(function () {
+  function isStandalonePwa() {
+    return (
+      window.matchMedia('(display-mode: standalone)').matches ||
+      window.navigator.standalone === true
+    );
+  }
+
+  function applyViewportHeight() {
+    var root = document.documentElement;
+    if (isStandalonePwa()) {
+      root.classList.add('standalone-pwa');
+      // 100vh = full screen in standalone; 100dvh is short by safe-area-inset-top on iOS.
+      root.style.setProperty('--app-height', '100vh');
+    } else {
+      root.classList.remove('standalone-pwa');
+      root.style.setProperty('--app-height', '100dvh');
+    }
+  }
+
+  applyViewportHeight();
+  window.addEventListener('resize', applyViewportHeight);
+  window.addEventListener('orientationchange', applyViewportHeight);
+})();
+`;
+
 const serviceWorkerRegistration = `
 if ('serviceWorker' in navigator) {
   var host = location.hostname;
@@ -36,6 +63,7 @@ export default function Root({ children }: PropsWithChildren) {
         <meta name="apple-mobile-web-app-title" content="TooDoo" />
         <link rel="apple-touch-icon" href="/icon-192.png" />
         <ScrollViewStyleReset />
+        <script dangerouslySetInnerHTML={{ __html: pwaViewportHeight }} />
         <script dangerouslySetInnerHTML={{ __html: serviceWorkerRegistration }} />
       </head>
       <body>{children}</body>

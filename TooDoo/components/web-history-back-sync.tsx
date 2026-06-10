@@ -37,8 +37,9 @@ export function WebHistoryBackSync() {
     window.addEventListener('popstate', onPopState);
     return () => {
       window.removeEventListener('popstate', onPopState);
+      // Do not history.back() here — it races swipe-back dismiss and freezes Safari/PWA.
       if (history.state?.toodooBackTrap) {
-        history.back();
+        history.replaceState(null, '', window.location.href);
       }
     };
   }, [isOnStackScreen, params.returnTo, router, topSegment]);
