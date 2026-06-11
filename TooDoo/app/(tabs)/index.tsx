@@ -1478,6 +1478,7 @@ export default function HomeScreen() {
   };
 
   const heroBlockHeight = HERO_HEIGHT + heroTopInset;
+  const searchPanelStickyLift = 12;
   const heroCollapseScroll = 120;
   const heroHeight = scrollY.interpolate({
     inputRange: [0, heroCollapseScroll],
@@ -1486,12 +1487,12 @@ export default function HomeScreen() {
   });
   const headerTopPadding = scrollY.interpolate({
     inputRange: [0, heroCollapseScroll - 8, heroCollapseScroll],
-    outputRange: [8, 8, heroTopInset + 8],
+    outputRange: [8, 8, heroTopInset + 8 - searchPanelStickyLift],
     extrapolate: 'clamp',
   });
   const webStickyTopPadding = scrollY.interpolate({
     inputRange: [0, Math.max(heroBlockHeight - heroTopInset, 1), heroBlockHeight],
-    outputRange: [16, heroTopInset + 16, heroTopInset + 16],
+    outputRange: [16, heroTopInset + 16, heroTopInset + 16 - searchPanelStickyLift],
     extrapolate: 'clamp',
   });
   const searchPanelStyle = {
