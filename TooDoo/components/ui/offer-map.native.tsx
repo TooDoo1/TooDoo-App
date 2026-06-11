@@ -30,8 +30,9 @@ export function OfferMap({
     originCoords &&
     Number.isFinite(originCoords.latitude) &&
     Number.isFinite(originCoords.longitude);
+  const hasAddress = Boolean(addressText?.trim());
 
-  if (hasOrigin) {
+  if (hasOrigin || hasAddress) {
     return (
       <WebView
         key={mapKey}

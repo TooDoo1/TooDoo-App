@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   Alert,
   Animated,
   Image,
   ImageSourcePropType,
+  InteractionManager,
   Linking,
   Modal,
   Platform,
@@ -28,14 +29,44 @@ import { CompanyDetailTabBarSync } from "@/components/company-detail-tab-bar-syn
 import { WebStackSwipeContainer } from "@/components/web-stack-edge-swipe-back";
 import { navigateBackFromDetail } from "@/lib/detail-navigation";
 import { performWebStackBack } from "@/lib/web-stack-navigation";
-import { isActiveOffer } from "@/lib/home-offers";
+import { formatBusinessAddress, isPlaceholderNavigationId } from "@/lib/home-offers";
 import { BrandColors, brandInkRgba, brandNavyRgba } from "@/lib/brand-colors";
 import { getOrderNotClaimableReason, getOrderPublishEndMs } from "@/lib/order-claim-window";
-import { getUserCoordsIfGranted } from "@/lib/geo";
+import { geocodeAddressNominatim, getUserCoordsIfGranted, isPlausibleSwedenCoordinate } from "@/lib/geo";
+import { enrichCompanyDetailImages, loadCompanyDetail } from "@/lib/load-company-detail";
 
 const localImagesById: Record<string, ImageSourcePropType> = {
   "event-3": require("../assets/images/testbild.jpg"),
 };
+
+type DetailOffer = {
+  id: string;
+  orderId?: string;
+  text?: string;
+  priceText?: string;
+  originalPriceText?: string;
+  claimedCount: number;
+  totalCount: number;
+  progressPercent: number;
+  endDate?: Date;
+};
+
+function sortOffersWithFocusedFirst(offers: DetailOffer[], focusedOrderId?: string) {
+  if (!focusedOrderId || offers.length <= 1) {
+    return offers;
+  }
+
+  const focus = String(focusedOrderId);
+  const index = offers.findIndex((offer) => String(offer.orderId) === focus);
+  if (index <= 0) {
+    return offers;
+  }
+
+  const next = [...offers];
+  const [focused] = next.splice(index, 1);
+  next.unshift(focused);
+  return next;
+}
 
 export default function CompanyDetailScreen() {
   const router = useRouter();
@@ -112,7 +143,15 @@ export default function CompanyDetailScreen() {
       : undefined;
   const websiteUrl = Array.isArray(Website) ? Website[0] : Website;
   const rawAddressText = Array.isArray(Adress) ? Adress[0] : Adress;
-  const addressText = rawAddressText?.trim() ? rawAddressText.trim() : undefined;
+  const paramAddressText = (() => {
+    const trimmed = rawAddressText?.trim();
+    if (!trimmed || trimmed === "Adress saknas") return undefined;
+    return trimmed;
+  })();
+  const addressText = useMemo(
+    () => formatBusinessAddress(hydratedBusiness) || paramAddressText,
+    [hydratedBusiness, paramAddressText]
+  );
   const phoneText = Array.isArray(Telefon) ? Telefon[0] : Telefon;
   const dealFlag = Array.isArray(deal) ? deal[0] : deal;
   const resetNonceText = Array.isArray(mapResetNonce) ? mapResetNonce[0] : mapResetNonce;
@@ -126,160 +165,65 @@ export default function CompanyDetailScreen() {
       ? { latitude: paramLatitude, longitude: paramLongitude }
       : undefined;
 
-  const toParamList = (value?: string | string[]) => {
-    if (!value) {
-      return [] as string[];
-    }
-
-    const rawValues = Array.isArray(value) ? value : [value];
-
-    return rawValues.flatMap((raw) => {
-      const trimmed = raw.trim();
-      if (!trimmed) {
-        return [];
-      }
-
-      if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-        try {
-          const parsed = JSON.parse(trimmed);
-          if (Array.isArray(parsed)) {
-            return parsed.map((item) => String(item));
-          }
-        } catch {
-          return [trimmed];
-        }
-      }
-
-      return [trimmed];
-    });
-  };
-
-  const offerTexts = toParamList(erbjudande);
-  const offerOrderIds = toParamList(orderIds);
   const claimOrderIdText = Array.isArray(claimOrderId) ? claimOrderId[0] : claimOrderId;
   const claimBusinessIdText = Array.isArray(claimBusinessId) ? claimBusinessId[0] : claimBusinessId;
   const businessIdFromIdParam = Array.isArray(id) ? id[0] : id;
-  const offerPriceTexts = toParamList(erbjudandepris);
-  const offerOriginalPriceTexts = toParamList(erbjudandeoriginalpris);
-  const offerClaimedTexts = toParamList(erbjudandeclaimade);
-  const offerAmountTexts = toParamList(erbjudandemängd);
-  const offerEndTexts = toParamList(erbjudandelängd);
   const claimWobbleValue = useMemo(() => new Animated.Value(0), []);
   const claimWobbleRotate = claimWobbleValue.interpolate({
     inputRange: [-1, 1],
     outputRange: ["-2deg", "2deg"],
   });
 
+  const ordersRawRef = useRef<any[]>([]);
+  const resolvedBusinessIdRef = useRef<string | undefined>(undefined);
+
   useEffect(() => {
-    const businessId = claimBusinessIdText || businessIdFromIdParam;
-    if (!businessId) return;
     let cancelled = false;
+    ordersRawRef.current = [];
+    resolvedBusinessIdRef.current = undefined;
 
-    (async () => {
-      try {
-        const res = await fetch(apiUrl(`/business/${encodeURIComponent(businessId)}`));
-        const json = await res.json().catch(() => ({}));
+    let businessId = claimBusinessIdText || businessIdFromIdParam;
+    if (isPlaceholderNavigationId(businessId)) {
+      businessId = undefined;
+    }
+    resolvedBusinessIdRef.current = businessId;
 
-        const businessObj = (json as any)?.business ?? (json as any);
-        const ordersRaw =
-          (Array.isArray(businessObj?.activeOrders) && businessObj.activeOrders) ||
-          (Array.isArray(businessObj?.orders) && businessObj.orders) ||
-          (Array.isArray(businessObj?.active_orders) && businessObj.active_orders) ||
-          (Array.isArray((json as any)?.activeOrders) && (json as any).activeOrders) ||
-          (Array.isArray((json as any)?.orders) && (json as any).orders) ||
-          [];
+    void (async () => {
+      const result = await loadCompanyDetail({
+        businessId,
+        claimOrderId: claimOrderIdText,
+      });
 
-        const next: Record<string, string> = {};
-        const nextCounts: Record<string, { claimed: number; total: number }> = {};
-        ordersRaw.forEach((order: any) => {
-          const orderId = String(
-            order?.id ??
-              order?._id ??
-              order?.orderId ??
-              order?.order?.id ??
-              order?.order?._id ??
-              ""
-          );
-          if (!orderId) return;
-          const raw =
-            order?.imageUrl ??
-            order?.imageAsset?.publicUrl ??
-            order?.imageAsset?.url ??
-            order?.image?.publicUrl ??
-            order?.image?.url;
-          const normalized = normalizeImageUrl(raw);
-          if (normalized) next[orderId] = normalized;
-
-          const claimed = Number(order?.claimedRedemptions ?? order?.claimedCount ?? NaN);
-          const total = Number(order?.maxRedemptions ?? NaN);
-          if (Number.isFinite(claimed) || Number.isFinite(total)) {
-            nextCounts[orderId] = {
-              claimed: Number.isFinite(claimed) ? claimed : 0,
-              total: Number.isFinite(total) ? total : 0,
-            };
-          }
-        });
-
-        // If the business payload doesn't contain the images for all orderIds, hydrate missing ones
-        // using the canonical endpoint: GET /orders/:orderId
-        const missingOfferIds = offerOrderIds
-          .map((x) => String(x))
-          .filter((id) => id && !next[id])
-          .slice(0, 25);
-
-        if (missingOfferIds.length > 0) {
-          await Promise.all(
-            missingOfferIds.map(async (orderId) => {
-              try {
-                const orderRes = await fetch(apiUrl(`/orders/${encodeURIComponent(orderId)}`));
-                const orderJson = await orderRes.json().catch(() => ({}));
-                const orderObj = (orderJson as any)?.order ?? (orderJson as any);
-                const raw =
-                  orderObj?.imageUrl ??
-                  orderObj?.imageAsset?.publicUrl ??
-                  orderObj?.imageAsset?.url ??
-                  orderObj?.image?.publicUrl ??
-                  orderObj?.image?.url;
-                const normalized = normalizeImageUrl(raw);
-                if (normalized) next[orderId] = normalized;
-
-                const claimed = Number(orderObj?.claimedRedemptions ?? orderObj?.claimedCount ?? NaN);
-                const total = Number(orderObj?.maxRedemptions ?? NaN);
-                if (Number.isFinite(claimed) || Number.isFinite(total)) {
-                  nextCounts[orderId] = {
-                    claimed: Number.isFinite(claimed) ? claimed : 0,
-                    total: Number.isFinite(total) ? total : 0,
-                  };
-                }
-              } catch {
-                // ignore per-order failures
-              }
-            })
-          );
-        }
-
-        const activeOrders = ordersRaw.filter((order: any) => isActiveOffer(order));
-
-        if (!cancelled) {
-          setOrderImageUriById(next);
-          setLiveCountsByOrderId(nextCounts);
-          setHydratedOrders(activeOrders);
-          setHydratedBusiness(businessObj ?? null);
-        }
-      } catch {
-        if (!cancelled) {
-          setOrderImageUriById({});
-          setLiveCountsByOrderId({});
-          setHydratedOrders([]);
-          setHydratedBusiness(null);
-        }
+      if (cancelled || !result) {
+        return;
       }
+
+      ordersRawRef.current = result.orders;
+      if (result.business?.id ?? result.business?._id) {
+        resolvedBusinessIdRef.current = String(result.business.id ?? result.business._id);
+      }
+
+      setOrderImageUriById(result.images);
+      setLiveCountsByOrderId(result.counts);
+      setHydratedOrders(result.orders);
+      setHydratedBusiness(result.business ?? null);
+
+      void enrichCompanyDetailImages(
+        resolvedBusinessIdRef.current,
+        ordersRawRef.current,
+        result.images,
+        result.counts
+      ).then((enriched) => {
+        if (cancelled || !enriched) return;
+        setOrderImageUriById(enriched.images);
+        setLiveCountsByOrderId(enriched.counts);
+      });
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [claimBusinessIdText, businessIdFromIdParam, offerOrderIds]);
+  }, [claimBusinessIdText, businessIdFromIdParam, claimOrderIdText]);
 
   const mapOrderToOffer = (order: any, index: number) => {
     const orderId = String(order?.id ?? order?._id ?? `order-${index}`);
@@ -290,7 +234,6 @@ export default function CompanyDetailScreen() {
     const totalCount = live && live.total > 0 ? live.total : Number(order?.maxRedemptions ?? 0);
     const publishEndMs = getOrderPublishEndMs(order);
     const endDate = publishEndMs != null ? new Date(publishEndMs) : undefined;
-    const timeLeftMs = endDate ? Math.max(endDate.getTime() - nowMs, 0) : 0;
 
     return {
       id: orderId,
@@ -302,62 +245,27 @@ export default function CompanyDetailScreen() {
       totalCount,
       progressPercent: totalCount > 0 ? Math.min((claimedCount / totalCount) * 100, 100) : 0,
       endDate,
-      timeLeftMs,
     };
   };
 
   const offers = useMemo(() => {
-    const maxLength = Math.max(
-      offerTexts.length,
-    offerOrderIds.length,
-      offerPriceTexts.length,
-      offerOriginalPriceTexts.length,
-      offerClaimedTexts.length,
-      offerAmountTexts.length,
-      offerEndTexts.length
-    );
+    const focusedOrderId = claimOrderIdText;
 
-    if (maxLength === 0) {
-      return hydratedOrders
-        .map(mapOrderToOffer)
-        .filter((offer) => offer.text || offer.priceText || offer.originalPriceText || offer.totalCount > 0 || offer.endDate)
-        .filter((offer) => !offer.endDate || offer.endDate.getTime() > nowMs);
-    }
+    const isVisibleOffer = (offer: DetailOffer) =>
+      Boolean(
+        offer.text ||
+          offer.priceText ||
+          offer.originalPriceText ||
+          offer.totalCount > 0 ||
+          offer.endDate
+      );
 
-    const parsedOffers = Array.from({ length: maxLength }, (_, index) => {
-      const text = offerTexts[index] ?? offerTexts[0];
-      const orderId = offerOrderIds[index] ?? offerOrderIds[0] ?? claimOrderIdText;
-      const priceText = offerPriceTexts[index] ?? offerPriceTexts[0];
-      const originalPriceText = offerOriginalPriceTexts[index] ?? offerOriginalPriceTexts[0];
-      const claimedText = offerClaimedTexts[index] ?? offerClaimedTexts[0];
-      const amountText = offerAmountTexts[index] ?? offerAmountTexts[0];
-      const endText = offerEndTexts[index] ?? offerEndTexts[0];
-      const live = orderId ? liveCountsByOrderId[String(orderId)] : undefined;
-      const claimedCount = live ? live.claimed : Number(claimedText ?? 0);
-      const totalCount = live && live.total > 0 ? live.total : Number(amountText ?? 0);
-      const progressPercent = totalCount > 0 ? Math.min((claimedCount / totalCount) * 100, 100) : 0;
-      const publishEndMs = endText ? Date.parse(endText) : NaN;
-      const endDate = Number.isFinite(publishEndMs) ? new Date(publishEndMs) : undefined;
-      const timeLeftMs = endDate ? Math.max(endDate.getTime() - nowMs, 0) : 0;
+    const hydratedOffers = hydratedOrders
+      .map(mapOrderToOffer)
+      .filter(isVisibleOffer);
 
-      return {
-        id: `${index}-${text ?? "offer"}`,
-        orderId,
-        text,
-        priceText,
-        originalPriceText,
-        claimedCount,
-        totalCount,
-        progressPercent,
-        endDate,
-        timeLeftMs,
-      };
-    })
-      .filter((offer) => offer.text || offer.priceText || offer.originalPriceText || offer.totalCount > 0 || offer.endDate)
-      // Hide offers that have expired (gått ut).
-      .filter((offer) => !offer.endDate || offer.endDate.getTime() > nowMs);
-    return parsedOffers;
-  }, [offerTexts, offerOrderIds, claimOrderIdText, offerPriceTexts, offerOriginalPriceTexts, offerClaimedTexts, offerAmountTexts, offerEndTexts, liveCountsByOrderId, nowMs, dealFlag, hydratedOrders]);
+    return sortOffersWithFocusedFirst(hydratedOffers, focusedOrderId);
+  }, [claimOrderIdText, liveCountsByOrderId, hydratedOrders]);
 
   const hydratedImageUri = normalizeImageUrl(
     hydratedBusiness?.image?.publicUrl ??
@@ -369,9 +277,16 @@ export default function CompanyDetailScreen() {
     websiteUrl ||
     (typeof hydratedBusiness?.website === "string" ? hydratedBusiness.website : undefined);
   const effectivePhoneText = phoneText || hydratedBusiness?.contactPhone;
-  const effectiveDescription =
-    (Array.isArray(långbeskrivning) ? långbeskrivning[0] : långbeskrivning) ||
-    hydratedBusiness?.description;
+  const paramTitle = Array.isArray(title) ? title[0] : title;
+  const displayTitle =
+    (typeof hydratedBusiness?.name === "string" && hydratedBusiness.name.trim()) ||
+    paramTitle ||
+    "";
+  const aboutDescription =
+    typeof hydratedBusiness?.description === "string"
+      ? hydratedBusiness.description.trim()
+      : "";
+
   const showOffersSection = offers.length > 0;
 
   const isDuplicateClaimConflict = (message: string) => {
@@ -665,17 +580,33 @@ export default function CompanyDetailScreen() {
   const phoneUrl = effectivePhoneText
     ? `tel:${effectivePhoneText.replace(/[\s-]/g, "")}`
     : undefined;
+  const businessCoordinate = useMemo(() => {
+    const lat = Number(hydratedBusiness?.latitude);
+    const lng = Number(hydratedBusiness?.longitude);
+    if (isPlausibleSwedenCoordinate(lat, lng)) {
+      return { latitude: lat, longitude: lng };
+    }
+    return undefined;
+  }, [hydratedBusiness?.latitude, hydratedBusiness?.longitude]);
+
+  const fallbackCoordinate = useMemo(() => {
+    if (businessCoordinate) return businessCoordinate;
+    if (
+      paramCoordinate &&
+      isPlausibleSwedenCoordinate(paramCoordinate.latitude, paramCoordinate.longitude)
+    ) {
+      return paramCoordinate;
+    }
+    return undefined;
+  }, [businessCoordinate, paramCoordinate]);
+
   const mapCoordinate = geocodedCoordinate;
   const mapsUrl = addressText
     ? mapOriginCoords
-      ? `https://www.google.com/maps/dir/?api=1&origin=${mapOriginCoords.latitude},${mapOriginCoords.longitude}&destination=${encodeURIComponent(
-          mapCoordinate
-            ? `${mapCoordinate.latitude},${mapCoordinate.longitude}`
-            : addressText
-        )}&travelmode=driving`
+      ? `https://www.google.com/maps/dir/?api=1&origin=${mapOriginCoords.latitude},${mapOriginCoords.longitude}&destination=${encodeURIComponent(addressText)}&travelmode=driving`
       : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressText)}`
     : undefined;
-  const mapResetKey = `${id ?? "no-id"}-${addressText ?? "no-address"}-${resetNonceText ?? "no-reset"}-${mapCoordinate?.latitude ?? "no-lat"}-${mapCoordinate?.longitude ?? "no-lon"}-${mapOriginCoords?.latitude ?? "no-origin-lat"}-${mapOriginCoords?.longitude ?? "no-origin-lon"}`;
+  const mapResetKey = `${id ?? "no-id"}-${addressText ?? "no-address"}-${resetNonceText ?? "no-reset"}`;
 
   const socialLogin = (provider: 'Google' | 'Facebook' | 'Apple') => {
     Alert.alert(
@@ -699,99 +630,94 @@ export default function CompanyDetailScreen() {
   useEffect(() => {
     let cancelled = false;
 
-    const loadMyClaims = async () => {
-      if (!isLoggedIn || !token) {
-        setClaimedOrderIds(new Set());
-        return;
-      }
-
-      try {
-        const response = await fetch(apiUrl('/user/me/claims'), {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-
-        const payload = await response.json().catch(() => ({}));
-
-        if (!response.ok || cancelled) {
+    const task = InteractionManager.runAfterInteractions(() => {
+      void (async () => {
+        if (!isLoggedIn || !token) {
+          if (!cancelled) setClaimedOrderIds(new Set());
           return;
         }
 
-        setClaimedOrderIds(extractClaimedOrderIds(payload));
-      } catch {
-        if (!cancelled) {
-          setClaimedOrderIds(new Set());
-        }
-      }
-    };
+        try {
+          const response = await fetch(apiUrl('/user/me/claims'), {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
 
-    void loadMyClaims();
+          const payload = await response.json().catch(() => ({}));
+
+          if (!response.ok || cancelled) {
+            return;
+          }
+
+          setClaimedOrderIds(extractClaimedOrderIds(payload));
+        } catch {
+          if (!cancelled) {
+            setClaimedOrderIds(new Set());
+          }
+        }
+      })();
+    });
 
     return () => {
       cancelled = true;
+      task.cancel();
     };
   }, [isLoggedIn, token]);
 
   useEffect(() => {
     let cancelled = false;
 
-    const geocodeAddress = async () => {
-      setGeocodedCoordinate(undefined);
-      if (!addressText) {
+    setGeocodedCoordinate(undefined);
+    if (!addressText) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void (async () => {
+      const geocoded = await geocodeAddressNominatim(addressText);
+      if (cancelled) return;
+
+      if (geocoded) {
+        setGeocodedCoordinate({
+          latitude: geocoded.lat,
+          longitude: geocoded.lng,
+          addressText,
+        });
         return;
       }
 
-      if (paramCoordinate) {
-        setGeocodedCoordinate({ ...paramCoordinate, addressText });
-        return;
-      }
-
-      try {
-        const response = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(addressText)}`,
-          {
-            headers: {
-              Accept: "application/json",
-              "User-Agent": "TooDooApp/1.0 (contact: support@toodoo.app)",
-            },
-          }
-        );
-
-        const results: Array<{ lat: string; lon: string }> = await response.json();
-        const firstResult = results?.[0];
-        const latitude = Number(firstResult?.lat);
-        const longitude = Number(firstResult?.lon);
-
-        if (!cancelled && Number.isFinite(latitude) && Number.isFinite(longitude)) {
-          setGeocodedCoordinate({ latitude, longitude, addressText });
-        }
-      } catch {
-        if (!cancelled) {
-          setGeocodedCoordinate(undefined);
-        }
-      }
-    };
-
-    geocodeAddress();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [addressText, resetNonceText, paramCoordinate?.latitude, paramCoordinate?.longitude]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      const coords = await getUserCoordsIfGranted();
-      if (!cancelled && coords) {
-        setMapOriginCoords({ latitude: coords.lat, longitude: coords.lng });
+      if (fallbackCoordinate) {
+        setGeocodedCoordinate({ ...fallbackCoordinate, addressText });
       }
     })();
 
     return () => {
       cancelled = true;
+    };
+  }, [
+    addressText,
+    fallbackCoordinate?.latitude,
+    fallbackCoordinate?.longitude,
+    resetNonceText,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const task = InteractionManager.runAfterInteractions(() => {
+      void (async () => {
+        const coords = await getUserCoordsIfGranted();
+        if (!cancelled && coords) {
+          setMapOriginCoords({ latitude: coords.lat, longitude: coords.lng });
+        }
+      })();
+    });
+
+    return () => {
+      cancelled = true;
+      task.cancel();
     };
   }, []);
 
@@ -804,7 +730,7 @@ export default function CompanyDetailScreen() {
     return [hours, minutes, seconds].map((value) => value.toString().padStart(2, "0")).join(":");
   };
 
-  const showCompanyDetail = Boolean(title || id || claimBusinessId);
+  const showCompanyDetail = Boolean(title || id || claimBusinessId || claimOrderId);
   const handleDetailBack = useCallback(() => {
     if (Platform.OS === 'web') {
       performWebStackBack(router, { returnTo, isCompanyDetail: true });
@@ -865,9 +791,9 @@ export default function CompanyDetailScreen() {
           />
         </View>
       ) : null}
-      {title ? (
+      {displayTitle ? (
       <Text className="text-3xl font-semibold px-6 mt-4" style={{ color: theme.text }}>
-        {title}
+        {displayTitle}
       </Text>) : null}
 
       {addressText ? (
@@ -990,7 +916,9 @@ export default function CompanyDetailScreen() {
                       }}
                     >
                       <Text className="text-[10px] font-medium" style={{ color: theme.text }}>
-                        {offer.endDate ? formatRemaining(offer.timeLeftMs) : "--:--:--"}
+                        {offer.endDate
+                          ? formatRemaining(Math.max(offer.endDate.getTime() - nowMs, 0))
+                          : "--:--:--"}
                       </Text>
                     </View>
                   </View>
@@ -1184,28 +1112,28 @@ export default function CompanyDetailScreen() {
         </View>
       </Modal>
 
-      {title ? (
+      {aboutDescription ? (
         <View className=" mt-6 overflow-hidden rounded-2xl p-4 mx-6" style={{ backgroundColor: theme.cardBg }}>
           <Text className=" text-xl font-semibold" style={{ color: theme.text }}>Om oss:</Text>
-          {effectiveDescription ? (
-            <Text className="mt-2" style={{ color: theme.textMuted }}>{effectiveDescription}</Text>
-          ) : null}
+          <Text className="mt-2" style={{ color: theme.textMuted }}>{aboutDescription}</Text>
         </View>
-      ) : (
+      ) : null}
+
+      {!showCompanyDetail ? (
         <Text className="mt-4" style={{ color: theme.textMuted }}>
           Välj ett kort från startsidan för att se detaljer här.
         </Text>
-      )}
+      ) : null}
 
-      {addressText && mapCoordinate && mapCoordinate.addressText === addressText ? (
+      {addressText ? (
         <View className="mt-6 mx-6 mb-2">
           <Text className="mb-2 text-xl font-medium ml-4" style={{ color: theme.text }}>Hitta hit:</Text>
           <View className="overflow-hidden rounded-2xl border" style={{ borderColor: theme.border }}>
             <OfferMap
               mapKey={mapResetKey}
-              latitude={mapCoordinate.latitude}
-              longitude={mapCoordinate.longitude}
-              title={title ?? "Erbjudande"}
+              latitude={mapCoordinate?.latitude ?? Number.NaN}
+              longitude={mapCoordinate?.longitude ?? Number.NaN}
+              title={displayTitle || "Erbjudande"}
               addressText={addressText}
               originCoords={mapOriginCoords}
             />

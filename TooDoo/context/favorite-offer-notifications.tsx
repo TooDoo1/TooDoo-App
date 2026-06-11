@@ -157,6 +157,7 @@ export function FavoriteOfferNotificationsProvider({ children }: { children: Rea
             id: data.businessId,
             claimBusinessId: data.businessId,
             title: 'Erbjudande',
+            ...(data.orderId ? { claimOrderId: data.orderId } : {}),
           },
         });
       }

@@ -30,13 +30,20 @@ import { BrandColors, brandInkRgba, FilterChipTheme } from '@/lib/brand-colors';
 import { uiTheme } from '@/lib/ui-theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CardMedia } from '@/components/ui/card-media';
-import { haversineKm, formatDistanceKm, geocodeAddressCached, getUserCoords } from '@/lib/geo';
+import {
+  applyHaversineDistances,
+  fillMissingDistancesFromAddresses,
+  formatDistanceKm,
+  getUserCoords,
+  haversineKm,
+} from '@/lib/geo';
 import { prefetchImageUris } from '@/lib/image-prefetch';
 import { useFavorites } from '@/context/favorites-context';
-import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
+import { openOfferDetail } from '@/lib/open-offer-detail';
 import {
   HETA_ERBJUDANDEN_PATH,
   NARA_DIG_PATH,
+  SEARCH_RESULTS_PATH,
   SLUTAR_SNART_PATH,
 } from '@/lib/stack-navigation';
 import { FAVORITE_HEART_COLOR } from '@/lib/tab-colors';
@@ -47,17 +54,30 @@ import {
   getOnAccentTextColor,
   OFFERS_CATEGORY_ACCENT,
 } from '@/lib/category-colors';
-import { computeDiscountLabel, getDiscountBadgeColor, type OfferCardItem } from '@/lib/home-offers';
 import {
+  computeDiscountLabel,
+  getDiscountBadgeColor,
+  resolveBusinessIdFromOrder,
+  type OfferCardItem,
+} from '@/lib/home-offers';
+import {
+  clearHomeSearchCache,
   getHomeScreenSnapshot,
   getHomeScrollOffset,
+  getHomeSearchCache,
   setHomeEndingSoonCache,
   setHomeHotOffersCache,
   setHomeNearbyBusinessesCache,
   setHomeScreenSnapshot,
   setHomeScrollOffset,
+  setHomeSearchCache,
 } from '@/lib/home-list-cache';
 import { blurActiveElementOnWeb } from '@/lib/web-focus';
+import {
+  searchCatalog,
+  sortSearchResultsHot,
+  sortSearchResultsNearYou,
+} from '@/lib/catalog-search';
 
 const IMAGE_HYDRATE_CONCURRENCY = 5;
 
@@ -88,28 +108,17 @@ type CardItem = {
   distanceKm?: number;
 };
 
-function sortDealsByCoords(deals: CardItem[], coords: { lat: number; lng: number }): CardItem[] {
-  const withDistance = deals.map((card) => {
-    if (
-      typeof card.latitude === 'number' &&
-      typeof card.longitude === 'number' &&
-      Number.isFinite(card.latitude) &&
-      Number.isFinite(card.longitude)
-    ) {
-      return {
-        ...card,
-        distanceKm: haversineKm(coords.lat, coords.lng, card.latitude, card.longitude),
-      };
-    }
-    return card;
-  });
-
-  return [...withDistance].sort((a, b) => {
+function sortDealsByDistance(deals: CardItem[]): CardItem[] {
+  return [...deals].sort((a, b) => {
     const da = typeof a.distanceKm === 'number' ? a.distanceKm : Number.POSITIVE_INFINITY;
     const db = typeof b.distanceKm === 'number' ? b.distanceKm : Number.POSITIVE_INFINITY;
     if (da !== db) return da - db;
     return Number(b.deal) - Number(a.deal);
   });
+}
+
+function sortDealsByCoords(deals: CardItem[], coords: { lat: number; lng: number }): CardItem[] {
+  return sortDealsByDistance(applyHaversineDistances(deals, coords));
 }
 
 type FilterCategory = {
@@ -395,15 +404,8 @@ function buildCatalogOfferCardsFlat(ordersRaw: any[], approvedBusinesses: ApiBus
 
 function mapApiOrderToCardItem(order: any, index: number): CardItem {
   const business = order?.business ?? {};
-  const businessId =
-    typeof order?.businessId === 'string'
-      ? order.businessId
-      : order?.businessId?.id ??
-        order?.businessId?._id ??
-        business?.id ??
-        business?._id ??
-        `business-${index}`;
   const orderId = String(order?.id ?? order?._id ?? `order-${index}`);
+  const businessId = resolveBusinessIdFromOrder(order);
 
   const imageCandidate =
     order?.image?.publicUrl ??
@@ -417,7 +419,7 @@ function mapApiOrderToCardItem(order: any, index: number): CardItem {
   const normalizedImageUri = normalizeImageUrl(imageCandidate);
 
   return {
-    id: String(businessId),
+    id: businessId ?? orderId,
     title: business?.name ?? order?.title ?? 'Erbjudande',
     image: {
       uri: normalizedImageUri ?? `https://picsum.photos/seed/${encodeURIComponent(orderId)}/300/200`,
@@ -772,10 +774,12 @@ function SectionTitleRow({
           </Text>
         ) : null}
       </View>
-      <Pressable onPress={onSeeAllPress} className="flex-row items-center" style={{ marginTop: 2 }}>
-        <Text style={{ color: theme.textMuted, fontSize: 13 }}>Visa alla</Text>
-        <Ionicons name="chevron-forward" size={14} color={theme.textMuted} style={{ marginLeft: 2 }} />
-      </Pressable>
+      {onSeeAllPress ? (
+        <Pressable onPress={onSeeAllPress} className="flex-row items-center" style={{ marginTop: 2 }}>
+          <Text style={{ color: theme.textMuted, fontSize: 13 }}>Visa alla</Text>
+          <Ionicons name="chevron-forward" size={14} color={theme.textMuted} style={{ marginLeft: 2 }} />
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -786,6 +790,7 @@ function isLikelyPicsumUrl(uri: string) {
 
 export default function HomeScreen() {
   const homeSnapshot = getHomeScreenSnapshot();
+  const initialSearch = getHomeSearchCache();
   const [activeCategory, setActiveCategory] = useState<string>(ALL_CATEGORIES_ID);
   const [categoryFilters, setCategoryFilters] = useState<FilterCategory[]>(
     (homeSnapshot?.categoryFilters as FilterCategory[]) ?? []
@@ -800,7 +805,9 @@ export default function HomeScreen() {
   const [isLoadingData, setIsLoadingData] = useState(!homeSnapshot);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(initialSearch.query);
+  const [searchResults, setSearchResults] = useState<CardItem[]>(initialSearch.results as CardItem[]);
+  const [isSearchLoading, setIsSearchLoading] = useState(false);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const insets = useSafeAreaInsets();
   const scrollBottomPadding = getFloatingTabBarScrollPadding(insets.bottom);
@@ -808,6 +815,10 @@ export default function HomeScreen() {
   const scrollY = useRef(new Animated.Value(getHomeScrollOffset())).current;
   const scrollRef = useRef<ScrollView>(null);
   const scrollOffsetRef = useRef(getHomeScrollOffset());
+  const searchQueryRef = useRef(searchQuery);
+  const searchResultsRef = useRef(searchResults);
+  searchQueryRef.current = searchQuery;
+  searchResultsRef.current = searchResults;
   const router = useRouter();
   const { markDataReady } = useAppReady();
   const { token } = useAuth();
@@ -840,6 +851,12 @@ export default function HomeScreen() {
       return () => {
         task.cancel();
         setHomeScrollOffset(scrollOffsetRef.current);
+        if (searchQueryRef.current.trim()) {
+          setHomeSearchCache(
+            searchQueryRef.current,
+            searchResultsRef.current as OfferCardItem[]
+          );
+        }
       };
     }, [restoreHomeScroll])
   );
@@ -851,6 +868,22 @@ export default function HomeScreen() {
       return sortDealsByCoords(prev, coords);
     });
   }, [coords]);
+
+  useEffect(() => {
+    if (!coords || deals.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      const enriched = await fillMissingDistancesFromAddresses(deals, coords, { maxGeocode: 24 });
+      if (!cancelled) {
+        setDeals(sortDealsByDistance(enriched));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [coords, deals.length, refreshNonce]);
 
   useEffect(() => {
     let cancelled = false;
@@ -945,12 +978,14 @@ export default function HomeScreen() {
           const closeJson = closeRes.ok ? await closeRes.json().catch(() => ({})) : {};
           const hotJson = hotRes.ok ? await hotRes.json().catch(() => ({})) : {};
           const nowMsForYou = Date.now();
-          nearYouFromApi = parseOrdersPayload(closeJson)
-            .filter((order) => isActiveOffer(order, nowMsForYou))
-            .map(mapApiOrderToCardItem);
-          hotFromApi = parseOrdersPayload(hotJson)
-            .filter((order) => isActiveOffer(order, nowMsForYou))
-            .map(mapApiOrderToCardItem);
+          nearYouFromApi = buildCatalogOfferCardsFlat(
+            parseOrdersPayload(closeJson).filter((order) => isActiveOffer(order, nowMsForYou)),
+            approvedBusinessesEarly
+          );
+          hotFromApi = buildCatalogOfferCardsFlat(
+            parseOrdersPayload(hotJson).filter((order) => isActiveOffer(order, nowMsForYou)),
+            approvedBusinessesEarly
+          );
         }
 
         const categoryNameById = new Map<string, string>();
@@ -1227,49 +1262,6 @@ export default function HomeScreen() {
           );
         }
 
-        // Background: for "Nära dig", geocode companies that lack coordinates
-        // (using their address) so every card can show a real km distance, then
-        // re-sort closest -> furthest. Cached so we only geocode each address once.
-        if (coords) {
-          void (async () => {
-            const userCoords = coords;
-            const needGeocode = dealsList.filter(
-              (card) =>
-                typeof card.distanceKm !== 'number' &&
-                card.Adress &&
-                card.Adress !== 'Adress saknas'
-            );
-            if (needGeocode.length === 0) return;
-
-            const distanceByCardId = new Map<string, number>();
-            for (const card of needGeocode) {
-              const geo = await geocodeAddressCached(card.Adress);
-              if (cancelled) return;
-              if (geo) {
-                distanceByCardId.set(
-                  card.id,
-                  haversineKm(userCoords.lat, userCoords.lng, geo.lat, geo.lng)
-                );
-              }
-            }
-
-            if (cancelled || distanceByCardId.size === 0) return;
-
-            setDeals((prev) => {
-              const merged = prev.map((card) => {
-                const dist = distanceByCardId.get(card.id);
-                return typeof dist === 'number' ? { ...card, distanceKm: dist } : card;
-              });
-              return [...merged].sort((a, b) => {
-                const da = typeof a.distanceKm === 'number' ? a.distanceKm : Number.POSITIVE_INFINITY;
-                const db = typeof b.distanceKm === 'number' ? b.distanceKm : Number.POSITIVE_INFINITY;
-                if (da !== db) return da - db;
-                return Number(b.deal) - Number(a.deal);
-              });
-            });
-          })();
-        }
-
         // If list endpoint omits `imageUrl`, hydrate missing images by fetching the portal-like
         // details endpoint `GET /business/:id` in the background, then cache + update UI.
         void (async () => {
@@ -1374,6 +1366,10 @@ export default function HomeScreen() {
     return deals.filter((card) => card.categoryId === activeCategory);
   }, [activeCategory, deals]);
 
+  const trimmedSearchQuery = searchQuery.trim();
+  const isSearchActive = trimmedSearchQuery.length >= 2;
+  const isSearchTooShort = trimmedSearchQuery.length === 1;
+
   const categoryOptions = useMemo<FilterCategory[]>(
     () => [
       { id: ALL_CATEGORIES_ID, label: 'Alla kategorier' },
@@ -1400,82 +1396,115 @@ export default function HomeScreen() {
     requestAnimationFrame(() => restoreHomeScroll());
   }, [isLoadingData, restoreHomeScroll]);
 
-  const filterCardsBySearch = useCallback(
-    (cards: CardItem[]) => {
-      const q = searchQuery.trim().toLowerCase();
-      if (!q) return cards;
-      return cards.filter((card) => {
-        const hay = `${card.title} ${card.kortbeskrivning} ${card.långbeskrivning}`.toLowerCase();
-        return hay.includes(q);
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed) {
+      clearHomeSearchCache();
+      return;
+    }
+
+    const cached = getHomeSearchCache();
+    setHomeSearchCache(
+      searchQuery,
+      cached.query === searchQuery ? cached.results : []
+    );
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (!trimmedSearchQuery) {
+      setSearchResults([]);
+      setIsSearchLoading(false);
+      return;
+    }
+
+    if (!isSearchActive) {
+      setSearchResults([]);
+      setIsSearchLoading(false);
+      setHomeSearchCache(searchQuery, []);
+      return;
+    }
+
+    const cached = getHomeSearchCache();
+    const hasCachedResults =
+      cached.query === trimmedSearchQuery && cached.results.length > 0;
+
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      if (!hasCachedResults) {
+        setIsSearchLoading(true);
+      }
+      void searchCatalog(trimmedSearchQuery, {
+        knownCards: [...deals, ...hotOfferCards, ...nearYouCards],
+      })
+        .then((results) => {
+          if (!cancelled) {
+            const next = results as CardItem[];
+            setSearchResults(next);
+            setHomeSearchCache(trimmedSearchQuery, next as OfferCardItem[]);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setSearchResults([]);
+            setHomeSearchCache(trimmedSearchQuery, []);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setIsSearchLoading(false);
+          }
+        });
+    }, hasCachedResults ? 0 : 300);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [deals, hotOfferCards, isSearchActive, nearYouCards, trimmedSearchQuery]);
+
+  useEffect(() => {
+    if (!coords || !isSearchActive || searchResults.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      const enriched = await fillMissingDistancesFromAddresses(searchResults, coords, {
+        maxGeocode: 20,
       });
-    },
-    [searchQuery]
+      if (!cancelled) {
+        setSearchResults(enriched);
+        setHomeSearchCache(trimmedSearchQuery, enriched as OfferCardItem[]);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [coords, isSearchActive, trimmedSearchQuery, searchResults.length]);
+
+  const searchedNearYou = useMemo(
+    () => sortSearchResultsNearYou(searchResults, coords),
+    [coords, searchResults]
   );
 
-  const searchedDeals = useMemo(
-    () => filterCardsBySearch(filteredDeals),
-    [filterCardsBySearch, filteredDeals]
-  );
-
-  const searchedHotOffers = useMemo(
-    () => filterCardsBySearch(hotOfferCards),
-    [filterCardsBySearch, hotOfferCards]
-  );
-
-  const searchedEndingSoon = useMemo(
-    () => filterCardsBySearch(nearYouCards),
-    [filterCardsBySearch, nearYouCards]
-  );
+  const searchedHot = useMemo(() => sortSearchResultsHot(searchResults), [searchResults]);
 
   const handleCardPress = (card: CardItem) => {
-    const encodeListParam = (value: string | string[] | number | number[] | Date | Date[] | undefined) => {
-      if (value === undefined || value === null) {
-        return undefined;
-      }
-
-      if (Array.isArray(value)) {
-        return JSON.stringify(
-          value.map((item) => (item instanceof Date ? item.toISOString() : String(item)))
-        );
-      }
-
-      return value instanceof Date ? value.toISOString() : String(value);
-    };
-
-    const remoteImageUri =
-      typeof card.image === 'object' && card.image && 'uri' in card.image && typeof card.image.uri === 'string'
-        ? card.image.uri
-        : '';
-
     setHomeScrollOffset(scrollOffsetRef.current);
-
-    router.push({
-      pathname: COMPANY_DETAIL_PATH,
-      params: {
-        returnTo: 'index',
-        mapResetNonce: `${Date.now()}-${Math.random()}`,
-        id: card.id,
-        claimBusinessId: card.id,
-        title: card.title,
-        deal: card.deal ? '1' : '0',
-        imageUri: remoteImageUri,
-        Adress: card.Adress,
-        latitude: card.latitude?.toString(),
-        longitude: card.longitude?.toString(),
-        Telefon: card.Telefon ?? '+46 42-10 00 00',
-        Website: card.Website,
-        kortbeskrivning: card.kortbeskrivning,
-        långbeskrivning: card.långbeskrivning,
-        erbjudande: encodeListParam(card.erbjudande),
-        orderIds: encodeListParam(card.orderIds),
-        erbjudandepris: encodeListParam(card.erbjudandepris),
-        erbjudandeoriginalpris: encodeListParam(card.erbjudandeoriginalpris),
-        erbjudandeclaimade: encodeListParam(card.erbjudandeclaimade),
-        erbjudandemängd: encodeListParam(card.erbjudandemängd),
-        erbjudandelängd: encodeListParam(card.erbjudandelängd),
-      },
-    });
+    setHomeSearchCache(trimmedSearchQuery, searchResults as OfferCardItem[]);
+    openOfferDetail(router, card, 'index');
   };
+
+  const openSearchResultsView = useCallback(
+    (view: 'all' | 'near' | 'hot') => {
+      if (!trimmedSearchQuery) return;
+      setHomeSearchCache(trimmedSearchQuery, searchResults as OfferCardItem[]);
+      router.push({
+        pathname: SEARCH_RESULTS_PATH,
+        params: { q: trimmedSearchQuery, view },
+      });
+    },
+    [router, searchResults, trimmedSearchQuery]
+  );
 
   const heroBlockHeight = HERO_HEIGHT + heroTopInset;
   const searchPanelStickyLift = 12;
@@ -1535,7 +1564,13 @@ export default function HomeScreen() {
             returnKeyType="search"
           />
           {searchQuery.trim() ? (
-            <Pressable onPress={() => setSearchQuery('')} className="ml-2 rounded-full px-2 py-1">
+            <Pressable
+              onPress={() => {
+                setSearchQuery('');
+                clearHomeSearchCache();
+              }}
+              className="ml-2 rounded-full px-2 py-1"
+            >
               <Ionicons name="close-circle" size={18} color={FilterChipTheme.textMuted} />
             </Pressable>
           ) : null}
@@ -1668,61 +1703,127 @@ export default function HomeScreen() {
         </View>
 
         <View className="mt-6 px-6">
-          <SectionTitleRow
-            title="Nära dig"
-            icon="navigate"
-            iconColor={OFFERS_CATEGORY_ACCENT}
-            onSeeAllPress={() => router.push(NARA_DIG_PATH)}
-          />
-          {isLoadingData && searchedDeals.length === 0 ? (
-            <Text style={{ color: theme.textMuted }}>Laddar...</Text>
-          ) : (
-            <ForYouOrderCarousel
-              cards={searchedDeals}
-              onCardPress={handleCardPress}
-              badgeLabel="Nära dig"
-              badgeColor={brandInkRgba(0.75)}
-              getBadgeLabel={getNearbyBadge}
-              showFavoriteButton
-              emptyText="Inga erbjudanden nära dig just nu."
-            />
-          )}
-        </View>
+          {isSearchActive || isSearchTooShort ? (
+            <>
+              <SectionTitleRow
+                title="Sökresultat"
+                icon="search"
+                iconColor={OFFERS_CATEGORY_ACCENT}
+                onSeeAllPress={() => openSearchResultsView('all')}
+              />
+              {isSearchTooShort ? (
+                <Text style={{ color: theme.textMuted }}>Skriv minst 2 tecken för att söka.</Text>
+              ) : isSearchLoading ? (
+                <Text style={{ color: theme.textMuted }}>Söker...</Text>
+              ) : (
+                <>
+                  <ForYouOrderCarousel
+                    cards={searchResults}
+                    onCardPress={handleCardPress}
+                    badgeLabel="Träff"
+                    badgeColor={brandInkRgba(0.75)}
+                    showFavoriteButton
+                    emptyText={`Inga träffar för "${trimmedSearchQuery}".`}
+                  />
 
-        <View className="mt-6 px-6">
-          <SectionTitleRow
-            title="Heta erbjudanden"
-            icon="flame"
-            iconColor={OFFERS_CATEGORY_ACCENT}
-            subtitle="Baserat på dina intressen"
-            onSeeAllPress={() => router.push(HETA_ERBJUDANDEN_PATH)}
-          />
-          {isLoadingData && searchedHotOffers.length === 0 ? (
-            <Text style={{ color: theme.textMuted }}>Laddar...</Text>
-          ) : (
-            <FeaturedDealsSplit
-              cards={searchedHotOffers}
-              onCardPress={handleCardPress}
-              emptyText="Inga heta erbjudanden just nu."
-            />
-          )}
-        </View>
+                  {searchResults.length > 0 ? (
+                    <>
+                      <View className="mt-6">
+                        <SectionTitleRow
+                          title="Nära dig"
+                          icon="navigate"
+                          iconColor={OFFERS_CATEGORY_ACCENT}
+                          onSeeAllPress={() => openSearchResultsView('near')}
+                        />
+                        <ForYouOrderCarousel
+                          cards={searchedNearYou}
+                          onCardPress={handleCardPress}
+                          badgeLabel="Nära dig"
+                          badgeColor={brandInkRgba(0.75)}
+                          getBadgeLabel={getNearbyBadge}
+                          showFavoriteButton
+                          emptyText={`Inga träffar nära dig för "${trimmedSearchQuery}".`}
+                        />
+                      </View>
 
-        <View className="mt-6 px-6">
-          <SectionTitleRow
-            title="Slutar snart"
-            icon="hourglass-outline"
-            subtitle="Baserat på dina intressen"
-            onSeeAllPress={() => router.push(SLUTAR_SNART_PATH)}
-          />
-          {isLoadingData && searchedEndingSoon.length === 0 ? (
-            <Text style={{ color: theme.textMuted }}>Laddar...</Text>
+                      <View className="mt-6">
+                        <SectionTitleRow
+                          title="Heta erbjudanden"
+                          icon="flame"
+                          iconColor={OFFERS_CATEGORY_ACCENT}
+                          subtitle="Baserat på din sökning"
+                          onSeeAllPress={() => openSearchResultsView('hot')}
+                        />
+                        <FeaturedDealsSplit
+                          cards={searchedHot}
+                          onCardPress={handleCardPress}
+                          emptyText={`Inga heta erbjudanden för "${trimmedSearchQuery}".`}
+                        />
+                      </View>
+                    </>
+                  ) : null}
+                </>
+              )}
+            </>
           ) : (
-            <EndingSoonPortraitRow
-              cards={searchedEndingSoon}
-              onCardPress={handleCardPress}
-              emptyText="Inga tidsbegränsade erbjudanden just nu."
-            />
+            <>
+              <SectionTitleRow
+                title="Nära dig"
+                icon="navigate"
+                iconColor={OFFERS_CATEGORY_ACCENT}
+                onSeeAllPress={() => router.push(NARA_DIG_PATH)}
+              />
+              {isLoadingData && filteredDeals.length === 0 ? (
+                <Text style={{ color: theme.textMuted }}>Laddar...</Text>
+              ) : (
+                <ForYouOrderCarousel
+                  cards={filteredDeals}
+                  onCardPress={handleCardPress}
+                  badgeLabel="Nära dig"
+                  badgeColor={brandInkRgba(0.75)}
+                  getBadgeLabel={getNearbyBadge}
+                  showFavoriteButton
+                  emptyText="Inga erbjudanden nära dig just nu."
+                />
+              )}
+
+              <View className="mt-6">
+                <SectionTitleRow
+                  title="Heta erbjudanden"
+                  icon="flame"
+                  iconColor={OFFERS_CATEGORY_ACCENT}
+                  subtitle="Baserat på dina intressen"
+                  onSeeAllPress={() => router.push(HETA_ERBJUDANDEN_PATH)}
+                />
+                {isLoadingData && hotOfferCards.length === 0 ? (
+                  <Text style={{ color: theme.textMuted }}>Laddar...</Text>
+                ) : (
+                  <FeaturedDealsSplit
+                    cards={hotOfferCards}
+                    onCardPress={handleCardPress}
+                    emptyText="Inga heta erbjudanden just nu."
+                  />
+                )}
+              </View>
+
+              <View className="mt-6">
+                <SectionTitleRow
+                  title="Slutar snart"
+                  icon="hourglass-outline"
+                  subtitle="Baserat på dina intressen"
+                  onSeeAllPress={() => router.push(SLUTAR_SNART_PATH)}
+                />
+                {isLoadingData && nearYouCards.length === 0 ? (
+                  <Text style={{ color: theme.textMuted }}>Laddar...</Text>
+                ) : (
+                  <EndingSoonPortraitRow
+                    cards={nearYouCards}
+                    onCardPress={handleCardPress}
+                    emptyText="Inga tidsbegränsade erbjudanden just nu."
+                  />
+                )}
+              </View>
+            </>
           )}
         </View>
 

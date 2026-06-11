@@ -144,6 +144,7 @@ function AppShell() {
 							<Stack.Screen name="nara-dig" options={swipeableStackScreenOptions} />
 							<Stack.Screen name="heta-erbjudanden" options={swipeableStackScreenOptions} />
 							<Stack.Screen name="slutar-snart" options={swipeableStackScreenOptions} />
+							<Stack.Screen name="sokresultat" options={swipeableStackScreenOptions} />
 							<Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
 						</Stack>
 						</View>

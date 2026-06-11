@@ -2,21 +2,16 @@ import type { Router } from 'expo-router';
 
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
 import type { OfferCardItem } from '@/lib/home-offers';
+import { isPlaceholderNavigationId } from '@/lib/home-offers';
+import { loadCompanyDetail } from '@/lib/load-company-detail';
 
-function encodeListParam(
-  value: string | string[] | number | number[] | Date | Date[] | undefined
-) {
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-
-  if (Array.isArray(value)) {
-    return JSON.stringify(
-      value.map((item) => (item instanceof Date ? item.toISOString() : String(item)))
-    );
-  }
-
-  return value instanceof Date ? value.toISOString() : String(value);
+function compactParams(params: Record<string, string | undefined>) {
+  return Object.fromEntries(
+    Object.entries(params).filter((entry): entry is [string, string] => {
+      const value = entry[1];
+      return value != null && value !== '';
+    })
+  );
 }
 
 export function openOfferDetail(
@@ -29,30 +24,30 @@ export function openOfferDetail(
       ? card.image.uri
       : '';
 
+  const focusedOrderId = card.orderIds?.[0] ? String(card.orderIds[0]) : undefined;
+  const businessId = isPlaceholderNavigationId(card.id) ? undefined : card.id;
+
+  void loadCompanyDetail({
+    businessId,
+    claimOrderId: focusedOrderId,
+  });
+
   router.push({
     pathname: COMPANY_DETAIL_PATH,
-    params: {
+    params: compactParams({
       returnTo,
-      mapResetNonce: `${Date.now()}-${Math.random()}`,
-      id: card.id,
-      claimBusinessId: card.id,
+      mapResetNonce: String(Date.now()),
+      id: businessId ?? focusedOrderId,
+      claimBusinessId: businessId,
+      claimOrderId: focusedOrderId,
       title: card.title,
       deal: card.deal ? '1' : '0',
       imageUri: remoteImageUri,
       Adress: card.Adress,
-      latitude: card.latitude?.toString(),
-      longitude: card.longitude?.toString(),
-      Telefon: card.Telefon ?? '+46 42-10 00 00',
+      latitude: card.latitude != null ? String(card.latitude) : undefined,
+      longitude: card.longitude != null ? String(card.longitude) : undefined,
+      Telefon: card.Telefon,
       Website: card.Website,
-      kortbeskrivning: card.kortbeskrivning,
-      långbeskrivning: card.långbeskrivning,
-      erbjudande: encodeListParam(card.erbjudande),
-      orderIds: encodeListParam(card.orderIds),
-      erbjudandepris: encodeListParam(card.erbjudandepris),
-      erbjudandeoriginalpris: encodeListParam(card.erbjudandeoriginalpris),
-      erbjudandeclaimade: encodeListParam(card.erbjudandeclaimade),
-      erbjudandemängd: encodeListParam(card.erbjudandemängd),
-      erbjudandelängd: encodeListParam(card.erbjudandelängd),
-    },
+    }),
   });
 }

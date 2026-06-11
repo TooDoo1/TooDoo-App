@@ -50,6 +50,35 @@ function pickAt<T>(arr: T[] | undefined, index: number): T | undefined {
   return arr[index] ?? arr[0];
 }
 
+export function resolveBusinessIdFromOrder(order: any): string | undefined {
+  const business = order?.business ?? {};
+  const id =
+    typeof order?.businessId === 'string' && order.businessId
+      ? order.businessId
+      : order?.businessId?.id ??
+        order?.businessId?._id ??
+        business?.id ??
+        business?._id;
+  return id ? String(id) : undefined;
+}
+
+export function isPlaceholderNavigationId(id?: string) {
+  return !id || /^business-\d+$/.test(id) || /^order-\d+$/.test(id);
+}
+
+export function formatBusinessAddress(
+  business?: { address?: string; city?: string } | null
+): string | undefined {
+  if (!business) return undefined;
+
+  const formatted = [business.address, business.city]
+    .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
+    .join(', ')
+    .trim();
+
+  return formatted || undefined;
+}
+
 function parseOrdersPayload(json: unknown): any[] {
   if (Array.isArray(json)) return json;
   const obj = json as Record<string, unknown>;
@@ -129,17 +158,10 @@ async function fetchOrdersFromBusinessDetails(
   return batches.flat();
 }
 
-function mapApiOrderToCardItem(order: any, index: number): OfferCardItem {
+export function mapApiOrderToCardItem(order: any, index: number): OfferCardItem {
   const business = order?.business ?? {};
-  const businessId =
-    typeof order?.businessId === 'string'
-      ? order.businessId
-      : order?.businessId?.id ??
-        order?.businessId?._id ??
-        business?.id ??
-        business?._id ??
-        `business-${index}`;
   const orderId = String(order?.id ?? order?._id ?? `order-${index}`);
+  const businessId = resolveBusinessIdFromOrder(order);
 
   const imageCandidate =
     order?.image?.publicUrl ??
@@ -153,7 +175,7 @@ function mapApiOrderToCardItem(order: any, index: number): OfferCardItem {
   const normalizedImageUri = normalizeImageUrl(imageCandidate);
 
   return {
-    id: String(businessId),
+    id: businessId ?? orderId,
     title: business?.name ?? order?.title ?? 'Erbjudande',
     image: {
       uri: normalizedImageUri ?? `https://picsum.photos/seed/${encodeURIComponent(orderId)}/300/200`,
@@ -167,7 +189,7 @@ function mapApiOrderToCardItem(order: any, index: number): OfferCardItem {
       order?.originalPrice !== undefined && order?.originalPrice !== null
         ? [String(order.originalPrice)]
         : [],
-    Adress: [business?.address, business?.city].filter(Boolean).join(', ') || 'Adress saknas',
+    Adress: formatBusinessAddress(business) || 'Adress saknas',
     latitude: business?.latitude,
     longitude: business?.longitude,
     Telefon: business?.contactPhone ?? undefined,
@@ -337,7 +359,7 @@ function buildBusinessCards(
       orderIds,
       erbjudandepris: offerPrices,
       erbjudandeoriginalpris: offerOriginalPrices,
-      Adress: [business.address, business.city].filter(Boolean).join(', ') || 'Adress saknas',
+      Adress: formatBusinessAddress(business) || 'Adress saknas',
       latitude: business.latitude,
       longitude: business.longitude,
       Telefon: business.contactPhone ?? undefined,
@@ -397,11 +419,25 @@ export async function fetchOfferListCards(
         : coords
           ? `/orders/for-you/close?take=${limit}&lat=${coords.lat}&lng=${coords.lng}`
           : `/orders/for-you/close?take=${limit}`;
-    const res = await fetch(apiUrl(endpoint), { headers: authHeaders });
+    const [res, businessRes] = await Promise.all([
+      fetch(apiUrl(endpoint), { headers: authHeaders }),
+      fetch(apiUrl('/business?status=APPROVED')),
+    ]);
     const json = res.ok ? await res.json().catch(() => ({})) : {};
-    const fromApi = parseOrdersPayload(json)
-      .filter((order) => isActiveOffer(order, nowMs))
-      .map(mapApiOrderToCardItem);
+    const businessJson = await businessRes.json().catch(() => []);
+    const approvedBusinesses: ApiBusiness[] = (
+      Array.isArray(businessJson)
+        ? businessJson
+        : Array.isArray(businessJson?.businesses)
+          ? businessJson.businesses
+          : Array.isArray(businessJson?.data)
+            ? businessJson.data
+            : []
+    ).filter((business) => (business.status ?? 'APPROVED').toUpperCase() === 'APPROVED');
+    const fromApi = buildCatalogOfferCardsFlat(
+      parseOrdersPayload(json).filter((order) => isActiveOffer(order, nowMs)),
+      approvedBusinesses
+    );
     if (fromApi.length > 0) {
       return fromApi.slice(0, limit);
     }

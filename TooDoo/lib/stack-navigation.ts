@@ -3,6 +3,7 @@ import { Dimensions, Platform } from 'react-native';
 export const NARA_DIG_PATH = '/nara-dig' as const;
 export const HETA_ERBJUDANDEN_PATH = '/heta-erbjudanden' as const;
 export const SLUTAR_SNART_PATH = '/slutar-snart' as const;
+export const SEARCH_RESULTS_PATH = '/sokresultat' as const;
 
 /** Swipe-back only registers when the gesture starts within this fraction of the screen width. */
 export const SWIPE_BACK_EDGE_FRACTION = 0.1;
@@ -33,6 +34,7 @@ export const FULL_SCREEN_STACK_SEGMENTS = [
   'nara-dig',
   'heta-erbjudanden',
   'slutar-snart',
+  'sokresultat',
 ] as const;
 
 export type FullScreenStackSegment = (typeof FULL_SCREEN_STACK_SEGMENTS)[number];

@@ -85,3 +85,22 @@ export function setHomeScrollOffset(y: number) {
 export function getHomeScrollOffset() {
   return homeScrollOffsetY;
 }
+
+export type HomeSearchCache = {
+  query: string;
+  results: OfferCardItem[];
+};
+
+let homeSearchCache: HomeSearchCache = { query: '', results: [] };
+
+export function getHomeSearchCache(): HomeSearchCache {
+  return homeSearchCache;
+}
+
+export function setHomeSearchCache(query: string, results: OfferCardItem[] = homeSearchCache.results) {
+  homeSearchCache = { query, results };
+}
+
+export function clearHomeSearchCache() {
+  homeSearchCache = { query: '', results: [] };
+}

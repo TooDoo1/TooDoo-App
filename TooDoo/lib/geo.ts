@@ -4,6 +4,42 @@ import * as Location from 'expo-location';
 
 export type Coords = { lat: number; lng: number };
 
+/** Rough bounds for southern Sweden — rejects null island and obvious bad data. */
+export function isPlausibleSwedenCoordinate(lat: number, lng: number) {
+  return Number.isFinite(lat) && Number.isFinite(lng) && lat >= 54 && lat <= 70 && lng >= 10 && lng <= 26;
+}
+
+const NOMINATIM_USER_AGENT = 'TooDooApp/1.0 (contact: support@toodoo.app)';
+
+/** Geocode a postal address via Nominatim (works on web and native). */
+export async function geocodeAddressNominatim(address: string): Promise<Coords | null> {
+  const trimmed = address.trim();
+  if (!trimmed) return null;
+
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=se&q=${encodeURIComponent(trimmed)}`,
+      {
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': NOMINATIM_USER_AGENT,
+        },
+      }
+    );
+    const results: Array<{ lat: string; lon: string }> = await response.json();
+    const firstResult = results?.[0];
+    const lat = Number(firstResult?.lat);
+    const lng = Number(firstResult?.lon);
+    if (isPlausibleSwedenCoordinate(lat, lng)) {
+      return { lat, lng };
+    }
+  } catch {
+    // ignore
+  }
+
+  return null;
+}
+
 /** Great-circle distance between two coordinates, in kilometers. */
 export function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const toRad = (deg: number) => (deg * Math.PI) / 180;
@@ -24,11 +60,32 @@ export function formatDistanceKm(distanceKm?: number): string | null {
 }
 
 const GEOCODE_CACHE_PREFIX = 'toodoo_geocode_';
+const webGeocodeCache = new Map<string, Coords | null>();
 
-/** Geocode a postal address to coordinates, caching results (and misses) in AsyncStorage. */
+async function cacheNativeGeocodeResult(key: string, coords: Coords | null) {
+  try {
+    await AsyncStorage.setItem(key, JSON.stringify(coords));
+  } catch {
+    // ignore cache write errors
+  }
+}
+
+/** Geocode a postal address to coordinates, caching results (and misses). */
 export async function geocodeAddressCached(address: string): Promise<Coords | null> {
-  if (Platform.OS === 'web' || !address) return null;
-  const key = `${GEOCODE_CACHE_PREFIX}${address.trim().toLowerCase()}`;
+  const trimmed = address.trim();
+  if (!trimmed) return null;
+  const cacheKey = trimmed.toLowerCase();
+
+  if (Platform.OS === 'web') {
+    if (webGeocodeCache.has(cacheKey)) {
+      return webGeocodeCache.get(cacheKey) ?? null;
+    }
+    const result = await geocodeAddressNominatim(trimmed);
+    webGeocodeCache.set(cacheKey, result);
+    return result;
+  }
+
+  const key = `${GEOCODE_CACHE_PREFIX}${cacheKey}`;
 
   try {
     const cached = await AsyncStorage.getItem(key);
@@ -45,26 +102,99 @@ export async function geocodeAddressCached(address: string): Promise<Coords | nu
   }
 
   try {
-    const results = await Location.geocodeAsync(address);
+    const results = await Location.geocodeAsync(trimmed);
     const first = results?.[0];
-    if (first && Number.isFinite(first.latitude) && Number.isFinite(first.longitude)) {
+    if (
+      first &&
+      isPlausibleSwedenCoordinate(first.latitude, first.longitude)
+    ) {
       const coords: Coords = { lat: first.latitude, lng: first.longitude };
-      try {
-        await AsyncStorage.setItem(key, JSON.stringify(coords));
-      } catch {
-        // ignore cache write errors
-      }
+      await cacheNativeGeocodeResult(key, coords);
       return coords;
     }
-    try {
-      await AsyncStorage.setItem(key, JSON.stringify(null));
-    } catch {
-      // ignore
-    }
   } catch {
-    // Geocoding unavailable / failed; skip.
+    // Native geocoder unavailable — fall through to Nominatim.
   }
-  return null;
+
+  const fallback = await geocodeAddressNominatim(trimmed);
+  await cacheNativeGeocodeResult(key, fallback);
+  return fallback;
+}
+
+export type DistanceCard = {
+  id: string;
+  Adress: string;
+  latitude?: number;
+  longitude?: number;
+  distanceKm?: number;
+};
+
+/** Attach km distance when a card already has plausible coordinates. */
+export function applyHaversineDistances<T extends DistanceCard>(
+  cards: T[],
+  userCoords: Coords
+): T[] {
+  return cards.map((card) => {
+    if (typeof card.distanceKm === 'number' && Number.isFinite(card.distanceKm)) {
+      return card;
+    }
+
+    const lat = card.latitude;
+    const lng = card.longitude;
+    if (
+      typeof lat === 'number' &&
+      typeof lng === 'number' &&
+      isPlausibleSwedenCoordinate(lat, lng)
+    ) {
+      return {
+        ...card,
+        distanceKm: haversineKm(userCoords.lat, userCoords.lng, lat, lng),
+      };
+    }
+
+    return card;
+  });
+}
+
+/** Geocode card addresses when coordinates are missing, then attach km distance. */
+export async function fillMissingDistancesFromAddresses<T extends DistanceCard>(
+  cards: T[],
+  userCoords: Coords,
+  options?: { maxGeocode?: number }
+): Promise<T[]> {
+  const withHaversine = applyHaversineDistances(cards, userCoords);
+  const needGeocode = withHaversine.filter(
+    (card) =>
+      typeof card.distanceKm !== 'number' &&
+      card.Adress &&
+      card.Adress !== 'Adress saknas'
+  );
+
+  if (needGeocode.length === 0) {
+    return withHaversine;
+  }
+
+  const maxGeocode = options?.maxGeocode ?? 24;
+  const distanceById = new Map<string, number>();
+
+  for (const card of needGeocode.slice(0, maxGeocode)) {
+    const geo = await geocodeAddressCached(card.Adress);
+    if (geo) {
+      distanceById.set(
+        card.id,
+        haversineKm(userCoords.lat, userCoords.lng, geo.lat, geo.lng)
+      );
+    }
+  }
+
+  if (distanceById.size === 0) {
+    return withHaversine;
+  }
+
+  return withHaversine.map((card) => {
+    const dist = distanceById.get(card.id);
+    return typeof dist === 'number' ? { ...card, distanceKm: dist } : card;
+  });
 }
 
 /** Reverse-geocode coordinates to a city name suitable for the user profile `location` field. */
