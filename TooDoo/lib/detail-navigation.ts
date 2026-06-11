@@ -2,6 +2,7 @@ import type { Router } from 'expo-router';
 import { Platform } from 'react-native';
 
 import {
+  EVENEMANG_PATH,
   HETA_ERBJUDANDEN_PATH,
   NARA_DIG_PATH,
   SLUTAR_SNART_PATH,
@@ -15,6 +16,7 @@ export const DETAIL_RETURN_ROUTES = {
   naradig: NARA_DIG_PATH,
   heta: HETA_ERBJUDANDEN_PATH,
   slutarsnart: SLUTAR_SNART_PATH,
+  evenemang: EVENEMANG_PATH,
   minadeals: '/(tabs)/MinaDeals',
 } as const;
 

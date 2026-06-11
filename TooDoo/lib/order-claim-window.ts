@@ -1,13 +1,34 @@
 const STOCKHOLM_TZ = 'Europe/Stockholm';
 
 function parseHHmm(value: string): number | null {
-  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  const trimmed = value.trim();
+  const match =
+    /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(trimmed) ??
+    /^(\d{1,2}):(\d{2})$/.exec(trimmed);
   if (!match) return null;
   const hours = Number(match[1]);
   const minutes = Number(match[2]);
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
   if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
   return hours * 60 + minutes;
+}
+
+/** Parse validFrom/validTo — HH:mm strings or Prisma time-of-day ISO (1970-01-01T14:30:00.000Z). */
+export function parseOrderDailyTime(value: unknown): number | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+
+  const hhmm = parseHHmm(value);
+  if (hhmm != null) return hhmm;
+
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms)) return null;
+
+  const date = new Date(ms);
+  if (date.getUTCFullYear() === 1970) {
+    return date.getUTCHours() * 60 + date.getUTCMinutes();
+  }
+
+  return null;
 }
 
 export function getStockholmMinutesOfDay(nowMs: number = Date.now()): number {
@@ -40,12 +61,10 @@ export function isWithinOrderPublishWindow(order: any, nowMs: number = Date.now(
   return true;
 }
 
-/** Daily claim/redemption window in Europe/Stockholm (validFrom/validTo as HH:mm). */
+/** Daily claim/redemption window in Europe/Stockholm (validFrom/validTo as HH:mm or API time ISO). */
 export function isWithinDailyClaimWindow(order: any, nowMs: number = Date.now()): boolean {
-  const fromRaw = typeof order?.validFrom === 'string' ? order.validFrom : '';
-  const toRaw = typeof order?.validTo === 'string' ? order.validTo : '';
-  const fromMin = fromRaw ? parseHHmm(fromRaw) : null;
-  const toMin = toRaw ? parseHHmm(toRaw) : null;
+  const fromMin = parseOrderDailyTime(order?.validFrom);
+  const toMin = parseOrderDailyTime(order?.validTo);
 
   if (fromMin == null && toMin == null) return true;
 
@@ -90,10 +109,8 @@ export function getOrderNotClaimableReason(order: any, nowMs: number = Date.now(
   }
 
   if (!isWithinDailyClaimWindow(order, nowMs)) {
-    const fromRaw = typeof order?.validFrom === 'string' ? order.validFrom : '';
-    const toRaw = typeof order?.validTo === 'string' ? order.validTo : '';
-    const fromMin = fromRaw ? parseHHmm(fromRaw) : null;
-    const toMin = toRaw ? parseHHmm(toRaw) : null;
+    const fromMin = parseOrderDailyTime(order?.validFrom);
+    const toMin = parseOrderDailyTime(order?.validTo);
 
     if (fromMin != null && toMin != null) {
       return `Erbjudandet kan claimas mellan ${formatHHmm(fromMin)} och ${formatHHmm(toMin)} (svensk tid).`;

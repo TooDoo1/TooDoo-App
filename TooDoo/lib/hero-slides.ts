@@ -11,11 +11,11 @@ const nativeHeroSlides: HeroSlide[] = [
     title: 'Vad vill ni göra idag?',
   },
   {
-    source: require('../assets/images/testbild.jpg'),
+    source: require('../assets/images/image.png'),
     title: 'Registrera dig idag och ta del av erbjudanden',
   },
   {
-    source: require('../assets/images/app-icon.jpg'),
+    source: require('../assets/images/image(1).png'),
     title: 'Upptäck restauranger och upplevelser nära dig',
   },
 ];
@@ -26,11 +26,11 @@ const webHeroSlides: HeroSlide[] = [
     title: 'Vad vill ni göra idag?',
   },
   {
-    source: { uri: '/hero/food.jpg' },
+    source: { uri: '/hero/image.png' },
     title: 'Registrera dig idag och ta del av erbjudanden',
   },
   {
-    source: { uri: '/hero/restaurant.jpg' },
+    source: { uri: '/hero/image-1.png' },
     title: 'Upptäck restauranger och upplevelser nära dig',
   },
 ];

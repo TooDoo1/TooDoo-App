@@ -3,6 +3,7 @@ import { Dimensions, Platform } from 'react-native';
 export const NARA_DIG_PATH = '/nara-dig' as const;
 export const HETA_ERBJUDANDEN_PATH = '/heta-erbjudanden' as const;
 export const SLUTAR_SNART_PATH = '/slutar-snart' as const;
+export const EVENEMANG_PATH = '/evenemang' as const;
 export const SEARCH_RESULTS_PATH = '/sokresultat' as const;
 
 /** Swipe-back only registers when the gesture starts within this fraction of the screen width. */
@@ -34,6 +35,7 @@ export const FULL_SCREEN_STACK_SEGMENTS = [
   'nara-dig',
   'heta-erbjudanden',
   'slutar-snart',
+  'evenemang',
   'sokresultat',
 ] as const;
 
@@ -52,7 +54,7 @@ export function shouldRevealTabBarWhenClosingStack(previousRouteName: string | u
   return !isFullScreenStackRouteName(previousRouteName);
 }
 
-const DETAIL_RETURN_TO_LIST_KEYS = new Set(['naradig', 'heta', 'slutarsnart']);
+const DETAIL_RETURN_TO_LIST_KEYS = new Set(['naradig', 'heta', 'slutarsnart', 'evenemang']);
 
 /** For web swipe-back outside the stack tree — infer destination from segment + returnTo. */
 export function shouldRevealTabBarOnStackSwipeBack(

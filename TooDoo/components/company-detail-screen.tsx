@@ -33,6 +33,14 @@ import { formatBusinessAddress, isPlaceholderNavigationId } from "@/lib/home-off
 import { BrandColors, brandInkRgba, brandNavyRgba } from "@/lib/brand-colors";
 import { getOrderNotClaimableReason, getOrderPublishEndMs } from "@/lib/order-claim-window";
 import { geocodeAddressNominatim, getUserCoordsIfGranted, isPlausibleSwedenCoordinate } from "@/lib/geo";
+import {
+  fetchBusinessEvents,
+  formatEventDateRange,
+  formatInterestCount,
+  registerEventInterest,
+  removeEventInterest,
+  type BusinessEventItem,
+} from "@/lib/business-events";
 import { enrichCompanyDetailImages, loadCompanyDetail } from "@/lib/load-company-detail";
 
 const localImagesById: Record<string, ImageSourcePropType> = {
@@ -68,13 +76,37 @@ function sortOffersWithFocusedFirst(offers: DetailOffer[], focusedOrderId?: stri
   return next;
 }
 
+function sortEventsWithFocusedFirst(events: BusinessEventItem[], focusedEventId?: string) {
+  if (!focusedEventId || events.length <= 1) {
+    return events;
+  }
+
+  const focus = String(focusedEventId);
+  const index = events.findIndex((event) => event.id === focus);
+  if (index <= 0) {
+    return events;
+  }
+
+  const next = [...events];
+  const [focused] = next.splice(index, 1);
+  next.unshift(focused);
+  return next;
+}
+
+type DetailCarouselItem =
+  | { kind: "offer"; data: DetailOffer }
+  | { kind: "event"; data: BusinessEventItem };
+
 export default function CompanyDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { isLoggedIn, token } = useAuth();
+  const { isLoggedIn, token, authFetch, signIn } = useAuth();
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
-  const [isClaiming, setIsClaiming] = useState(false);
+  const [claimingOrderId, setClaimingOrderId] = useState<string | null>(null);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [isSubmittingLogin, setIsSubmittingLogin] = useState(false);
   const [claimedOrderIds, setClaimedOrderIds] = useState<Set<string>>(new Set());
   const [geocodedCoordinate, setGeocodedCoordinate] = useState<{ latitude: number; longitude: number; addressText?: string }>();
   const [mapOriginCoords, setMapOriginCoords] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -88,6 +120,9 @@ export default function CompanyDetailScreen() {
   >({});
   const [hydratedOrders, setHydratedOrders] = useState<any[]>([]);
   const [hydratedBusiness, setHydratedBusiness] = useState<any>(null);
+  const [businessEvents, setBusinessEvents] = useState<BusinessEventItem[]>([]);
+  const [interestedEventIds, setInterestedEventIds] = useState<Set<string>>(new Set());
+  const [interestLoadingId, setInterestLoadingId] = useState<string | null>(null);
   const {
     mapResetNonce,
     id,
@@ -104,6 +139,7 @@ export default function CompanyDetailScreen() {
     erbjudande,
     claimOrderId,
     claimBusinessId,
+    claimEventId,
     orderIds,
     erbjudandepris,
     erbjudandeoriginalpris,
@@ -128,6 +164,7 @@ export default function CompanyDetailScreen() {
     erbjudande?: string;
     claimOrderId?: string;
     claimBusinessId?: string;
+    claimEventId?: string;
     orderIds?: string;
     erbjudandepris?: string;
     erbjudandeoriginalpris?: string;
@@ -167,7 +204,16 @@ export default function CompanyDetailScreen() {
 
   const claimOrderIdText = Array.isArray(claimOrderId) ? claimOrderId[0] : claimOrderId;
   const claimBusinessIdText = Array.isArray(claimBusinessId) ? claimBusinessId[0] : claimBusinessId;
+  const claimEventIdText = Array.isArray(claimEventId) ? claimEventId[0] : claimEventId;
   const businessIdFromIdParam = Array.isArray(id) ? id[0] : id;
+  const resolvedBusinessId = useMemo(() => {
+    const fromHydrated = hydratedBusiness?.id ?? hydratedBusiness?._id;
+    if (fromHydrated) return String(fromHydrated);
+
+    const candidate = claimBusinessIdText || businessIdFromIdParam;
+    if (isPlaceholderNavigationId(candidate)) return undefined;
+    return candidate;
+  }, [hydratedBusiness, claimBusinessIdText, businessIdFromIdParam]);
   const claimWobbleValue = useMemo(() => new Animated.Value(0), []);
   const claimWobbleRotate = claimWobbleValue.interpolate({
     inputRange: [-1, 1],
@@ -225,6 +271,28 @@ export default function CompanyDetailScreen() {
     };
   }, [claimBusinessIdText, businessIdFromIdParam, claimOrderIdText]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!resolvedBusinessId) {
+      setBusinessEvents([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void (async () => {
+      const next = await fetchBusinessEvents({ businessId: resolvedBusinessId });
+      if (!cancelled) {
+        setBusinessEvents(next);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedBusinessId]);
+
   const mapOrderToOffer = (order: any, index: number) => {
     const orderId = String(order?.id ?? order?._id ?? `order-${index}`);
     const live = liveCountsByOrderId[orderId];
@@ -267,6 +335,28 @@ export default function CompanyDetailScreen() {
     return sortOffersWithFocusedFirst(hydratedOffers, focusedOrderId);
   }, [claimOrderIdText, liveCountsByOrderId, hydratedOrders]);
 
+  const events = useMemo(
+    () => sortEventsWithFocusedFirst(businessEvents, claimEventIdText),
+    [businessEvents, claimEventIdText]
+  );
+
+  const carouselItems = useMemo<DetailCarouselItem[]>(() => {
+    const offerItems = offers.map((offer) => ({ kind: "offer" as const, data: offer }));
+    const eventItems = events.map((event) => ({ kind: "event" as const, data: event }));
+
+    if (claimEventIdText) {
+      const focus = String(claimEventIdText);
+      const focusedIndex = eventItems.findIndex((item) => item.data.id === focus);
+      if (focusedIndex >= 0) {
+        const focused = eventItems[focusedIndex];
+        const restEvents = eventItems.filter((_, index) => index !== focusedIndex);
+        return [focused, ...offerItems, ...restEvents];
+      }
+    }
+
+    return [...offerItems, ...eventItems];
+  }, [claimEventIdText, events, offers]);
+
   const hydratedImageUri = normalizeImageUrl(
     hydratedBusiness?.image?.publicUrl ??
       hydratedBusiness?.image?.url ??
@@ -287,7 +377,7 @@ export default function CompanyDetailScreen() {
       ? hydratedBusiness.description.trim()
       : "";
 
-  const showOffersSection = offers.length > 0;
+  const showOffersSection = carouselItems.length > 0;
 
   const isDuplicateClaimConflict = (message: string) => {
     const normalized = message.toLowerCase();
@@ -397,14 +487,77 @@ export default function CompanyDetailScreen() {
     return detailParts.join('\n');
   };
 
-  const claimOffer = async (offer: (typeof offers)[number]) => {
+  const toggleEventInterest = async (event: BusinessEventItem) => {
     if (!isLoggedIn) {
       setIsLoginOpen(true);
       return;
     }
 
     if (!token) {
-      Alert.alert('Fel', 'Du måste vara inloggad för att claima erbjudandet.');
+      Alert.alert("Fel", "Du måste vara inloggad för att visa intresse.");
+      return;
+    }
+
+    const isInterested = interestedEventIds.has(event.id);
+    setInterestLoadingId(event.id);
+
+    try {
+      const ok = isInterested
+        ? await removeEventInterest(event.id, token)
+        : await registerEventInterest(event.id, token);
+
+      if (!ok) {
+        Alert.alert("Fel", "Kunde inte spara ditt intresse just nu.");
+        return;
+      }
+
+      setInterestedEventIds((prev) => {
+        const next = new Set(prev);
+        if (isInterested) {
+          next.delete(event.id);
+        } else {
+          next.add(event.id);
+        }
+        return next;
+      });
+
+      setBusinessEvents((prev) =>
+        prev.map((item) => {
+          if (item.id !== event.id) return item;
+          const current = item.interestCount ?? 0;
+          return {
+            ...item,
+            interestCount: Math.max(0, current + (isInterested ? -1 : 1)),
+          };
+        })
+      );
+    } catch {
+      Alert.alert("Fel", "Kunde inte spara ditt intresse just nu.");
+    } finally {
+      setInterestLoadingId(null);
+    }
+  };
+
+  const resolveOrderForClaim = async (orderId: string) => {
+    const cached = hydratedOrders.find(
+      (order) => String(order?.id ?? order?._id ?? '') === orderId
+    );
+    if (cached) return cached;
+
+    const orderResponse = await fetch(apiUrl(`/orders/${encodeURIComponent(orderId)}`));
+    const orderPayload = await orderResponse.json().catch(() => ({}));
+    return orderPayload?.order ?? orderPayload?.data ?? orderPayload;
+  };
+
+  const extractClaimQrCode = (payload: any) =>
+    (typeof payload?.qrCode === 'string' ? payload.qrCode : payload?.qrCode?.code) ??
+    payload?.code ??
+    (typeof payload?.claim?.qrCode === 'string' ? payload.claim.qrCode : payload?.claim?.qrCode?.code) ??
+    payload?.claim?.code;
+
+  const claimOffer = async (offer: (typeof offers)[number]) => {
+    if (!isLoggedIn) {
+      setIsLoginOpen(true);
       return;
     }
 
@@ -418,12 +571,10 @@ export default function CompanyDetailScreen() {
       return;
     }
 
-    setIsClaiming(true);
+    setClaimingOrderId(offer.orderId);
 
     try {
-      const orderResponse = await fetch(apiUrl(`/orders/${encodeURIComponent(offer.orderId)}`));
-      const orderPayload = await orderResponse.json().catch(() => ({}));
-      const order = orderPayload?.order ?? orderPayload?.data ?? orderPayload;
+      const order = await resolveOrderForClaim(offer.orderId);
 
       const notClaimableReason = getOrderNotClaimableReason(order);
       if (notClaimableReason) {
@@ -431,17 +582,12 @@ export default function CompanyDetailScreen() {
         return;
       }
 
-      const claimPayload: { orderId: string } = {
-        orderId: offer.orderId,
-      };
-
-      const response = await fetch(apiUrl('/claim'), {
+      const response = await authFetch('/claim', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(claimPayload),
+        body: JSON.stringify({ orderId: offer.orderId }),
       });
 
       const responseText = await response.text();
@@ -456,7 +602,10 @@ export default function CompanyDetailScreen() {
         }
       }
 
-      if (!response.ok) {
+      const claimFailed =
+        !response.ok || payload?.ok === false || String(payload?.reason ?? '') === 'ORDER_NOT_CLAIMABLE';
+
+      if (claimFailed) {
         const message = getApiErrorMessage(payload, response.status);
         const details = getApiErrorDetails(payload, responseText);
         const contextLines = [
@@ -469,36 +618,24 @@ export default function CompanyDetailScreen() {
         if (response.status === 401 || response.status === 403) {
           Alert.alert(
             'Sessionen har gått ut',
-            `Logga in igen för att claima erbjudanden.\n\n${contextLines.join('\n')}`
+            'Logga in igen för att claima erbjudanden.'
           );
+          setIsLoginOpen(true);
           return;
         }
 
-        if (response.status === 409 && offer.orderId && isDuplicateClaimConflict(String(message))) {
+        if (isDuplicateClaimConflict(String(message))) {
           setClaimedOrderIds((prev) => {
             const next = new Set(prev);
             next.add(offer.orderId as string);
             return next;
           });
-          Alert.alert('Redan claimad', `${String(message)}\n\n${contextLines.join('\n')}`);
+          Alert.alert('Redan claimad', 'Du har redan claimat det här erbjudandet.');
           return;
         }
 
-        if (response.status === 409 && String(payload?.reason ?? '') === 'ORDER_NOT_CLAIMABLE') {
-          const notClaimableMessage = getOrderNotClaimableReason(order) ?? 'Ordern går inte att claima just nu.';
-          Alert.alert(
-            'Kunde inte claima',
-            `${notClaimableMessage}\n\n${contextLines.join('\n')}`
-          );
-          return;
-        }
-
-        if (response.status === 409 && offer.orderId) {
-          const claimsResponse = await fetch(apiUrl('/user/me/claims'), {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          });
+        if (String(payload?.reason ?? '') === 'ORDER_NOT_CLAIMABLE' || response.status === 409) {
+          const claimsResponse = await authFetch('/user/me/claims');
           const claimsPayload = await claimsResponse.json().catch(() => ({}));
           const latestClaimedOrderIds = extractClaimedOrderIds(claimsPayload);
 
@@ -509,46 +646,90 @@ export default function CompanyDetailScreen() {
           }
         }
 
-        // Log only unexpected claim failures to avoid noisy warnings for known 409 conflicts.
-        console.warn('Unexpected claim request failure', {
-          status: response.status,
-          orderId: offer.orderId,
-          requestId,
-          payload,
-          responseText,
-        });
+        const notClaimableMessage =
+          String(payload?.reason ?? '') === 'ORDER_NOT_CLAIMABLE'
+            ? getOrderNotClaimableReason(order) ?? 'Ordern går inte att claima just nu.'
+            : String(message);
 
-        Alert.alert('Kunde inte claima', `${String(message)}\n\n${contextLines.join('\n')}`);
+        if (String(payload?.reason ?? '') !== 'ORDER_NOT_CLAIMABLE') {
+          console.warn('Unexpected claim request failure', {
+            status: response.status,
+            orderId: offer.orderId,
+            requestId,
+            payload,
+            responseText,
+          });
+        }
+
+        Alert.alert('Kunde inte claima', notClaimableMessage);
         return;
       }
 
-      const qrCode =
-        (typeof payload?.qrCode === 'string' ? payload.qrCode : payload?.qrCode?.code) ??
-        payload?.code ??
-        (typeof payload?.claim?.qrCode === 'string' ? payload.claim.qrCode : payload?.claim?.qrCode?.code);
-      if (offer.orderId) {
-        setClaimedOrderIds((prev) => {
-          const next = new Set(prev);
-          next.add(offer.orderId as string);
-          return next;
-        });
-        // Optimistically bump the live claimed count so the progress bar moves immediately.
-        setLiveCountsByOrderId((prev) => {
-          const orderIdKey = String(offer.orderId);
-          const current = prev[orderIdKey];
-          const fallbackTotal = Number(offer.totalCount ?? 0);
-          const nextEntry = {
-            claimed: (current?.claimed ?? Number(offer.claimedCount ?? 0)) + 1,
-            total: current?.total ?? (Number.isFinite(fallbackTotal) ? fallbackTotal : 0),
-          };
-          return { ...prev, [orderIdKey]: nextEntry };
-        });
-      }
+      const qrCode = extractClaimQrCode(payload);
+      setClaimedOrderIds((prev) => {
+        const next = new Set(prev);
+        next.add(offer.orderId as string);
+        return next;
+      });
+      setLiveCountsByOrderId((prev) => {
+        const orderIdKey = String(offer.orderId);
+        const current = prev[orderIdKey];
+        const fallbackTotal = Number(offer.totalCount ?? 0);
+        const nextEntry = {
+          claimed: (current?.claimed ?? Number(offer.claimedCount ?? 0)) + 1,
+          total: current?.total ?? (Number.isFinite(fallbackTotal) ? fallbackTotal : 0),
+        };
+        return { ...prev, [orderIdKey]: nextEntry };
+      });
       setClaimSuccess({ title: offer.text ?? title ?? 'Erbjudande', qrCode });
     } catch {
       Alert.alert('Kunde inte claima', 'Kontrollera din anslutning och försök igen.');
     } finally {
-      setIsClaiming(false);
+      setClaimingOrderId(null);
+    }
+  };
+
+  const handleLoginFromModal = async () => {
+    const email = loginEmail.trim();
+    const password = loginPassword;
+
+    if (!email || !password) {
+      Alert.alert('Saknad information', 'Fyll i e-post och lösenord.');
+      return;
+    }
+
+    if (password.length < 8) {
+      Alert.alert('Ogiltigt lösenord', 'Lösenord måste vara minst 8 tecken.');
+      return;
+    }
+
+    setIsSubmittingLogin(true);
+    try {
+      const response = await fetch(apiUrl('/user/login'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = (await response.json().catch(() => ({}))) as {
+        token?: string;
+        refreshToken?: string;
+        error?: string;
+        user?: { role?: string };
+      };
+
+      if (response.ok && data.token) {
+        await signIn(data.token, data.refreshToken ?? null, data.user?.role ?? null);
+        setIsLoginOpen(false);
+        setLoginPassword('');
+        return;
+      }
+
+      Alert.alert('Fel inloggning', data.error ?? 'Kontrollera e-post och lösenord.');
+    } catch {
+      Alert.alert('Nätverksfel', 'Kunde inte ansluta till servern.');
+    } finally {
+      setIsSubmittingLogin(false);
     }
   };
 
@@ -632,17 +813,13 @@ export default function CompanyDetailScreen() {
 
     const task = InteractionManager.runAfterInteractions(() => {
       void (async () => {
-        if (!isLoggedIn || !token) {
+        if (!isLoggedIn) {
           if (!cancelled) setClaimedOrderIds(new Set());
           return;
         }
 
         try {
-          const response = await fetch(apiUrl('/user/me/claims'), {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          });
+          const response = await authFetch('/user/me/claims');
 
           const payload = await response.json().catch(() => ({}));
 
@@ -663,7 +840,7 @@ export default function CompanyDetailScreen() {
       cancelled = true;
       task.cancel();
     };
-  }, [isLoggedIn, token]);
+  }, [authFetch, isLoggedIn]);
 
   useEffect(() => {
     let cancelled = false;
@@ -728,6 +905,31 @@ export default function CompanyDetailScreen() {
     const seconds = totalSeconds % 60;
 
     return [hours, minutes, seconds].map((value) => value.toString().padStart(2, "0")).join(":");
+  };
+
+  const getEventRemainingMs = (event: BusinessEventItem) => {
+    const startMs = Date.parse(event.startsAt);
+    const endMs = Date.parse(event.endsAt);
+    if (!Number.isFinite(startMs) && !Number.isFinite(endMs)) return null;
+    if (Number.isFinite(startMs) && nowMs < startMs) {
+      return Math.max(startMs - nowMs, 0);
+    }
+    if (Number.isFinite(endMs)) {
+      return Math.max(endMs - nowMs, 0);
+    }
+    return null;
+  };
+
+  const getEventImageUri = (event: BusinessEventItem) => {
+    if (
+      event.image &&
+      typeof event.image === "object" &&
+      "uri" in event.image &&
+      typeof event.image.uri === "string"
+    ) {
+      return event.image.uri;
+    }
+    return undefined;
   };
 
   const showCompanyDetail = Boolean(title || id || claimBusinessId || claimOrderId);
@@ -859,7 +1061,7 @@ export default function CompanyDetailScreen() {
 
       {showOffersSection ? (
         <View className="mt-2">
-          {offers.length > 1 ? (
+          {carouselItems.length > 1 ? (
             <Text className="mb-2 px-6 text-sm" style={{ color: theme.textMuted }}>Svep sidledes för fler erbjudanden</Text>
           ) : null}
 
@@ -869,100 +1071,195 @@ export default function CompanyDetailScreen() {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 4 }}
           >
-            {offers.map((offer) => (
-              (() => {
+            {carouselItems.map((item) => {
+              if (item.kind === "offer") {
+                const offer = item.data;
                 const isAlreadyClaimed = offer.orderId ? claimedOrderIds.has(offer.orderId) : false;
-                const isClaimDisabled = isClaiming || isAlreadyClaimed;
+                const isThisClaiming = offer.orderId ? claimingOrderId === offer.orderId : false;
+                const isClaimDisabled = isThisClaiming || isAlreadyClaimed;
 
                 const claimLabel = !isLoggedIn
                   ? "Logga in för att claima!"
                   : isAlreadyClaimed
                     ? "Redan claimad"
-                    : isClaiming
+                    : isThisClaiming
                       ? "Claimar..."
                       : "Claima";
 
                 return (
-              <View key={offer.id} className="mr-3 w-[320px] rounded-2xl p-4" style={{ backgroundColor: theme.cardBg }}>
-                <View className="flex-row gap-3">
-                  <View className="relative h-28 w-28 overflow-hidden rounded-xl" style={{ backgroundColor: theme.cardBgMuted }}>
-                    {(() => {
-                      const orderId = offer.orderId ? String(offer.orderId) : '';
-                      const offerImageUri = orderId ? orderImageUriById[orderId] : undefined;
-                      const offerImageSource = offerImageUri
-                        ? ({ uri: offerImageUri } as const)
-                        : effectiveImageSource;
-                      return offerImageSource ? (
-                        <CardMedia source={offerImageSource} rasterResizeMode="cover" svgContain />
-                      ) : null;
-                    })()}
-                    <LinearGradient
-                      colors={[brandNavyRgba(0), brandNavyRgba(0.9)]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 0, y: 1 }}
-                      style={{
-                        position: "absolute",
-                        bottom: 0,
-                        left: 0,
-                        right: 0,
-                        height: 40,
-                      }}
-                    />
-                    <View
-                      className="absolute bottom-1 left-2 rounded-full border px-2 py-1"
-                      style={{
-                        backgroundColor: theme.isDark ? "rgba(0,0,0,0.6)" : brandInkRgba(0.06),
-                        borderColor: theme.isDark ? "rgba(255,255,255,0.15)" : theme.border,
-                      }}
-                    >
-                      <Text className="text-[10px] font-medium" style={{ color: theme.text }}>
-                        {offer.endDate
-                          ? formatRemaining(Math.max(offer.endDate.getTime() - nowMs, 0))
-                          : "--:--:--"}
-                      </Text>
-                    </View>
-                  </View>
+                  <View key={`offer-${offer.id}`} className="mr-3 w-[320px] rounded-2xl p-4" style={{ backgroundColor: theme.cardBg }}>
+                    <View className="flex-row gap-3">
+                      <View className="relative h-28 w-28 overflow-hidden rounded-xl" style={{ backgroundColor: theme.cardBgMuted }}>
+                        {(() => {
+                          const orderId = offer.orderId ? String(offer.orderId) : "";
+                          const offerImageUri = orderId ? orderImageUriById[orderId] : undefined;
+                          const offerImageSource = offerImageUri
+                            ? ({ uri: offerImageUri } as const)
+                            : effectiveImageSource;
+                          return offerImageSource ? (
+                            <CardMedia source={offerImageSource} rasterResizeMode="cover" svgContain />
+                          ) : null;
+                        })()}
+                        <LinearGradient
+                          colors={[brandNavyRgba(0), brandNavyRgba(0.9)]}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 0, y: 1 }}
+                          style={{
+                            position: "absolute",
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            height: 40,
+                          }}
+                        />
+                        <View
+                          className="absolute bottom-1 left-2 rounded-full border px-2 py-1"
+                          style={{
+                            backgroundColor: theme.isDark ? "rgba(0,0,0,0.6)" : brandInkRgba(0.06),
+                            borderColor: theme.isDark ? "rgba(255,255,255,0.15)" : theme.border,
+                          }}
+                        >
+                          <Text className="text-[10px] font-medium" style={{ color: theme.text }}>
+                            {offer.endDate
+                              ? formatRemaining(Math.max(offer.endDate.getTime() - nowMs, 0))
+                              : "--:--:--"}
+                          </Text>
+                        </View>
+                      </View>
 
-                  <View className="flex-1 justify-center">
-                    <Text style={{ color: theme.textMuted }}>{offer.text ?? "-"}</Text>
-                    <View className="mt-1 flex-row items-center gap-2">
-                      <Text className="font-medium" style={{ color: theme.text }}>{offer.priceText ? `${offer.priceText} kr` : "-"}</Text>
-                      {offer.originalPriceText ? (
-                        <Text className="text-blue-300 line-through">{offer.originalPriceText} kr</Text>
-                      ) : null}
+                      <View className="flex-1 justify-center">
+                        <Text style={{ color: theme.textMuted }}>{offer.text ?? "-"}</Text>
+                        <View className="mt-1 flex-row items-center gap-2">
+                          <Text className="font-medium" style={{ color: theme.text }}>{offer.priceText ? `${offer.priceText} kr` : "-"}</Text>
+                          {offer.originalPriceText ? (
+                            <Text className="text-blue-300 line-through">{offer.originalPriceText} kr</Text>
+                          ) : null}
+                        </View>
+                        <Text className="mt-1" style={{ color: theme.textMuted }}>Claimade: {offer.claimedCount} / {offer.totalCount || "-"}</Text>
+                        <View className="mt-2 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: theme.cardBgMuted }}>
+                          <View
+                            className="h-full rounded-full bg-[#ff3b30]"
+                            style={{ width: `${offer.progressPercent}%` }}
+                          />
+                        </View>
+                      </View>
                     </View>
-                    <Text className="mt-1" style={{ color: theme.textMuted }}>Claimade: {offer.claimedCount} / {offer.totalCount || "-"}</Text>
-                    <View className="mt-2 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: theme.cardBgMuted }}>
-                      <View
-                        className="h-full rounded-full bg-[#ff3b30]"
-                        style={{ width: `${offer.progressPercent}%` }}
-                      />
+                    <View className="mt-3">
+                      <Animated.View style={{ transform: [{ rotate: claimWobbleRotate }] }}>
+                        <Button
+                          variant="filled"
+                          color="#ff3b30"
+                          disabled={isClaimDisabled}
+                          onPress={() => {
+                            if (!isLoggedIn) {
+                              setIsLoginOpen(true);
+                              return;
+                            }
+
+                            void claimOffer(offer);
+                          }}
+                        >
+                          {claimLabel}
+                        </Button>
+                      </Animated.View>
                     </View>
                   </View>
-                </View>
-                <View className="mt-3">
-                  <Animated.View style={{ transform: [{ rotate: claimWobbleRotate }] }}>
+                );
+              }
+
+              const event = item.data;
+              const isInterestLoading = interestLoadingId === event.id;
+              const eventRemainingMs = getEventRemainingMs(event);
+              const eventImageUri = getEventImageUri(event);
+              const eventImageSource = eventImageUri
+                ? ({ uri: eventImageUri } as const)
+                : effectiveImageSource;
+              const when = formatEventDateRange(event);
+
+              const interestLabel = !isLoggedIn
+                ? "Logga in för att visa intresse"
+                : isInterestLoading
+                  ? "Sparar..."
+                  : "Intresserad";
+
+              return (
+                <View key={`event-${event.id}`} className="mr-3 w-[320px] rounded-2xl p-4" style={{ backgroundColor: theme.cardBg }}>
+                  <View className="flex-row gap-3">
+                    <View className="relative h-28 w-28 overflow-hidden rounded-xl" style={{ backgroundColor: theme.cardBgMuted }}>
+                      {eventImageSource ? (
+                        <CardMedia source={eventImageSource} rasterResizeMode="cover" svgContain />
+                      ) : null}
+                      <View
+                        className="absolute left-2 top-2 rounded-[10px] px-2.5 py-1"
+                        style={{ backgroundColor: theme.primary }}
+                      >
+                        <Text className="text-[11px] font-semibold text-white">Event</Text>
+                      </View>
+                      <LinearGradient
+                        colors={[brandNavyRgba(0), brandNavyRgba(0.9)]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 0, y: 1 }}
+                        style={{
+                          position: "absolute",
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          height: 40,
+                        }}
+                      />
+                      <View
+                        className="absolute bottom-1 left-2 rounded-full border px-2 py-1"
+                        style={{
+                          backgroundColor: theme.isDark ? "rgba(0,0,0,0.6)" : brandInkRgba(0.06),
+                          borderColor: theme.isDark ? "rgba(255,255,255,0.15)" : theme.border,
+                        }}
+                      >
+                        <Text className="text-[10px] font-medium" style={{ color: theme.text }}>
+                          {eventRemainingMs != null ? formatRemaining(eventRemainingMs) : "--:--:--"}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View className="flex-1 justify-center">
+                      <Text style={{ color: theme.textMuted }}>{event.title}</Text>
+                      <Text className="mt-1 text-sm" style={{ color: theme.text }}>
+                        {when ?? "-"}
+                      </Text>
+                      {event.locationName ? (
+                        <Text className="mt-1 text-xs" style={{ color: theme.textMuted }} numberOfLines={1}>
+                          {event.locationName}
+                        </Text>
+                      ) : null}
+                      <View
+                        className="mt-2 flex-row items-center justify-between rounded-xl px-3 py-2"
+                        style={{
+                          alignSelf: "stretch",
+                          marginRight: -12,
+                          backgroundColor: theme.isDark ? "rgba(255,255,255,0.14)" : "rgba(235, 187, 208, 0.72)",
+                        }}
+                      >
+                        <Text className="text-sm font-semibold text-white">Intresserade:</Text>
+                        <Text className="text-2xl font-bold leading-7 text-white">
+                          {formatInterestCount(event.interestCount)}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                  <View className="mt-3">
                     <Button
                       variant="filled"
-                      color="#ff3b30"
-                      disabled={isClaimDisabled}
+                      color={theme.primary}
+                      disabled={isInterestLoading}
                       onPress={() => {
-                        if (!isLoggedIn) {
-                          setIsLoginOpen(true);
-                          return;
-                        }
-
-                        void claimOffer(offer);
+                        void toggleEventInterest(event);
                       }}
                     >
-                      {claimLabel}
+                      {interestLabel}
                     </Button>
-                  </Animated.View>
+                  </View>
                 </View>
-              </View>
-                );
-              })()
-            ))}
+              );
+            })}
           </ScrollView>
         </View>
       ) : null}
@@ -1009,12 +1306,34 @@ export default function CompanyDetailScreen() {
               placeholder="Din e-postadress"
               placeholderTextColor={theme.textFaint}
               keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              value={loginEmail}
+              onChangeText={setLoginEmail}
               className="mb-2 rounded-2xl border px-4 py-3"
               style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
             />
 
-            <Pressable className="mb-4 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={() => Alert.alert('E-post', 'Fortsätt med e-post')}>
-              <Text className="text-center font-medium text-white">Fortsätt med e-post</Text>
+            <TextInput
+              placeholder="Lösenord"
+              placeholderTextColor={theme.textFaint}
+              secureTextEntry
+              value={loginPassword}
+              onChangeText={setLoginPassword}
+              className="mb-4 rounded-2xl border px-4 py-3"
+              style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
+            />
+
+            <Pressable
+              className="mb-4 rounded-2xl bg-[#ff3b30] px-4 py-3"
+              disabled={isSubmittingLogin}
+              onPress={() => {
+                void handleLoginFromModal();
+              }}
+            >
+              <Text className="text-center font-medium text-white">
+                {isSubmittingLogin ? 'Loggar in...' : 'Logga in'}
+              </Text>
             </Pressable>
 
             <View className="mb-4 flex-row justify-center">

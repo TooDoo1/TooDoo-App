@@ -1,3 +1,4 @@
+import type { BusinessEventItem } from '@/lib/business-events';
 import type { OfferCardItem } from '@/lib/home-offers';
 
 const TTL_MS = 2 * 60 * 1000;
@@ -23,6 +24,7 @@ export type NearbyBusinessCard = {
 let nearbyBusinessesCache: CacheEntry<NearbyBusinessCard[]> | null = null;
 let hotOffersCache: CacheEntry<OfferCardItem[]> | null = null;
 let endingSoonCache: CacheEntry<OfferCardItem[]> | null = null;
+let eventsCache: CacheEntry<BusinessEventItem[]> | null = null;
 
 function isFresh<T>(entry: CacheEntry<T> | null): entry is CacheEntry<T> {
   return Boolean(entry && Date.now() - entry.at < TTL_MS);
@@ -50,6 +52,14 @@ export function setHomeEndingSoonCache(data: OfferCardItem[]) {
 
 export function getHomeEndingSoonCache(): OfferCardItem[] | null {
   return isFresh(endingSoonCache) ? endingSoonCache.data : null;
+}
+
+export function setHomeEventsCache(data: BusinessEventItem[]) {
+  eventsCache = { data, at: Date.now() };
+}
+
+export function getHomeEventsCache(): BusinessEventItem[] | null {
+  return isFresh(eventsCache) ? eventsCache.data : null;
 }
 
 export type HomeFilterCategory = { id: string; label: string };

@@ -39,8 +39,12 @@ import {
 } from '@/lib/geo';
 import { prefetchImageUris } from '@/lib/image-prefetch';
 import { useFavorites } from '@/context/favorites-context';
+import { EventsPortraitRow } from '@/components/events-portrait-row';
+import { fetchBusinessEvents, type BusinessEventItem } from '@/lib/business-events';
+import { openEventDetail } from '@/lib/open-event-detail';
 import { openOfferDetail } from '@/lib/open-offer-detail';
 import {
+  EVENEMANG_PATH,
   HETA_ERBJUDANDEN_PATH,
   NARA_DIG_PATH,
   SEARCH_RESULTS_PATH,
@@ -62,10 +66,12 @@ import {
 } from '@/lib/home-offers';
 import {
   clearHomeSearchCache,
+  getHomeEventsCache,
   getHomeScreenSnapshot,
   getHomeScrollOffset,
   getHomeSearchCache,
   setHomeEndingSoonCache,
+  setHomeEventsCache,
   setHomeHotOffersCache,
   setHomeNearbyBusinessesCache,
   setHomeScreenSnapshot,
@@ -808,6 +814,8 @@ export default function HomeScreen() {
   const [searchQuery, setSearchQuery] = useState(initialSearch.query);
   const [searchResults, setSearchResults] = useState<CardItem[]>(initialSearch.results as CardItem[]);
   const [isSearchLoading, setIsSearchLoading] = useState(false);
+  const [eventCards, setEventCards] = useState<BusinessEventItem[]>(getHomeEventsCache() ?? []);
+  const [isLoadingEvents, setIsLoadingEvents] = useState(!getHomeEventsCache());
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const insets = useSafeAreaInsets();
   const scrollBottomPadding = getFloatingTabBarScrollPadding(insets.bottom);
@@ -899,6 +907,35 @@ export default function HomeScreen() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      if (!getHomeEventsCache()) {
+        setIsLoadingEvents(true);
+      }
+      try {
+        const events = await fetchBusinessEvents();
+        if (!cancelled) {
+          setEventCards(events);
+          setHomeEventsCache(events);
+        }
+      } catch {
+        if (!cancelled) {
+          setEventCards([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingEvents(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshNonce]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1494,6 +1531,11 @@ export default function HomeScreen() {
     openOfferDetail(router, card, 'index');
   };
 
+  const handleEventPress = (event: BusinessEventItem) => {
+    setHomeScrollOffset(scrollOffsetRef.current);
+    openEventDetail(router, event, 'index');
+  };
+
   const openSearchResultsView = useCallback(
     (view: 'all' | 'near' | 'hot') => {
       if (!trimmedSearchQuery) return;
@@ -1820,6 +1862,24 @@ export default function HomeScreen() {
                     cards={nearYouCards}
                     onCardPress={handleCardPress}
                     emptyText="Inga tidsbegränsade erbjudanden just nu."
+                  />
+                )}
+              </View>
+
+              <View className="mt-6">
+                <SectionTitleRow
+                  title="Evenemang"
+                  icon="calendar-outline"
+                  subtitle="Kommande aktiviteter"
+                  onSeeAllPress={() => router.push(EVENEMANG_PATH)}
+                />
+                {isLoadingEvents && eventCards.length === 0 ? (
+                  <Text style={{ color: theme.textMuted }}>Laddar...</Text>
+                ) : (
+                  <EventsPortraitRow
+                    events={eventCards}
+                    onEventPress={handleEventPress}
+                    emptyText="Inga evenemang just nu."
                   />
                 )}
               </View>
