@@ -16,7 +16,6 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Button } from "@react-navigation/elements";
-import { Image as ExpoImage } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { OfferMap } from "@/components/ui/offer-map";
@@ -32,10 +31,7 @@ import { performWebStackBack } from "@/lib/web-stack-navigation";
 import { isActiveOffer } from "@/lib/home-offers";
 import { BrandColors, brandInkRgba, brandNavyRgba } from "@/lib/brand-colors";
 import { getOrderNotClaimableReason, getOrderPublishEndMs } from "@/lib/order-claim-window";
-
-const skanetrafikenLogo = require("../assets/images/Skanetrafiken.png");
-const voiLogo = require("../assets/images/Voi.png");
-const uberLogo = require("../assets/images/Uber.png");
+import { getUserCoordsIfGranted } from "@/lib/geo";
 
 const localImagesById: Record<string, ImageSourcePropType> = {
   "event-3": require("../assets/images/testbild.jpg"),
@@ -50,6 +46,7 @@ export default function CompanyDetailScreen() {
   const [isClaiming, setIsClaiming] = useState(false);
   const [claimedOrderIds, setClaimedOrderIds] = useState<Set<string>>(new Set());
   const [geocodedCoordinate, setGeocodedCoordinate] = useState<{ latitude: number; longitude: number; addressText?: string }>();
+  const [mapOriginCoords, setMapOriginCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [nowMs, setNowMs] = useState(Date.now());
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [claimSuccess, setClaimSuccess] = useState<{ title?: string; qrCode?: string } | null>(null);
@@ -668,11 +665,17 @@ export default function CompanyDetailScreen() {
   const phoneUrl = effectivePhoneText
     ? `tel:${effectivePhoneText.replace(/[\s-]/g, "")}`
     : undefined;
-  const mapsUrl = addressText
-    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressText)}`
-    : undefined;
   const mapCoordinate = geocodedCoordinate;
-  const mapResetKey = `${id ?? "no-id"}-${addressText ?? "no-address"}-${resetNonceText ?? "no-reset"}-${mapCoordinate?.latitude ?? "no-lat"}-${mapCoordinate?.longitude ?? "no-lon"}`;
+  const mapsUrl = addressText
+    ? mapOriginCoords
+      ? `https://www.google.com/maps/dir/?api=1&origin=${mapOriginCoords.latitude},${mapOriginCoords.longitude}&destination=${encodeURIComponent(
+          mapCoordinate
+            ? `${mapCoordinate.latitude},${mapCoordinate.longitude}`
+            : addressText
+        )}&travelmode=driving`
+      : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressText)}`
+    : undefined;
+  const mapResetKey = `${id ?? "no-id"}-${addressText ?? "no-address"}-${resetNonceText ?? "no-reset"}-${mapCoordinate?.latitude ?? "no-lat"}-${mapCoordinate?.longitude ?? "no-lon"}-${mapOriginCoords?.latitude ?? "no-origin-lat"}-${mapOriginCoords?.longitude ?? "no-origin-lon"}`;
 
   const socialLogin = (provider: 'Google' | 'Facebook' | 'Apple') => {
     Alert.alert(
@@ -777,6 +780,21 @@ export default function CompanyDetailScreen() {
     };
   }, [addressText, resetNonceText, paramCoordinate?.latitude, paramCoordinate?.longitude]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      const coords = await getUserCoordsIfGranted();
+      if (!cancelled && coords) {
+        setMapOriginCoords({ latitude: coords.lat, longitude: coords.lng });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const formatRemaining = (milliseconds: number) => {
     const totalSeconds = Math.max(Math.floor(milliseconds / 1000), 0);
     const hours = Math.floor(totalSeconds / 3600);
@@ -852,20 +870,64 @@ export default function CompanyDetailScreen() {
         {title}
       </Text>) : null}
 
-      <View className="mt-6 overflow-hidden rounded-2xl p-4 m-2 flex-row items-center gap-3">
+      {addressText ? (
+        <Text className="mt-3 px-6 text-base" style={{ color: theme.text }}>
+          Adress: {addressText}
+        </Text>
+      ) : null}
+      {effectivePhoneText && phoneUrl ? (
+        <Text className="mt-1 px-6 text-base" style={{ color: theme.text }}>
+          Telefon:{" "}
+          <Text
+            className="text-blue-400 underline"
+            onPress={() => Linking.openURL(phoneUrl)}
+          >
+            {effectivePhoneText}
+          </Text>
+        </Text>
+      ) : null}
+
+      <View className="mt-4 overflow-hidden rounded-2xl p-4 m-2 flex-row items-center gap-3">
         {mapsUrl ? (
-          <Button className="flex-1" onPress={() => Linking.openURL(mapsUrl)}>
-            Hitta hit
-          </Button>
+          <Pressable
+            className="flex-1 flex-row items-center justify-center rounded-full px-6 py-2.5"
+            style={{ backgroundColor: theme.isDark ? "#ffffff" : theme.cardBg }}
+            onPress={() => Linking.openURL(mapsUrl)}
+          >
+            <Ionicons
+              name="location-outline"
+              size={18}
+              color={theme.isDark ? BrandColors.dark.background : theme.text}
+              style={{ marginRight: 6 }}
+            />
+            <Text
+              className="text-sm font-medium"
+              style={{ color: theme.isDark ? BrandColors.dark.background : theme.text }}
+            >
+              Hitta hit
+            </Text>
+          </Pressable>
         ) : null}
 
         {effectiveWebsiteUrl ? (
-          <Button
-            className="flex-1"
+          <Pressable
+            className="flex-1 flex-row items-center justify-center rounded-full px-6 py-2.5"
+            style={{ backgroundColor: theme.isDark ? "#ffffff" : theme.cardBg }}
             onPress={() => Linking.openURL(effectiveWebsiteUrl)}
           >
-            Webbplats
-          </Button>
+            <Ionicons
+              name="globe-outline"
+              size={18}
+              color={theme.isDark ? BrandColors.dark.background : theme.text}
+              style={{ marginRight: 6 }}
+            />
+            <Text
+              className="text-sm font-medium"
+              style={{ color: theme.isDark ? BrandColors.dark.background : theme.text }}
+            >
+              Webbplats
+            </Text>
+          </Pressable>
         ) : null}
       </View>
 
@@ -1128,21 +1190,6 @@ export default function CompanyDetailScreen() {
           {effectiveDescription ? (
             <Text className="mt-2" style={{ color: theme.textMuted }}>{effectiveDescription}</Text>
           ) : null}
-
-          {addressText ? (
-            <Text className=" mt-6" style={{ color: theme.text }}>Adress: {addressText}</Text>
-          ) : null}
-          {effectivePhoneText && phoneUrl ? (
-            <Text className=" mt-2" style={{ color: theme.text }}>
-              Telefon:{" "}
-              <Text
-                className="text-blue-400 underline"
-                onPress={() => Linking.openURL(phoneUrl)}
-              >
-                {effectivePhoneText}
-              </Text>
-            </Text>
-          ) : null}
         </View>
       ) : (
         <Text className="mt-4" style={{ color: theme.textMuted }}>
@@ -1152,7 +1199,7 @@ export default function CompanyDetailScreen() {
 
       {addressText && mapCoordinate && mapCoordinate.addressText === addressText ? (
         <View className="mt-6 mx-6 mb-2">
-          <Text className="mb-2 text-xl font-medium ml-4" style={{ color: theme.text }}>Karta:</Text>
+          <Text className="mb-2 text-xl font-medium ml-4" style={{ color: theme.text }}>Hitta hit:</Text>
           <View className="overflow-hidden rounded-2xl border" style={{ borderColor: theme.border }}>
             <OfferMap
               mapKey={mapResetKey}
@@ -1160,107 +1207,8 @@ export default function CompanyDetailScreen() {
               longitude={mapCoordinate.longitude}
               title={title ?? "Erbjudande"}
               addressText={addressText}
+              originCoords={mapOriginCoords}
             />
-          </View>
-
-          <Text className="mt-5 mb-2 text-xl font-medium ml-4" style={{ color: theme.text }}>Ta dig hit:</Text>
-          <View className="flex-row items-center justify-between">
-            <Pressable
-              className="rounded-3xl overflow-hidden"
-              style={{ aspectRatio: 1, flex: 1, marginRight: 12 }}
-              onPress={async () => {
-                const to = encodeURIComponent(addressText);
-                const webPath = `www.skanetrafiken.se/sok-resa/?to=${to}`;
-                const universalLink = `https://${webPath}`;
-                const androidIntent =
-                  `intent://${webPath}` +
-                  `#Intent;scheme=https;package=se.skanetrafiken.washington;` +
-                  `S.browser_fallback_url=${encodeURIComponent(universalLink)};end`;
-                try {
-                  if (Platform.OS === "android") {
-                    const ok = await Linking.canOpenURL(androidIntent);
-                    await Linking.openURL(ok ? androidIntent : universalLink);
-                  } else {
-                    await Linking.openURL(universalLink);
-                  }
-                } catch {
-                  try {
-                    await Linking.openURL(universalLink);
-                  } catch {
-                    Alert.alert("Kunde inte öppna", "Skånetrafiken kunde inte öppnas.");
-                  }
-                }
-              }}
-            >
-              <ExpoImage
-                source={skanetrafikenLogo}
-                style={{ width: "100%", height: "100%" }}
-                contentFit="cover"
-                cachePolicy="memory-disk"
-                transition={0}
-                accessibilityLabel="Skånetrafiken"
-              />
-            </Pressable>
-
-            <Pressable
-              className="rounded-3xl overflow-hidden"
-              style={{ aspectRatio: 1, flex: 1, marginRight: 12 }}
-              onPress={async () => {
-                const appUrl = "voiapp://";
-                const webUrl = "https://www.voiscooters.com/";
-                try {
-                  const supported = await Linking.canOpenURL(appUrl);
-                  await Linking.openURL(supported ? appUrl : webUrl);
-                } catch {
-                  try {
-                    await Linking.openURL(webUrl);
-                  } catch {
-                    Alert.alert("Kunde inte öppna", "Voi kunde inte öppnas.");
-                  }
-                }
-              }}
-            >
-              <ExpoImage
-                source={voiLogo}
-                style={{ width: "100%", height: "100%" }}
-                contentFit="cover"
-                cachePolicy="memory-disk"
-                transition={0}
-                accessibilityLabel="Voi"
-              />
-            </Pressable>
-
-            <Pressable
-              className="rounded-3xl overflow-hidden"
-              style={{ aspectRatio: 1, flex: 1 }}
-              onPress={async () => {
-                const lat = mapCoordinate.latitude;
-                const lng = mapCoordinate.longitude;
-                const nickname = encodeURIComponent(title ?? addressText);
-                const dropoffAddr = encodeURIComponent(addressText);
-                const appUrl = `uber://?action=setPickup&pickup=my_location&dropoff[latitude]=${lat}&dropoff[longitude]=${lng}&dropoff[nickname]=${nickname}&dropoff[formatted_address]=${dropoffAddr}`;
-                const webUrl = `https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff[latitude]=${lat}&dropoff[longitude]=${lng}&dropoff[nickname]=${nickname}&dropoff[formatted_address]=${dropoffAddr}`;
-                try {
-                  const supported = await Linking.canOpenURL(appUrl);
-                  await Linking.openURL(supported ? appUrl : webUrl);
-                } catch {
-                  try {
-                    await Linking.openURL(webUrl);
-                  } catch {
-                    Alert.alert("Kunde inte öppna", "Uber kunde inte öppnas.");
-                  }
-                }
-              }}
-            >
-              <ExpoImage
-                source={uberLogo}
-                style={{ width: "100%", height: "100%" }}
-                contentFit="cover"
-                cachePolicy="memory-disk"
-                transition={0}
-                accessibilityLabel="Uber"
-              />
-            </Pressable>
           </View>
         </View>
       ) : null}

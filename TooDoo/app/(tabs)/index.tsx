@@ -780,36 +780,6 @@ function SectionTitleRow({
   );
 }
 
-function QuickFiltersRow() {
-  const { mode } = useThemePreference();
-  const theme = uiTheme(mode);
-  const filterSurfaceStyle = FilterChipTheme.surface;
-
-  const filters = [
-    { id: 'tonight', label: 'Ikväll', icon: 'time-outline' as const },
-    { id: 'budget', label: 'Under 200 kr', icon: 'cash-outline' as const },
-    { id: 'outdoor', label: 'Utomhus', icon: 'leaf-outline' as const },
-    { id: 'family', label: 'Barnvänligt', icon: 'people-outline' as const },
-  ];
-
-  return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 2 }}>
-      <View className="flex-row gap-3">
-        {filters.map((filter) => (
-          <View
-            key={filter.id}
-            className="flex-row items-center rounded-full px-3 py-2"
-            style={filterSurfaceStyle}
-          >
-            <Ionicons name={filter.icon} size={14} color={FilterChipTheme.textMuted} />
-            <Text className="ml-2 text-xs" style={{ color: FilterChipTheme.textMuted }}>{filter.label}</Text>
-          </View>
-        ))}
-      </View>
-    </ScrollView>
-  );
-}
-
 function isLikelyPicsumUrl(uri: string) {
   return uri.includes('picsum.photos/');
 }
@@ -1568,9 +1538,6 @@ export default function HomeScreen() {
               <Ionicons name="close-circle" size={18} color={FilterChipTheme.textMuted} />
             </Pressable>
           ) : null}
-          <Pressable className="ml-1 rounded-full p-1">
-            <Ionicons name="options-outline" size={18} color={FilterChipTheme.textMuted} />
-          </Pressable>
         </View>
       </View>
 
@@ -1758,9 +1725,6 @@ export default function HomeScreen() {
           )}
         </View>
 
-        <View className="mt-4 px-6">
-          <QuickFiltersRow />
-        </View>
         </ScrollView>
       </View>
     </View>

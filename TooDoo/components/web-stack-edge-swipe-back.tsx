@@ -49,6 +49,7 @@ export function WebStackEdgeSwipeBack() {
     performWebStackBack(router, {
       returnTo: params.returnTo,
       isCompanyDetail: currentTop === 'company-detail',
+      topSegment: currentTop,
     });
   }, [params.returnTo, router, segments]);
 

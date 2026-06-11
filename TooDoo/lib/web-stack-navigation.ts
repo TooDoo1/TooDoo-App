@@ -6,6 +6,7 @@ import {
   type DetailReturnKey,
   navigateBackFromDetail,
 } from '@/lib/detail-navigation';
+import { isFullScreenStackRouteName } from '@/lib/stack-navigation';
 import { blurActiveElementOnWeb } from '@/lib/web-focus';
 
 function resolveDetailReturnRoute(returnTo?: string | string[]) {
@@ -19,7 +20,11 @@ function resolveDetailReturnRoute(returnTo?: string | string[]) {
 /** Pop stack screens on web without replace (keeps tabs mounted in the background). */
 export function performWebStackBack(
   router: Router,
-  options?: { returnTo?: string | string[]; isCompanyDetail?: boolean }
+  options?: {
+    returnTo?: string | string[];
+    isCompanyDetail?: boolean;
+    topSegment?: string;
+  }
 ) {
   if (Platform.OS !== 'web') {
     if (options?.isCompanyDetail) {
@@ -36,10 +41,26 @@ export function performWebStackBack(
 
   const dismiss = () => {
     if (options?.isCompanyDetail) {
+      if (router.canDismiss()) {
+        router.dismiss();
+        return;
+      }
       router.dismissTo(resolveDetailReturnRoute(options.returnTo));
       return;
     }
-    router.dismiss();
+
+    const top = options?.topSegment;
+    if (top && isFullScreenStackRouteName(top)) {
+      router.dismissTo(DETAIL_RETURN_ROUTES.index);
+      return;
+    }
+
+    if (router.canDismiss()) {
+      router.dismiss();
+      return;
+    }
+
+    router.dismissTo(DETAIL_RETURN_ROUTES.index);
   };
 
   if (typeof requestAnimationFrame === 'function') {

@@ -1,5 +1,5 @@
 import { useGlobalSearchParams, useRouter, useSegments } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 
 import { performWebStackBack } from '@/lib/web-stack-navigation';
@@ -17,7 +17,10 @@ export function WebHistoryBackSync() {
   const segments = useSegments();
   const params = useGlobalSearchParams<{ returnTo?: string | string[] }>();
   const isOnStackScreen = segments.some(isFullScreenStackSegment);
-  const topSegment = segments[segments.length - 1];
+  const segmentsRef = useRef(segments);
+  const paramsRef = useRef(params);
+  segmentsRef.current = segments;
+  paramsRef.current = params;
 
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined' || !isOnStackScreen) {
@@ -27,9 +30,12 @@ export function WebHistoryBackSync() {
     history.pushState({ toodooBackTrap: true }, '');
 
     const onPopState = () => {
+      const currentSegments = segmentsRef.current;
+      const topSegment = currentSegments[currentSegments.length - 1];
       performWebStackBack(router, {
-        returnTo: params.returnTo,
+        returnTo: paramsRef.current.returnTo,
         isCompanyDetail: topSegment === 'company-detail',
+        topSegment,
       });
       history.pushState({ toodooBackTrap: true }, '');
     };
@@ -42,7 +48,7 @@ export function WebHistoryBackSync() {
         history.replaceState(null, '', window.location.href);
       }
     };
-  }, [isOnStackScreen, params.returnTo, router, topSegment]);
+  }, [isOnStackScreen, router]);
 
   return null;
 }
