@@ -87,13 +87,20 @@ export function WebStackEdgeSwipeBack() {
         stackHideProgress.value = 0;
       }
 
+      const finishBack = () => {
+        translateX.value = 0;
+        blurActiveElementOnWeb();
+        requestAnimationFrame(() => {
+          performBack();
+        });
+      };
+
       translateX.value = withTiming(
         windowWidth,
         { duration: WEB_STACK_MOTION_MS, easing: DETAIL_SCREEN_MOTION_EASING },
         (finished) => {
           if (finished) {
-            runOnJS(blurActiveElementOnWeb)();
-            runOnJS(performBack)();
+            runOnJS(finishBack)();
           }
         }
       );

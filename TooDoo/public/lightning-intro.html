@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>TooDoo</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #0e1325;
+    }
+    #scene {
+      width: 100%;
+      height: 100%;
+      height: 100dvh;
+      background: #0e1325;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      position: relative;
+    }
+    canvas#bg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+    #center-wrap {
+      position: relative;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 22px;
+    }
+    #logo-wrap {
+      position: relative;
+      width: 200px;
+      height: 200px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #logo-img {
+      width: 200px;
+      height: 200px;
+      border-radius: 36px;
+      object-fit: cover;
+      display: block;
+      opacity: 0;
+      transform: scale(0.85);
+      filter: brightness(0.15) saturate(0.2);
+    }
+    #logo-glow {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 200px;
+      height: 200px;
+      border-radius: 36px;
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(0.85);
+      transform-origin: center center;
+    }
+    #brand-text {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 38px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      color: #fff;
+      opacity: 0;
+      transform: translateY(10px);
+      text-shadow: 0 0 30px rgba(255,220,80,0);
+    }
+    #bolt-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 20;
+    }
+  </style>
+</head>
+<body>
+  <div id="scene">
+    <canvas id="bg"></canvas>
+    <canvas id="bolt-canvas"></canvas>
+    <div id="center-wrap">
+      <div id="logo-wrap">
+        <div id="logo-glow"></div>
+        <img id="logo-img" src="/icon-192.png" alt="TooDoo" />
+      </div>
+      <div id="brand-text">TooDoo</div>
+    </div>
+  </div>
+  <script>
+    let completeSignaled = false;
+
+    function signalComplete() {
+      if (completeSignaled) return;
+      completeSignaled = true;
+      try {
+        window.parent.postMessage({ type: 'toodoo-intro-complete' }, '*');
+      } catch (e) {}
+      try {
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'toodoo-intro-complete' }));
+        }
+      } catch (e) {}
+    }
+
+    const scene = document.getElementById('scene');
+    const bgCanvas = document.getElementById('bg');
+    const boltCanvas = document.getElementById('bolt-canvas');
+    const logoImg = document.getElementById('logo-img');
+    const logoGlow = document.getElementById('logo-glow');
+    const brandText = document.getElementById('brand-text');
+    const bgCtx = bgCanvas.getContext('2d');
+    const bCtx = boltCanvas.getContext('2d');
+
+    function resize() {
+      const W = scene.offsetWidth;
+      const H = scene.offsetHeight;
+      bgCanvas.width = boltCanvas.width = W;
+      bgCanvas.height = boltCanvas.height = H;
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    function rand(a, b) { return a + Math.random() * (b - a); }
+
+    function zigzag(ctx, x1, y1, x2, y2, roughness, lineWidth, alpha) {
+      const dx = x2 - x1, dy = y2 - y1;
+      const len = Math.sqrt(dx*dx + dy*dy);
+      const steps = Math.max(6, Math.floor(len / 22));
+      const pts = [[x1, y1]];
+      for (let i = 1; i < steps; i++) {
+        const t = i / steps;
+        const px = x1 + dx * t + (Math.random() - 0.5) * roughness;
+        const py = y1 + dy * t + (Math.random() - 0.5) * roughness;
+        pts.push([px, py]);
+      }
+      pts.push([x2, y2]);
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      ctx.strokeStyle = 'rgba(255,240,160,0.18)';
+      ctx.lineWidth = lineWidth * 5;
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(255,220,100,0.45)';
+      ctx.lineWidth = lineWidth * 2.5;
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(255,240,180,0.9)';
+      ctx.lineWidth = lineWidth;
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.stroke();
+
+      ctx.lineWidth = lineWidth * 0.3;
+      ctx.strokeStyle = 'rgba(255,255,240,0.95)';
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    function drawBgFlash(alpha) {
+      bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+      const cx = bgCanvas.width / 2, cy = bgCanvas.height / 2;
+      const grad = bgCtx.createRadialGradient(cx, cy, 10, cx, cy, bgCanvas.width * 0.65);
+      grad.addColorStop(0, 'rgba(255,235,120,' + (alpha * 0.14) + ')');
+      grad.addColorStop(0.5, 'rgba(255,200,60,' + (alpha * 0.06) + ')');
+      grad.addColorStop(1, 'rgba(14,19,37,0)');
+      bgCtx.fillStyle = grad;
+      bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
+    }
+
+    const INTRO_PLAYED_KEY = 'toodoo_intro_lightning_played';
+    let running = false;
+    let waitingPulse = false;
+    let pulseRaf = null;
+    let revealStarted = false;
+    let animationGeneration = 0;
+    let boltTimeouts = [];
+
+    function applyLogoGlow(intensity) {
+      const gs = Math.round(8 + intensity * 16);
+      const ga = (0.25 + intensity * 0.35).toFixed(2);
+      const outer = (intensity * 0.18).toFixed(2);
+      logoImg.style.filter =
+        'brightness(100%) saturate(100%) drop-shadow(0 0 ' + gs + 'px rgba(255,220,80,' + ga + '))';
+      logoGlow.style.opacity = '1';
+      logoGlow.style.transform = 'scale(1)';
+      logoGlow.style.boxShadow =
+        '0 0 ' + gs + 'px rgba(255,220,80,' + ga + '), 0 0 ' + Math.round(gs * 1.6) + 'px rgba(255,180,20,' + outer + ')';
+    }
+
+    function initEndedState() {
+      logoImg.style.opacity = '1';
+      logoImg.style.transform = 'scale(1)';
+      logoImg.style.filter = 'brightness(100%) saturate(100%)';
+      logoGlow.style.opacity = '1';
+      logoGlow.style.transform = 'scale(1)';
+      brandText.style.opacity = '1';
+      brandText.style.transform = 'translateY(0)';
+      brandText.style.textShadow =
+        '0 0 24px rgba(255,220,80,0.6), 0 0 48px rgba(255,180,20,0.25)';
+      applyLogoGlow(0.7);
+    }
+
+    function startWaitingPulse() {
+      if (waitingPulse) return;
+      waitingPulse = true;
+      signalComplete();
+
+      logoImg.style.opacity = '1';
+      logoImg.style.transform = 'scale(1)';
+      logoGlow.style.transform = 'scale(1)';
+      logoGlow.style.opacity = '1';
+
+      const pulseStart = performance.now();
+      function pulse(now) {
+        if (!waitingPulse) return;
+        const t = (now - pulseStart) / 1000;
+        const intensity = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * Math.PI * 1.1));
+        applyLogoGlow(intensity);
+        pulseRaf = requestAnimationFrame(pulse);
+      }
+      pulseRaf = requestAnimationFrame(pulse);
+    }
+
+    function stopWaitingPulse() {
+      waitingPulse = false;
+      if (pulseRaf) {
+        cancelAnimationFrame(pulseRaf);
+        pulseRaf = null;
+      }
+    }
+
+    function onParentMessage(event) {
+      const data = event && event.data;
+      if (data && data.type === 'toodoo-intro-exit') {
+        stopWaitingPulse();
+      }
+    }
+
+    window.addEventListener('message', onParentMessage);
+    document.addEventListener('message', onParentMessage);
+
+    function clearBoltTimeouts() {
+      boltTimeouts.forEach(function(id) { clearTimeout(id); });
+      boltTimeouts = [];
+    }
+
+    function animate() {
+      if (running || waitingPulse) return;
+      if (sessionStorage.getItem(INTRO_PLAYED_KEY) === '1') {
+        initEndedState();
+        startWaitingPulse();
+        return;
+      }
+      sessionStorage.setItem(INTRO_PLAYED_KEY, '1');
+
+      running = true;
+      revealStarted = false;
+      animationGeneration += 1;
+      const generation = animationGeneration;
+      clearBoltTimeouts();
+
+      resize();
+
+      logoImg.style.opacity = '0';
+      logoImg.style.transform = 'scale(0.85)';
+      logoImg.style.filter = 'brightness(0.15) saturate(0.2)';
+      logoImg.style.transition = 'none';
+      logoGlow.style.opacity = '0';
+      logoGlow.style.transform = 'scale(0.85)';
+      logoGlow.style.boxShadow = 'none';
+      brandText.style.opacity = '0';
+      brandText.style.transform = 'translateY(10px)';
+      brandText.style.textShadow = '0 0 30px rgba(255,220,80,0)';
+      brandText.style.transition = 'none';
+      bCtx.clearRect(0, 0, boltCanvas.width, boltCanvas.height);
+      bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+
+      const W = boltCanvas.width;
+      const H = boltCanvas.height;
+      const cx = W / 2;
+      const cy = H / 2 - 22;
+      const logoR = 108;
+
+      const boltSets = [
+        { delay: 300,  side: 'left',  fromY: cy - 35 },
+        { delay: 500,  side: 'right', fromY: cy + 25 },
+        { delay: 700,  side: 'left',  fromY: cy + 45 },
+        { delay: 870,  side: 'right', fromY: cy - 55 },
+        { delay: 1020, side: 'left',  fromY: cy + 5  },
+        { delay: 1150, side: 'right', fromY: cy - 15 },
+        { delay: 1270, side: 'left',  fromY: cy - 70 },
+        { delay: 1360, side: 'right', fromY: cy + 60 },
+      ];
+
+      let strikesDone = 0;
+      const totalStrikes = boltSets.length;
+
+      boltSets.forEach(function(b) {
+        const timeoutId = setTimeout(function() {
+          if (generation !== animationGeneration) return;
+          const fromX = b.side === 'left' ? 0 : W;
+          const toX   = b.side === 'left' ? cx - logoR + 12 : cx + logoR - 12;
+          const toY   = cy + rand(-25, 25);
+
+          let frame = 0;
+          const flashes = 3;
+          function flashBolt() {
+            if (frame >= flashes * 2) {
+              bCtx.clearRect(0, 0, W, H);
+              bgCtx.clearRect(0, 0, W, H);
+              strikesDone++;
+              if (strikesDone === totalStrikes) revealLogo();
+              return;
+            }
+            bCtx.clearRect(0, 0, W, H);
+            if (frame % 2 === 0) {
+              const alpha = 1 - (frame / (flashes * 2)) * 0.35;
+              zigzag(bCtx, fromX, b.fromY, toX, toY, 30, 2.5, alpha);
+              const bx = fromX + (toX - fromX) * rand(0.35, 0.6);
+              const by = b.fromY + (toY - b.fromY) * rand(0.3, 0.6);
+              const branchDir = b.side === 'left' ? rand(30, 80) : rand(-80, -30);
+              zigzag(bCtx, bx, by, bx + branchDir, by + rand(-50, 50), 16, 1.5, alpha * 0.55);
+              drawBgFlash(alpha);
+            }
+            frame++;
+            setTimeout(flashBolt, 65);
+          }
+          flashBolt();
+        }, b.delay);
+        boltTimeouts.push(timeoutId);
+      });
+
+      function revealLogo() {
+        if (revealStarted || generation !== animationGeneration) return;
+        revealStarted = true;
+        let p = 0;
+        const dur = 520;
+        const start = performance.now();
+        function step(now) {
+          p = Math.min(1, (now - start) / dur);
+          const ease = p < 0.5 ? 2*p*p : -1+(4-2*p)*p;
+          const scale = (0.85 + 0.15 * ease).toFixed(3);
+          logoImg.style.opacity = ease.toFixed(3);
+          logoImg.style.transform = 'scale(' + scale + ')';
+          logoGlow.style.transform = 'scale(' + scale + ')';
+          const br = (15 + 85 * ease).toFixed(0);
+          const sat = (20 + 80 * ease).toFixed(0);
+          const gs = Math.round(6 + ease * 18);
+          const ga = (ease * 0.55).toFixed(2);
+          logoImg.style.filter = 'brightness(' + br + '%) saturate(' + sat + '%) drop-shadow(0 0 ' + gs + 'px rgba(255,220,80,' + ga + '))';
+          logoGlow.style.opacity = '1';
+          logoGlow.style.boxShadow = '0 0 ' + gs + 'px rgba(255,220,80,' + ga + '), 0 0 ' + Math.round(gs * 1.6) + 'px rgba(255,180,20,' + (ease * 0.2).toFixed(2) + ')';
+          if (p < 1) requestAnimationFrame(step);
+          else {
+            showText();
+            setTimeout(startWaitingPulse, 700);
+          }
+        }
+        requestAnimationFrame(step);
+      }
+
+      function showText() {
+        let p = 0;
+        const dur = 600;
+        const start = performance.now();
+        function step(now) {
+          p = Math.min(1, (now - start) / dur);
+          const ease = p < 0.5 ? 2*p*p : -1+(4-2*p)*p;
+          brandText.style.opacity = ease.toFixed(3);
+          brandText.style.transform = 'translateY(' + (10 - 10 * ease).toFixed(1) + 'px)';
+          const glow = Math.round(ease * 24);
+          const glowA = (ease * 0.6).toFixed(2);
+          brandText.style.textShadow = '0 0 ' + glow + 'px rgba(255,220,80,' + glowA + '), 0 0 ' + (glow*2) + 'px rgba(255,180,20,' + (ease*0.25).toFixed(2) + ')';
+          if (p < 1) requestAnimationFrame(step);
+        }
+        requestAnimationFrame(step);
+      }
+    }
+
+    animate();
+  </script>
+</body>
+</html>

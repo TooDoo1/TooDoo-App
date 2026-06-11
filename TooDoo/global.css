@@ -87,6 +87,13 @@ body {
   overscroll-behavior-x: none;
 }
 
+/* Home search bar — RN stickyHeaderIndices does not stack above content on mobile web. */
+.home-sticky-search {
+  position: -webkit-sticky;
+  position: sticky;
+  z-index: 20;
+}
+
 /* Pressables keep focus after router.push; Safari draws a bright blue edge on swipe back. */
 #root,
 #app-shell {

@@ -34,10 +34,18 @@ export function performWebStackBack(
 
   blurActiveElementOnWeb();
 
-  if (options?.isCompanyDetail) {
-    router.dismissTo(resolveDetailReturnRoute(options.returnTo));
+  const dismiss = () => {
+    if (options?.isCompanyDetail) {
+      router.dismissTo(resolveDetailReturnRoute(options.returnTo));
+      return;
+    }
+    router.dismiss();
+  };
+
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(dismiss);
     return;
   }
 
-  router.dismiss();
+  dismiss();
 }

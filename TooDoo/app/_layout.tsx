@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { ReanimatedScreenProvider } from 'react-native-screens/reanimated';
@@ -20,14 +20,14 @@ import { RootFloatingTabBarOverlay } from '@/components/root-floating-tab-bar-ov
 import { useStandalonePwa } from '@/lib/use-standalone-pwa';
 import { WebStackEdgeSwipeBack } from '@/components/web-stack-edge-swipe-back';
 import { WebHistoryBackSync } from '@/components/web-history-back-sync';
-import LoadingSplash, { SPLASH_EXIT_DURATION_MS } from '@/components/ui/loading-splash';
+import LightningIntroSplash, { SPLASH_EXIT_DURATION_MS } from '@/components/ui/lightning-intro-splash';
 import { WebStackSwipeProvider } from '@/context/web-stack-swipe-context';
+import { getHomeScreenSnapshot } from '@/lib/home-list-cache';
 import { getSwipeableStackScreenOptions } from '@/lib/stack-navigation';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
-const MIN_SPLASH_DURATION_MS = 3000;
-const MAX_SPLASH_DURATION_MS = 10000;
+const MAX_SPLASH_DURATION_MS = 12000;
 const WEB_SPLASH_SEEN_KEY = 'toodoo_splash_seen';
 
 function hasWebSplashBeenSeen() {
@@ -39,7 +39,13 @@ function hasWebSplashBeenSeen() {
 function markWebSplashSeen() {
 	if (Platform.OS === 'web' && typeof sessionStorage !== 'undefined') {
 		sessionStorage.setItem(WEB_SPLASH_SEEN_KEY, '1');
+		sessionStorage.removeItem('toodoo_intro_lightning_played');
 	}
+}
+
+function shouldSkipStartupSplash() {
+	if (hasWebSplashBeenSeen()) return true;
+	return Boolean(getHomeScreenSnapshot());
 }
 
 export const unstable_settings = {
@@ -63,27 +69,35 @@ function AppShell() {
 		() => getSwipeableStackScreenOptions(windowWidth),
 		[windowWidth]
 	);
-	const webSplashSeen = hasWebSplashBeenSeen();
-	const [hasMinElapsed, setHasMinElapsed] = useState(webSplashSeen);
-	const [hasMaxElapsed, setHasMaxElapsed] = useState(webSplashSeen);
-	const [isSplashMounted, setIsSplashMounted] = useState(!webSplashSeen);
+	const skipStartupSplash = shouldSkipStartupSplash();
+	const [introComplete, setIntroComplete] = useState(skipStartupSplash);
+	const [hasMaxElapsed, setHasMaxElapsed] = useState(skipStartupSplash);
+	const [isSplashMounted, setIsSplashMounted] = useState(!skipStartupSplash);
 
 	useEffect(() => {
 		SplashScreen.hideAsync().catch(() => {});
 
-		const minTimer = setTimeout(() => setHasMinElapsed(true), MIN_SPLASH_DURATION_MS);
 		const maxTimer = setTimeout(() => {
 			setHasMaxElapsed(true);
+			setIntroComplete(true);
 			markDataReady();
 		}, MAX_SPLASH_DURATION_MS);
 
-		return () => {
-			clearTimeout(minTimer);
-			clearTimeout(maxTimer);
-		};
+		return () => clearTimeout(maxTimer);
 	}, [markDataReady]);
 
-	const showSplash = !hasMaxElapsed && (!hasMinElapsed || !isDataReady);
+	useEffect(() => {
+		if (!isSplashMounted || introComplete) return;
+
+		const introFallback = setTimeout(() => setIntroComplete(true), 5200);
+		return () => clearTimeout(introFallback);
+	}, [introComplete, isSplashMounted]);
+
+	const handleIntroComplete = useCallback(() => {
+		setIntroComplete(true);
+	}, []);
+
+	const showSplash = !hasMaxElapsed && (!introComplete || !isDataReady);
 	const isExiting = !showSplash;
 
 	useEffect(() => {
@@ -142,7 +156,10 @@ function AppShell() {
 									{ pointerEvents: isExiting ? 'none' : 'auto' },
 								]}
 							>
-								<LoadingSplash isExiting={isExiting} />
+								<LightningIntroSplash
+									isExiting={isExiting}
+									onIntroComplete={handleIntroComplete}
+								/>
 							</View>
 						) : null}
 					</ThemeProvider>

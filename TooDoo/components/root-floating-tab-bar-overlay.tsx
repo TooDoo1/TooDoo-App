@@ -21,7 +21,7 @@ import {
 } from '@/components/floating-tab-bar';
 import { useTabBarMotion } from '@/context/tab-bar-motion-context';
 import { useThemePreference } from '@/context/theme-preference-context';
-import { DETAIL_SCREEN_MOTION_MS } from '@/lib/detail-screen-motion';
+import { DETAIL_SCREEN_MOTION_MS, getStackMotionMs } from '@/lib/detail-screen-motion';
 import { isStandaloneWebApp } from '@/lib/pwa-standalone';
 
 const TAB_BAR_HIDE_ROUTES = new Set<string>();
@@ -84,8 +84,9 @@ function RootFloatingTabBarOverlayContent({
   const backdropExtra = isStandalone ? TAB_BAR_BACKDROP_EXTRA_STANDALONE : TAB_BAR_BACKDROP_EXTRA;
 
   useEffect(() => {
+    const duration = Platform.OS === 'web' ? getStackMotionMs() : DETAIL_SCREEN_MOTION_MS;
     routeHideProgress.value = withTiming(shouldHideTabBar ? 1 : 0, {
-      duration: DETAIL_SCREEN_MOTION_MS,
+      duration,
       easing: Easing.out(Easing.cubic),
     });
   }, [shouldHideTabBar, routeHideProgress]);

@@ -4,6 +4,7 @@ import {
   Alert,
   Animated,
   ImageSourcePropType,
+  InteractionManager,
   Platform,
   RefreshControl,
   Pressable,
@@ -86,6 +87,30 @@ type CardItem = {
   erbjudandelängd?: string | string[];
   distanceKm?: number;
 };
+
+function sortDealsByCoords(deals: CardItem[], coords: { lat: number; lng: number }): CardItem[] {
+  const withDistance = deals.map((card) => {
+    if (
+      typeof card.latitude === 'number' &&
+      typeof card.longitude === 'number' &&
+      Number.isFinite(card.latitude) &&
+      Number.isFinite(card.longitude)
+    ) {
+      return {
+        ...card,
+        distanceKm: haversineKm(coords.lat, coords.lng, card.latitude, card.longitude),
+      };
+    }
+    return card;
+  });
+
+  return [...withDistance].sort((a, b) => {
+    const da = typeof a.distanceKm === 'number' ? a.distanceKm : Number.POSITIVE_INFINITY;
+    const db = typeof b.distanceKm === 'number' ? b.distanceKm : Number.POSITIVE_INFINITY;
+    if (da !== db) return da - db;
+    return Number(b.deal) - Number(a.deal);
+  });
+}
 
 type FilterCategory = {
   id: string;
@@ -461,9 +486,6 @@ function ForYouOrderCarousel({
             key={`${card.orderIds?.[0] ?? card.id}-${idx}`}
             className="overflow-hidden rounded-2xl"
             style={{
-              position: 'relative',
-              zIndex: 1000 - idx,
-              elevation: 1000 - idx,
               width: 168,
               backgroundColor: theme.cardBg,
               borderWidth: 1,
@@ -841,15 +863,24 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       blurActiveElementOnWeb();
-      requestAnimationFrame(() => {
-        requestAnimationFrame(restoreHomeScroll);
+      const task = InteractionManager.runAfterInteractions(() => {
+        restoreHomeScroll();
       });
 
       return () => {
+        task.cancel();
         setHomeScrollOffset(scrollOffsetRef.current);
       };
     }, [restoreHomeScroll])
   );
+
+  useEffect(() => {
+    if (!coords) return;
+    setDeals((prev) => {
+      if (prev.length === 0) return prev;
+      return sortDealsByCoords(prev, coords);
+    });
+  }, [coords]);
 
   useEffect(() => {
     let cancelled = false;
@@ -869,9 +900,17 @@ export default function HomeScreen() {
   useEffect(() => {
     let cancelled = false;
 
-    const loadHomeData = async () => {
+    const loadHomeData = async (background = false) => {
       const hasSnapshot = Boolean(getHomeScreenSnapshot());
-      if (!hasSnapshot) {
+      if (hasSnapshot && refreshNonce === 0 && !background) {
+        markDataReady();
+        setTimeout(() => {
+          if (!cancelled) void loadHomeData(true);
+        }, 500);
+        return;
+      }
+
+      if (!hasSnapshot && !background) {
         setIsLoadingData(true);
       }
       try {
@@ -1355,7 +1394,7 @@ export default function HomeScreen() {
     return () => {
       cancelled = true;
     };
-  }, [markDataReady, refreshNonce, token, coords]);
+  }, [markDataReady, refreshNonce, token]);
 
   const filteredDeals = useMemo(() => {
     if (activeCategory === ALL_CATEGORIES_ID || activeCategory === OFFERS_CATEGORY_ID) {
@@ -1468,6 +1507,45 @@ export default function HomeScreen() {
     });
   };
 
+  const heroBlockHeight = HERO_HEIGHT + heroTopInset;
+  const heroCollapseScroll = 120;
+  const heroHeight = scrollY.interpolate({
+    inputRange: [0, heroCollapseScroll],
+    outputRange: [heroBlockHeight, 0],
+    extrapolate: 'clamp',
+  });
+  const headerTopPadding = scrollY.interpolate({
+    inputRange: [0, heroCollapseScroll - 8, heroCollapseScroll],
+    outputRange: [8, 8, heroTopInset + 8],
+    extrapolate: 'clamp',
+  });
+  const webStickyTopPadding = scrollY.interpolate({
+    inputRange: [0, Math.max(heroBlockHeight - heroTopInset, 1), heroBlockHeight],
+    outputRange: [16, heroTopInset + 16, heroTopInset + 16],
+    extrapolate: 'clamp',
+  });
+  const searchPanelStyle = {
+    backgroundColor: homeHeaderPanelBg,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: searchPanelBorderColor,
+    ...(Platform.OS === 'web'
+      ? ({
+          position: 'sticky' as const,
+          top: 0,
+          zIndex: 20,
+          overflow: 'hidden' as const,
+        } as const)
+      : ({
+          zIndex: 10,
+          elevation: 10,
+          overflow: 'hidden' as const,
+        } as const)),
+  };
+
   const renderHomeSearchHeader = () => (
     <>
       <View className="px-6">
@@ -1556,7 +1634,7 @@ export default function HomeScreen() {
           className="flex-1"
           style={styles.scroll}
           contentContainerStyle={{ paddingTop: 0, paddingBottom: scrollBottomPadding }}
-          stickyHeaderIndices={[0]}
+          stickyHeaderIndices={Platform.OS === 'web' ? undefined : [1]}
           onScroll={Animated.event(
             [{ nativeEvent: { contentOffset: { y: scrollY } } }],
             {
@@ -1578,51 +1656,47 @@ export default function HomeScreen() {
           }
         >
         <View style={{ backgroundColor: homeHeaderPanelBg }}>
-          {(() => {
-            const heroHeight = scrollY.interpolate({
-              inputRange: [0, 120],
-              outputRange: [HERO_HEIGHT + heroTopInset, 0],
-              extrapolate: 'clamp',
-            });
-            const headerTopPadding = scrollY.interpolate({
-              inputRange: [0, 120],
-              outputRange: [8, heroTopInset + 8],
-              extrapolate: 'clamp',
-            });
+          {Platform.OS === 'web' ? (
+            <View style={{ height: heroBlockHeight, overflow: 'hidden' }}>
+              <HeroImageCarousel
+                slides={heroSlides}
+                panelBackgroundColor={homeHeaderPanelBg}
+                topInset={heroTopInset}
+              />
+            </View>
+          ) : (
+            <Animated.View style={{ height: heroHeight, overflow: 'hidden' }}>
+              <HeroImageCarousel
+                slides={heroSlides}
+                panelBackgroundColor={homeHeaderPanelBg}
+                topInset={heroTopInset}
+              />
+            </Animated.View>
+          )}
+        </View>
 
-            return (
-              <>
-                <Animated.View style={{ height: heroHeight, overflow: 'hidden' }}>
-                  <HeroImageCarousel
-                    slides={heroSlides}
-                    panelBackgroundColor={homeHeaderPanelBg}
-                    topInset={heroTopInset}
-                  />
-                </Animated.View>
-                <View
-                  style={{
-                    borderBottomLeftRadius: 24,
-                    borderBottomRightRadius: 24,
-                    borderLeftWidth: 1,
-                    borderRightWidth: 1,
-                    borderBottomWidth: 1,
-                    borderColor: searchPanelBorderColor,
-                    overflow: 'hidden',
-                  }}
-                >
-                  <Animated.View
-                    style={{
-                      paddingTop: headerTopPadding,
-                      paddingBottom: 10,
-                      backgroundColor: homeHeaderPanelBg,
-                    }}
-                  >
-                    {renderHomeSearchHeader()}
-                  </Animated.View>
-                </View>
-              </>
-            );
-          })()}
+        <View style={searchPanelStyle}>
+          {Platform.OS === 'web' ? (
+            <Animated.View
+              style={{
+                paddingTop: webStickyTopPadding,
+                paddingBottom: 10,
+                backgroundColor: homeHeaderPanelBg,
+              }}
+            >
+              {renderHomeSearchHeader()}
+            </Animated.View>
+          ) : (
+            <Animated.View
+              style={{
+                paddingTop: headerTopPadding,
+                paddingBottom: 10,
+                backgroundColor: homeHeaderPanelBg,
+              }}
+            >
+              {renderHomeSearchHeader()}
+            </Animated.View>
+          )}
         </View>
 
         <View className="mt-6 px-6">
