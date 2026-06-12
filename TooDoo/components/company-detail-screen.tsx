@@ -13,7 +13,6 @@ import {
   Pressable,
   ScrollView,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -22,8 +21,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { OfferMap } from "@/components/ui/offer-map";
 import { useAuth } from "@/context/auth-context";
+import { useFavorites } from "@/context/favorites-context";
 import { useRealtimeSubscription } from "@/hooks/use-realtime-subscription";
-import { apiUrl, normalizeImageUrl } from "@/lib/api";
+import { normalizeImageUrl } from "@/lib/api";
 import { useThemePreference } from "@/context/theme-preference-context";
 import { uiTheme } from "@/lib/ui-theme";
 import { CardMedia } from "@/components/ui/card-media";
@@ -33,6 +33,7 @@ import { navigateBackFromDetail } from "@/lib/detail-navigation";
 import { performWebStackBack } from "@/lib/web-stack-navigation";
 import { formatBusinessAddress, isPlaceholderNavigationId } from "@/lib/home-offers";
 import { BrandColors, brandInkRgba, brandNavyRgba } from "@/lib/brand-colors";
+import { FAVORITE_HEART_COLOR } from "@/lib/tab-colors";
 import {
   extractClaimCountByOrderId,
   extractClaimQrCode,
@@ -116,14 +117,12 @@ type DetailCarouselItem =
 export default function CompanyDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { isLoggedIn, token, authFetch, signIn } = useAuth();
+  const { isLoggedIn, token, role, authFetch } = useAuth();
+  const { isFavorite, toggleFavorite } = useFavorites();
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
   const [claimingOrderId, setClaimingOrderId] = useState<string | null>(null);
   const pendingClaimOfferRef = useRef<DetailOffer | null>(null);
-  const [loginEmail, setLoginEmail] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
-  const [isSubmittingLogin, setIsSubmittingLogin] = useState(false);
   const [userClaimCountByOrderId, setUserClaimCountByOrderId] = useState<Map<string, number>>(
     () => new Map()
   );
@@ -131,7 +130,6 @@ export default function CompanyDetailScreen() {
   const [geocodedCoordinate, setGeocodedCoordinate] = useState<{ latitude: number; longitude: number; addressText?: string }>();
   const [mapOriginCoords, setMapOriginCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [nowMs, setNowMs] = useState(Date.now());
-  const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [claimSuccess, setClaimSuccess] = useState<{ title?: string; qrCode?: string } | null>(null);
   const [orderImageUriById, setOrderImageUriById] = useState<Record<string, string>>({});
   /** Live, fresh-from-API counts per order id so the progress bar reflects current data. */
@@ -437,9 +435,13 @@ export default function CompanyDetailScreen() {
 
   const showOffersSection = carouselItems.length > 0;
 
+  const navigateToLogin = useCallback(() => {
+    router.push('/(tabs)/Loggain');
+  }, [router]);
+
   const toggleEventInterest = async (event: BusinessEventItem) => {
     if (!isLoggedIn) {
-      setIsLoginOpen(true);
+      navigateToLogin();
       return;
     }
 
@@ -518,7 +520,7 @@ export default function CompanyDetailScreen() {
   ) => {
     if (!options?.skipAuthPrompt && !isLoggedIn) {
       pendingClaimOfferRef.current = offer;
-      setIsLoginOpen(true);
+      navigateToLogin();
       return;
     }
 
@@ -561,8 +563,10 @@ export default function CompanyDetailScreen() {
       if (!isClaimApiSuccess(response, payload)) {
         if (response.status === 401 || response.status === 403) {
           pendingClaimOfferRef.current = offer;
-          Alert.alert('Sessionen har gått ut', 'Logga in igen för att claima erbjudanden.');
-          setIsLoginOpen(true);
+          Alert.alert('Sessionen har gått ut', 'Logga in igen för att claima erbjudanden.', [
+            { text: 'Avbryt', style: 'cancel' },
+            { text: 'Logga in', onPress: navigateToLogin },
+          ]);
           return;
         }
 
@@ -612,50 +616,6 @@ export default function CompanyDetailScreen() {
     } finally {
       claimInFlightRef.current = false;
       setClaimingOrderId(null);
-    }
-  };
-
-  const handleLoginFromModal = async () => {
-    const email = loginEmail.trim();
-    const password = loginPassword;
-
-    if (!email || !password) {
-      Alert.alert('Saknad information', 'Fyll i e-post och lösenord.');
-      return;
-    }
-
-    if (password.length < 8) {
-      Alert.alert('Ogiltigt lösenord', 'Lösenord måste vara minst 8 tecken.');
-      return;
-    }
-
-    setIsSubmittingLogin(true);
-    try {
-      const response = await fetch(apiUrl('/user/login'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = (await response.json().catch(() => ({}))) as {
-        token?: string;
-        refreshToken?: string;
-        error?: string;
-        user?: { role?: string };
-      };
-
-      if (response.ok && data.token) {
-        await signIn(data.token, data.refreshToken ?? null, data.user?.role ?? null);
-        setIsLoginOpen(false);
-        setLoginPassword('');
-        return;
-      }
-
-      Alert.alert('Fel inloggning', data.error ?? 'Kontrollera e-post och lösenord.');
-    } catch {
-      Alert.alert('Nätverksfel', 'Kunde inte ansluta till servern.');
-    } finally {
-      setIsSubmittingLogin(false);
     }
   };
 
@@ -714,13 +674,6 @@ export default function CompanyDetailScreen() {
       : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressText)}`
     : undefined;
   const mapResetKey = `${id ?? "no-id"}-${addressText ?? "no-address"}-${resetNonceText ?? "no-reset"}`;
-
-  const socialLogin = (provider: 'Google' | 'Facebook' | 'Apple') => {
-    Alert.alert(
-      `Fortsätt med ${provider}`,
-      `Omdirigerar till ${provider}-inloggning...\n\n(Koppla ihop med ${provider} OAuth för att aktivera)`
-    );
-  };
 
   useEffect(() => {
     if (!showOffersSection) {
@@ -872,6 +825,8 @@ export default function CompanyDetailScreen() {
   };
 
   const showCompanyDetail = Boolean(title || id || claimBusinessId || claimOrderId);
+  const showFavoriteButton = Boolean(showCompanyDetail && resolvedBusinessId && isLoggedIn && role === "USER");
+  const companyIsFavorite = resolvedBusinessId ? isFavorite(resolvedBusinessId) : false;
   const handleDetailBack = useCallback(() => {
     if (Platform.OS === 'web') {
       performWebStackBack(router, { returnTo, isCompanyDetail: true });
@@ -907,6 +862,32 @@ export default function CompanyDetailScreen() {
           }}
         >
           <Ionicons name="chevron-back" size={24} color={theme.text} />
+        </Pressable>
+      ) : null}
+      {showFavoriteButton && resolvedBusinessId ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={companyIsFavorite ? "Ta bort favorit" : "Lägg till favorit"}
+          onPress={() => void toggleFavorite(resolvedBusinessId)}
+          hitSlop={10}
+          style={{
+            position: "absolute",
+            top: insets.top + 8,
+            right: 16,
+            zIndex: 30,
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(0,0,0,0.45)",
+          }}
+        >
+          <Ionicons
+            name={companyIsFavorite ? "heart" : "heart-outline"}
+            size={22}
+            color={companyIsFavorite ? FAVORITE_HEART_COLOR : "#ffffff"}
+          />
         </Pressable>
       ) : null}
       <ScrollView
@@ -1198,123 +1179,6 @@ export default function CompanyDetailScreen() {
           </ScrollView>
         </View>
       ) : null}
-
-      <Modal visible={isLoginOpen} transparent animationType="slide" onRequestClose={() => setIsLoginOpen(false)}>
-        <View
-          className="flex-1 justify-end"
-          style={{ backgroundColor: theme.isDark ? "rgba(0,0,0,0.7)" : "rgba(0,0,0,0.25)" }}
-        >
-          <Pressable className="flex-1" onPress={() => setIsLoginOpen(false)} />
-          <View className="rounded-t-3xl px-6 pb-9 pt-6" style={{ backgroundColor: theme.cardBg }}>
-            <View
-              className="mb-4 h-1 w-10 self-center rounded-full"
-              style={{ backgroundColor: theme.isDark ? "rgba(255,255,255,0.30)" : brandInkRgba(0.10) }}
-            />
-            <Text className="text-2xl font-semibold" style={{ color: theme.text }}>
-              Välkommen!
-            </Text>
-            <Text className="mb-5 mt-1 text-sm" style={{ color: theme.textFaint }}>
-              Logga in för att se dina deals och favoriter
-            </Text>
-
-            <Pressable
-              className="mb-2 rounded-2xl border px-4 py-3"
-              style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted }}
-              onPress={() => socialLogin('Google')}
-            >
-              <Text className="text-center font-medium" style={{ color: theme.text }}>
-                Fortsätt med Google
-              </Text>
-            </Pressable>
-
-            <Pressable
-              className="mb-4 rounded-2xl border px-4 py-3"
-              style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted }}
-              onPress={() => socialLogin('Apple')}
-            >
-              <Text className="text-center font-medium" style={{ color: theme.text }}>
-                Fortsätt med Apple
-              </Text>
-            </Pressable>
-
-            <TextInput
-              placeholder="Din e-postadress"
-              placeholderTextColor={theme.textFaint}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-              value={loginEmail}
-              onChangeText={setLoginEmail}
-              className="mb-2 rounded-2xl border px-4 py-3"
-              style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
-            />
-
-            <TextInput
-              placeholder="Lösenord"
-              placeholderTextColor={theme.textFaint}
-              secureTextEntry
-              value={loginPassword}
-              onChangeText={setLoginPassword}
-              className="mb-4 rounded-2xl border px-4 py-3"
-              style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
-            />
-
-            <Pressable
-              className="mb-4 rounded-2xl bg-[#ff3b30] px-4 py-3"
-              disabled={isSubmittingLogin}
-              onPress={() => {
-                void handleLoginFromModal();
-              }}
-            >
-              <Text className="text-center font-medium text-white">
-                {isSubmittingLogin ? 'Loggar in...' : 'Logga in'}
-              </Text>
-            </Pressable>
-
-            <View className="mb-4 flex-row justify-center">
-              <Text className="text-md" style={{ color: theme.textFaint }}>
-                Har du inget konto?{" "}
-              </Text>
-              <Pressable
-                onPress={() => {
-                  const returnParams = JSON.stringify({
-                    mapResetNonce,
-                    id,
-                    title,
-                    deal,
-                    imageUri,
-                    Adress,
-                    Telefon,
-                    Website,
-                    kortbeskrivning,
-                    långbeskrivning,
-                    erbjudande,
-                    claimOrderId,
-                    claimBusinessId,
-                    orderIds,
-                    erbjudandepris,
-                    erbjudandeclaimade,
-                    erbjudandemängd,
-                    erbjudandelängd,
-                  });
-
-                  setIsLoginOpen(false);
-                  router.push({
-                    pathname: '/(tabs)/Registrering',
-                    params: { accountType: 'user', returnTo: 'erbjudanden', returnParams },
-                  });
-                }}
-              >
-                <Text className="text-blue-400 text-md font-medium underline">Registrera dig här!</Text>
-              </Pressable>
-            </View>
-
-            <Text className="text-center text-xs leading-5" style={{ color: theme.textFaint }}>
-              Genom att logga in godkänner du våra användarvillkor och integritetspolicy.
-            </Text>
-          </View>
-        </View>
-      </Modal>
 
       <Modal
         visible={Boolean(claimSuccess)}

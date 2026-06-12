@@ -4,6 +4,7 @@ import QRCodeSVG from 'react-native-qrcode-svg';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { uiTheme } from '@/lib/ui-theme';
 import { CardMedia } from '@/components/ui/card-media';
+import { getRedeemCountdown } from '@/lib/order-claim-window';
 
 export type ClaimedOfferItem = {
 	id: string;
@@ -135,6 +136,30 @@ export default function ClaimedOffers({ items, scrollEnabled = true }: Props) {
 		return [hours, minutes, seconds].map((value) => value.toString().padStart(2, '0')).join(':');
 	};
 
+	const getItemCountdown = (item: ClaimedOfferItem) =>
+		getRedeemCountdown(undefined, item.expiresAt, nowMs);
+
+	const renderCountdownBadge = (item: ClaimedOfferItem) => {
+		if (!item.expiresAt) return null;
+
+		const { remainingMs, state } = getItemCountdown(item);
+		if (state === 'expired' || remainingMs <= 0) return null;
+
+		return (
+			<View
+				className="mb-1 rounded-full border px-2 py-1"
+				style={{
+					backgroundColor: theme.isDark ? 'rgba(0,0,0,0.7)' : 'rgba(10,21,53,0.06)',
+					borderColor: theme.isDark ? 'rgba(255,255,255,0.20)' : theme.border,
+				}}
+			>
+				<Text className="text-[10px] font-medium" style={{ color: theme.text }}>
+					{formatRemaining(remainingMs)}
+				</Text>
+			</View>
+		);
+	};
+
 	const getShortDescription = (value?: string) => {
 		if (!value) return undefined;
 		const firstLine = value
@@ -146,9 +171,8 @@ export default function ClaimedOffers({ items, scrollEnabled = true }: Props) {
 
 	const activeItems = items.filter((item) => {
 		if (!item.expiresAt) return true;
-		const expiresAtMs = new Date(item.expiresAt).getTime();
-		if (!Number.isFinite(expiresAtMs)) return true;
-		return expiresAtMs > nowMs;
+		const { remainingMs, state } = getItemCountdown(item);
+		return state !== 'expired' && remainingMs > 0;
 	});
 
 	if (activeItems.length === 0) {
@@ -211,26 +235,7 @@ export default function ClaimedOffers({ items, scrollEnabled = true }: Props) {
 											</Text>
 										</View>
 										<View className="w-24 items-end">
-											{item.expiresAt ? (
-												(() => {
-													const expiresAtMs = new Date(item.expiresAt as string).getTime();
-													if (!Number.isFinite(expiresAtMs)) return null;
-													const remainingMs = expiresAtMs - nowMs;
-													return (
-														<View
-															className="mb-1 rounded-full border px-2 py-1"
-															style={{
-																backgroundColor: theme.isDark ? 'rgba(0,0,0,0.7)' : 'rgba(10,21,53,0.06)',
-																borderColor: theme.isDark ? 'rgba(255,255,255,0.20)' : theme.border,
-															}}
-														>
-															<Text className="text-[10px] font-medium" style={{ color: theme.text }}>
-																{formatRemaining(remainingMs)}
-															</Text>
-														</View>
-													);
-												})()
-											) : null}
+											{renderCountdownBadge(item)}
 											<Text className="text-xs text-right" style={{ color: theme.textFaint }}>
 												{item.statusText ?? 'Claimad'}
 											</Text>
@@ -302,26 +307,7 @@ export default function ClaimedOffers({ items, scrollEnabled = true }: Props) {
 											</Text>
 										</View>
 										<View className="w-24 items-end">
-											{item.expiresAt ? (
-												(() => {
-													const expiresAtMs = new Date(item.expiresAt as string).getTime();
-													if (!Number.isFinite(expiresAtMs)) return null;
-													const remainingMs = expiresAtMs - nowMs;
-													return (
-														<View
-															className="mb-1 rounded-full border px-2 py-1"
-															style={{
-																backgroundColor: theme.isDark ? 'rgba(0,0,0,0.7)' : 'rgba(10,21,53,0.06)',
-																borderColor: theme.isDark ? 'rgba(255,255,255,0.20)' : theme.border,
-															}}
-														>
-															<Text className="text-[10px] font-medium" style={{ color: theme.text }}>
-																{formatRemaining(remainingMs)}
-															</Text>
-														</View>
-													);
-												})()
-											) : null}
+											{renderCountdownBadge(item)}
 											<Text className="text-xs text-right" style={{ color: theme.textFaint }}>
 												{item.statusText ?? 'Claimad'}
 											</Text>

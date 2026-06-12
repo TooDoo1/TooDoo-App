@@ -4,6 +4,7 @@ import { Alert, Pressable, Text, TextInput, View } from 'react-native';
 import { ProfileScreenShell, profileCardShadow } from '@/components/profile/profile-screen-shell';
 import { useAuth } from '@/context/auth-context';
 import { useThemePreference } from '@/context/theme-preference-context';
+import { OFFERS_CATEGORY_ACCENT } from '@/lib/category-colors';
 import { uiTheme } from '@/lib/ui-theme';
 
 export default function ProfileSecurityScreen() {
@@ -130,11 +131,7 @@ export default function ProfileSecurityScreen() {
           onPress={() => void handleSave()}
           disabled={isSaving}
           style={{
-            backgroundColor: isSaving
-              ? theme.isDark
-                ? 'rgba(255, 155, 70, 0.40)'
-                : 'rgba(186, 219, 194, 0.40)'
-              : theme.accentGreen,
+            backgroundColor: isSaving ? 'rgba(255, 59, 48, 0.45)' : OFFERS_CATEGORY_ACCENT,
           }}
         >
           <Text className="text-center font-medium text-white">

@@ -12,11 +12,13 @@ import {
 	type StyleProp,
 	type TextStyle,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/auth-context';
 import { apiUrl } from '@/lib/api';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { BrandColors } from '@/lib/brand-colors';
+import { TAB_ACTIVE_COLORS } from '@/lib/tab-colors';
 import { uiTheme } from '@/lib/ui-theme';
 
 const USER_EXTRAS_MAX_HEIGHT = 280;
@@ -155,8 +157,6 @@ export default function MinaDealsScreen() {
 				}),
 	});
 
-	const [isLoginOpen, setIsLoginOpen] = useState(false);
-
 	const handleLogin = async (accountType: 'user' | 'company') => {
 		const email = (accountType === 'user' ? userEmail : companyEmail).trim();
 		const password = accountType === 'user' ? userPassword : companyPassword;
@@ -219,7 +219,12 @@ export default function MinaDealsScreen() {
 	return (
 		<ScrollView className="flex-1" style={{ backgroundColor: theme.screenBg }} contentContainerStyle={{ paddingBottom: 48 }}>
 			<View className="px-6 pt-12">
-			<Text className=" pt-10 text-3xl font-semibold" style={{ color: theme.text }}>In loggning:</Text>
+			<View className="flex-row items-center justify-center pt-10">
+				<Ionicons name="person" size={28} color={TAB_ACTIVE_COLORS.Profile} />
+				<Text className="ml-2 text-3xl font-semibold" style={{ color: theme.text }}>
+					In loggning:
+				</Text>
+			</View>
 
             <View
 				className="mt-8 rounded-2xl px-6 flex-row gap-3 items-center justify-center"
@@ -291,6 +296,19 @@ export default function MinaDealsScreen() {
 															className="mt-2 rounded-2xl border px-4 py-3"
 															style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
 														/>
+								<Pressable
+									className="mt-3 self-end"
+									onPress={() =>
+										router.push({
+											pathname: '/glomt-losenord',
+											params: userEmail.trim() ? { email: userEmail.trim() } : undefined,
+										})
+									}
+								>
+									<Text className="text-sm font-medium" style={{ color: theme.link }}>
+										Glömt lösenord?
+									</Text>
+								</Pressable>
 								<Pressable className="mt-6 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={() => handleLogin('user')} disabled={isSubmittingLogin}>
 									<Text className="text-center font-medium text-white">Logga in</Text>
 								</Pressable>
@@ -325,6 +343,19 @@ export default function MinaDealsScreen() {
 															className="mt-2 rounded-2xl border px-4 py-3"
 															style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
 														/>
+								<Pressable
+									className="mt-3 self-end"
+									onPress={() =>
+										router.push({
+											pathname: '/glomt-losenord',
+											params: companyEmail.trim() ? { email: companyEmail.trim() } : undefined,
+										})
+									}
+								>
+									<Text className="text-sm font-medium" style={{ color: theme.link }}>
+										Glömt lösenord?
+									</Text>
+								</Pressable>
 								<Pressable className="mt-6 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={() => handleLogin('company')} disabled={isSubmittingLogin}>
 									<Text className="text-center font-medium text-white">Logga in</Text>
 								</Pressable>

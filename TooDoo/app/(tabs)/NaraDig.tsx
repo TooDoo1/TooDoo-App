@@ -230,7 +230,7 @@ export default function NaraDigScreen() {
   const theme = uiTheme(mode);
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { token, role } = useAuth();
+  const { isLoggedIn, role } = useAuth();
   const { isFavorite, toggleFavorite } = useFavorites();
 
   const [companies, setCompanies] = useState<NearbyCompany[]>(cachedCompanies);
@@ -244,7 +244,7 @@ export default function NaraDigScreen() {
   });
   const [businessIdsWithOffers, setBusinessIdsWithOffers] = useState<Set<string>>(new Set());
 
-  const showFavorite = Boolean(token && role === 'USER');
+  const showFavorite = Boolean(isLoggedIn && role === 'USER');
 
   useRealtimeSubscription(() => {
     setRefreshNonce((nonce) => nonce + 1);

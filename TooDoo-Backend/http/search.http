@@ -1,0 +1,10 @@
+@baseUrl = http://localhost:4000
+
+### Search tips (default)
+GET {{baseUrl}}/search/tips
+
+### Search tips with city
+GET {{baseUrl}}/search/tips?city=Helsingborg&take=10
+
+### Search tips autocomplete filter
+GET {{baseUrl}}/search/tips?q=piz&take=5

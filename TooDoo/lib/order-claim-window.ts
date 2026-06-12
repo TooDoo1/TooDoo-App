@@ -87,6 +87,33 @@ export function getOrderPublishEndMs(order: any): number | null {
   return Number.isFinite(toMs) ? toMs : null;
 }
 
+export type RedeemCountdownState = 'redeemable' | 'expired';
+
+export type RedeemCountdown = {
+  remainingMs: number;
+  state: RedeemCountdownState;
+};
+
+export function getRedeemDisplayEndMs(qrExpiresAt: string | undefined): number | null {
+  const expiresMs = qrExpiresAt ? Date.parse(qrExpiresAt) : NaN;
+  if (!Number.isFinite(expiresMs)) return null;
+  return expiresMs;
+}
+
+/** Remaining display time to redeem — until QR expiresAt. */
+export function getRedeemCountdown(
+  _order: unknown,
+  qrExpiresAt: string | undefined,
+  nowMs: number = Date.now()
+): RedeemCountdown {
+  const endMs = getRedeemDisplayEndMs(qrExpiresAt);
+  if (endMs == null || nowMs >= endMs) {
+    return { remainingMs: 0, state: 'expired' };
+  }
+
+  return { remainingMs: endMs - nowMs, state: 'redeemable' };
+}
+
 export function getOrderNotClaimableReason(order: any, nowMs: number = Date.now()): string | null {
   if (!order) {
     return 'Ordern går inte att claima just nu.';

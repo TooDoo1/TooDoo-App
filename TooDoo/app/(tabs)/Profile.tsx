@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Switch, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -9,6 +10,7 @@ import { profileCardShadow } from '@/components/profile/profile-screen-shell';
 import { useAuth } from '@/context/auth-context';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { getProfileDisplayName, type UserProfile } from '@/lib/profile';
+import { TAB_ACTIVE_COLORS } from '@/lib/tab-colors';
 import { uiTheme } from '@/lib/ui-theme';
 
 export default function ProfileScreen() {
@@ -77,9 +79,12 @@ export default function ProfileScreen() {
       contentContainerStyle={{ paddingBottom: scrollBottomPadding, flexGrow: 1 }}
     >
       <View className="min-h-full px-6 pt-24">
-        <Text className="text-center text-3xl font-semibold" style={{ color: theme.text }}>
-          Profil
-        </Text>
+        <View className="flex-row items-center justify-center">
+          <Ionicons name="settings" size={28} color={TAB_ACTIVE_COLORS.Profile} />
+          <Text className="ml-2 text-3xl font-semibold" style={{ color: theme.text }}>
+            Profil
+          </Text>
+        </View>
 
         {isLoading ? (
           <View className="mt-8 items-center">

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Alert, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -9,7 +10,9 @@ import ClaimedOffers, { ConfettiAnimation, type ClaimedOfferItem } from '@/compo
 import { apiUrl, normalizeImageUrl } from '@/lib/api';
 import { StarrySkyScreenBackground } from '@/components/ui/starry-background';
 import { useThemePreference } from '@/context/theme-preference-context';
+import { TAB_ACTIVE_COLORS } from '@/lib/tab-colors';
 import { uiTheme } from '@/lib/ui-theme';
+import { getRedeemCountdown } from '@/lib/order-claim-window';
 
 type ApiOrder = {
 	id?: string;
@@ -18,6 +21,7 @@ type ApiOrder = {
 	price?: number;
 	orderTimeTo?: string;
 	orderTimeFrom?: string;
+	validFrom?: string;
 	validTo?: string;
 	imageSourceType?: string;
 	imageUrl?: string;
@@ -49,7 +53,9 @@ type ApiClaim = {
 					description?: string;
 					price?: number;
 					originalPrice?: number;
+					orderTimeFrom?: string;
 					orderTimeTo?: string;
+					validFrom?: string;
 					validTo?: string;
 					businessId?: string | { id?: string; _id?: string; name?: string };
 				};
@@ -60,7 +66,9 @@ type ApiClaim = {
 				description?: string;
 				price?: number;
 				originalPrice?: number;
+				orderTimeFrom?: string;
 				orderTimeTo?: string;
+				validFrom?: string;
 				validTo?: string;
 				businessId?: string | { id?: string; _id?: string; name?: string };
 			};
@@ -75,7 +83,9 @@ type ApiClaim = {
 			description?: string;
 			price?: number;
 			originalPrice?: number;
+			orderTimeFrom?: string;
 			orderTimeTo?: string;
+			validFrom?: string;
 			validTo?: string;
 			businessId?: string | { id?: string; _id?: string; name?: string };
 		};
@@ -86,7 +96,9 @@ type ApiClaim = {
 		description?: string;
 		price?: number;
 		originalPrice?: number;
+		orderTimeFrom?: string;
 		orderTimeTo?: string;
+		validFrom?: string;
 		validTo?: string;
 		businessId?: string | { id?: string; _id?: string; name?: string };
 	};
@@ -111,7 +123,6 @@ const decodeJwtPayload = (token: string) => {
 };
 
 export default function MinaDealsScreen() {
-	const [isLoginOpen, setIsLoginOpen] = useState(false);
 	const [isLoadingClaims, setIsLoadingClaims] = useState(true);
 	const [claimedOffers, setClaimedOffers] = useState<ClaimedOfferItem[]>([]);
 	const [showCelebration, setShowCelebration] = useState(false);
@@ -210,9 +221,8 @@ export default function MinaDealsScreen() {
 		}
 
 		return visibleOffers.filter((item) => {
-			if (!item.statusText) return true;
-			if (item.statusText.toLowerCase().includes('utgånget')) return false;
-			return true;
+			const { remainingMs, state } = getRedeemCountdown(undefined, item.expiresAt);
+			return state !== 'expired' && remainingMs > 0;
 		}).length;
 	}, [isLoggedIn, visibleOffers]);
 
@@ -272,10 +282,12 @@ export default function MinaDealsScreen() {
 						: embeddedOrder?.businessId?.id ?? embeddedOrder?.businessId?._id;
 
 				const qrExpiryValue = qrCodeObject?.expiresAt ?? claim.expiresAt;
-				const qrExpiryMs = qrExpiryValue ? new Date(qrExpiryValue).getTime() : NaN;
-				const isQrExpired = Number.isFinite(qrExpiryMs) ? qrExpiryMs < Date.now() : false;
+				const redeemCountdown = getRedeemCountdown(undefined, qrExpiryValue);
 				const statusRaw = String(claim.status ?? '').toLowerCase();
-				const isStatusExpired = statusRaw.includes('expired') || statusRaw.includes('utgånget');
+				const isStatusExpired =
+					redeemCountdown.state === 'expired' ||
+					statusRaw.includes('expired') ||
+					statusRaw.includes('utgånget');
 
 				const claimedAtValue = claim.createdAt ?? qrCodeObject?.createdAt;
 				const claimedAt = claimedAtValue ? new Date(claimedAtValue) : undefined;
@@ -306,7 +318,7 @@ export default function MinaDealsScreen() {
 					originalPriceText: embeddedOrder?.originalPrice !== undefined ? `${embeddedOrder.originalPrice} kr` : undefined,
 					claimedAtText: claimedAt && Number.isFinite(claimedAt.getTime()) ? claimedAt.toLocaleDateString('sv-SE') : undefined,
 					expiresAt: qrExpiryValue,
-					statusText: isQrExpired || isStatusExpired ? 'Utgånget' : claim.status ?? 'Aktiv',
+					statusText: isStatusExpired ? 'Utgånget' : claim.status ?? 'Aktiv',
 					code,
 					onOpen: orderId
 						? () => router.push({ pathname: '/company-detail', params: { returnTo: 'minadeals', claimOrderId: orderId, claimBusinessId: businessId ?? '', title: embeddedOrder?.title ?? 'Erbjudande', deal: '1' } })
@@ -380,19 +392,17 @@ export default function MinaDealsScreen() {
 		)
 	);
 
-	const socialLogin = (provider: 'Google' | 'Facebook' | 'Apple') => {
-		Alert.alert(
-			`Fortsätt med ${provider}`,
-			`Omdirigerar till ${provider}-inloggning...\n\n(Koppla ihop med ${provider} OAuth för att aktivera)`
-		);
-	};
-
 	return (
 		<View className="flex-1" style={{ backgroundColor: theme.screenBg }}>
 			<StarrySkyScreenBackground variant={theme.isDark ? 'dark' : 'light'} />
 			<ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 160 }}>
 				<View className="px-6 pt-24 min-h-full">
-				<Text className="text-3xl text-center font-semibold" style={{ color: theme.text }}>Mina Erbjudanden</Text>
+				<View className="flex-row items-center justify-center">
+					<Ionicons name="ticket" size={28} color={TAB_ACTIVE_COLORS.MinaDeals} />
+					<Text className="ml-2 text-3xl font-semibold" style={{ color: theme.text }}>
+						Mina Erbjudanden
+					</Text>
+				</View>
 				{/* <Text className="mt-2 text-center text-white/70">Här visas dina sparade deals.</Text> */}
 				{isLoggedIn ? (
 					<>
@@ -512,65 +522,14 @@ export default function MinaDealsScreen() {
 				) : (
 					<View className="mt-8 px-4">
 						<Text className="mb-4 text-center" style={{ color: theme.textMuted }}>Logga in för att se dina claimade erbjudanden.</Text>
-						<Pressable onPress={() => setIsLoginOpen(true)} className="rounded-xl bg-[#ff3b30] px-4 py-3">
+						<Pressable
+							onPress={() => router.push('/(tabs)/Loggain')}
+							className="rounded-xl bg-[#ff3b30] px-4 py-3"
+						>
 							<Text className="text-center font-semibold text-white">Logga in för att säkra erbjudanden!</Text>
 						</Pressable>
 					</View>
 				)}
-
-			<Modal visible={isLoginOpen} transparent animationType="slide" onRequestClose={() => setIsLoginOpen(false)}>
-				<View
-					className="flex-1 justify-end"
-					style={{ backgroundColor: theme.isDark ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.25)' }}
-				>
-					<Pressable className="flex-1" onPress={() => setIsLoginOpen(false)} />
-					<View className="rounded-t-3xl px-6 pb-9 pt-6" style={{ backgroundColor: theme.cardBg }}>
-						<View className="mb-4 h-1 w-10 self-center rounded-full bg-white/30" />
-						<Text className="text-2xl font-semibold" style={{ color: theme.text }}>Välkommen!</Text>
-						<Text className="mb-5 mt-1 text-sm" style={{ color: theme.textFaint }}>Logga in för att se dina deals och favoriter</Text>
-
-						<Pressable className="mb-2 rounded-2xl border px-4 py-3" style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted }} onPress={() => socialLogin('Google')}>
-							<Text className="text-center font-medium" style={{ color: theme.text }}>Fortsätt med Google</Text>
-						</Pressable>
-
-						{/* <Pressable className="mb-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3" onPress={() => socialLogin('Facebook')}>
-							<Text className="text-center font-medium text-white">Fortsätt med Facebook</Text>
-						</Pressable> */}
-
-						<Pressable className="mb-4 rounded-2xl border px-4 py-3" style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted }} onPress={() => socialLogin('Apple')}>
-							<Text className="text-center font-medium" style={{ color: theme.text }}>Fortsätt med Apple</Text>
-						</Pressable>
-
-						<TextInput
-							placeholder="Din e-postadress"
-							placeholderTextColor={theme.textFaint}
-							keyboardType="email-address"
-							className="mb-2 rounded-2xl border px-4 py-3"
-							style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
-						/>
-
-						<Pressable className="mb-4 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={() => Alert.alert('E-post', 'Fortsätt med e-post')}>
-							<Text className="text-center font-medium text-white">Fortsätt med e-post</Text>
-						</Pressable>
-
-						<View className="mb-4 flex-row justify-center">
-							<Text className="text-md" style={{ color: theme.textMuted }}>Har du inget konto? </Text>
-							<Pressable
-								onPress={() => {
-									setIsLoginOpen(false);
-									router.push({ pathname: '/(tabs)/Registrering', params: { accountType: 'user', returnTo: 'minadeals' } });
-								}}
-							>
-								<Text className="text-blue-400 text-md font-medium underline">Registrera dig här!</Text>
-							</Pressable>
-						</View>
-
-						<Text className="text-center text-xs leading-5" style={{ color: theme.textFaint }}>
-							Genom att logga in godkänner du våra användarvillkor och integritetspolicy.
-						</Text>
-					</View>
-				</View>
-			</Modal>
 
 			<Modal
 				visible={showCelebration}

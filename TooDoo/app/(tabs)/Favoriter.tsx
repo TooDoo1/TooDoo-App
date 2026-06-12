@@ -3,7 +3,6 @@ import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } 
 import { getFloatingTabBarScrollPadding } from '@/components/floating-tab-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StarrySkyScreenBackground } from '@/components/ui/starry-background';
@@ -15,6 +14,7 @@ import { apiUrl, normalizeImageUrl } from '@/lib/api';
 import { CardMedia } from '@/components/ui/card-media';
 import { prefetchImageUris } from '@/lib/image-prefetch';
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
+import { OFFERS_CATEGORY_ACCENT } from '@/lib/category-colors';
 import { FAVORITE_HEART_COLOR } from '@/lib/tab-colors';
 
 export default function FavoriterScreen() {
@@ -74,45 +74,64 @@ export default function FavoriterScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.screenBg }}>
       <StarrySkyScreenBackground variant={theme.isDark ? 'dark' : 'light'} />
-      <SafeAreaView edges={['left', 'right', 'top']} style={{ flex: 1 }}>
-        <ScrollView
-          contentContainerStyle={{ padding: 24, paddingBottom: scrollBottomPadding }}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefreshing}
-              onRefresh={() => {
-                setIsRefreshing(true);
-                setRefreshNonce((n) => n + 1);
-              }}
-              tintColor={theme.text}
-            />
-          }
-        >
-          <View className="flex-row items-center">
-            <Ionicons name="heart" size={22} color={FAVORITE_HEART_COLOR} />
-            <Text className="ml-2 text-2xl font-semibold" style={{ color: theme.text }}>
+      <ScrollView
+        className="flex-1"
+        contentContainerStyle={{ paddingBottom: scrollBottomPadding }}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={() => {
+              setIsRefreshing(true);
+              setRefreshNonce((n) => n + 1);
+            }}
+            tintColor={theme.text}
+          />
+        }
+      >
+        <View className="min-h-full px-6 pt-24">
+          <View className="flex-row items-center justify-center">
+            <Ionicons name="heart" size={28} color={FAVORITE_HEART_COLOR} />
+            <Text className="ml-2 text-3xl font-semibold" style={{ color: theme.text }}>
               Favoriter
             </Text>
           </View>
 
-          {!isLoggedIn ? (
-            <Text className="mt-1 text-sm" style={{ color: theme.textMuted }}>
-              Logga in för att spara och se dina favoriter.
-            </Text>
-          ) : (
-            <Text className="mt-1 text-sm" style={{ color: theme.textMuted }}>
+          {isLoggedIn && role === 'USER' ? (
+            <Text className="mt-2 pt-4 text-center text-xl" style={{ color: theme.textMuted }}>
               Alla verksamheter du har hjärtat.
             </Text>
-          )}
+          ) : null}
 
-          {!isLoggedIn ? null : isLoading && companies.length === 0 ? (
+          {!isLoggedIn || role !== 'USER' ? (
+            <View className="mt-8 px-4">
+              <Text className="mb-4 text-center" style={{ color: theme.textMuted }}>
+                Logga in för att spara och se dina favoriter.
+              </Text>
+              <Pressable
+                className="rounded-xl px-4 py-3"
+                onPress={() => router.push('/(tabs)/Loggain')}
+                style={{ backgroundColor: OFFERS_CATEGORY_ACCENT }}
+              >
+                <Text className="text-center font-semibold text-white">Logga in för att favoritisera!</Text>
+              </Pressable>
+            </View>
+          ) : isLoading && companies.length === 0 ? (
             <View className="mt-10 items-center">
               <ActivityIndicator color={theme.text} />
             </View>
           ) : companies.length === 0 ? (
-            <Text className="mt-2" style={{ color: theme.textMuted }}>
-              Du har inga favoriter ännu. Tryck på hjärtat på en verksamhet för att spara den här.
-            </Text>
+            <View className="mt-8 px-4">
+              <Text className="mb-4 text-center" style={{ color: theme.textMuted }}>
+                Du har inga favoriter ännu. Utforska verksamheter och spara dem här.
+              </Text>
+              <Pressable
+                className="rounded-xl px-4 py-3"
+                onPress={() => router.push('/(tabs)/')}
+                style={{ backgroundColor: OFFERS_CATEGORY_ACCENT }}
+              >
+                <Text className="text-center font-semibold text-white">Favoritisera</Text>
+              </Pressable>
+            </View>
           ) : (
             <View className="mt-5" style={{ gap: 12 }}>
               {companies.map((company, idx) => {
@@ -161,7 +180,7 @@ export default function FavoriterScreen() {
                       />
                       <View className="absolute inset-0 bg-black/20" />
 
-                      {token && role === 'USER' ? (
+                      {isLoggedIn && role === 'USER' ? (
                         <View
                           className="absolute right-2 top-2 h-8 w-8 items-center justify-center rounded-full"
                           style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
@@ -211,8 +230,8 @@ export default function FavoriterScreen() {
               })}
             </View>
           )}
-        </ScrollView>
-      </SafeAreaView>
+        </View>
+      </ScrollView>
     </View>
   );
 }

@@ -12,9 +12,22 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
-import { getFloatingTabBarScrollPadding } from '@/components/floating-tab-bar';
+import {
+  getFloatingTabBarScrollPadding,
+  getTabBarLeft,
+  getTabBarWidth,
+} from '@/components/floating-tab-bar';
+import Reanimated, {
+  Easing as ReanimatedEasing,
+  interpolate,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAppReady } from '@/context/app-ready-context';
@@ -86,11 +99,21 @@ import {
   sortSearchResultsHot,
   sortSearchResultsNearYou,
 } from '@/lib/catalog-search';
+import { fetchSearchTips } from '@/lib/search-tips';
 
 const IMAGE_HYDRATE_CONCURRENCY = 5;
 
 const ALL_CATEGORIES_ID = 'all';
 const OFFERS_CATEGORY_ID = 'offers';
+const SEARCH_DROPDOWN_CORNER_RADIUS = 28;
+const SEARCH_DROPDOWN_OPEN_MS = 400;
+const SEARCH_DROPDOWN_CLOSE_MS = 420;
+const SEARCH_BAR_HEIGHT = 48;
+const SEARCH_DROPDOWN_MAX_HEIGHT = 268;
+/** 0–1: where on the search bar the fade begins (0.5 = halfway down the bar). */
+const SEARCH_DROPDOWN_DISAPPEAR_RATIO = 0.5;
+const SEARCH_DROPDOWN_OPEN_EASING = ReanimatedEasing.bezier(0.22, 1, 0.36, 1);
+const SEARCH_DROPDOWN_CLOSE_EASING = ReanimatedEasing.bezier(0.4, 0, 0.2, 1);
 
 type CardItem = {
   id: string;
@@ -480,7 +503,7 @@ function ForYouOrderCarousel({
 }) {
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
-  const { token, role } = useAuth();
+  const { isLoggedIn, role } = useAuth();
   const { isFavorite, toggleFavorite } = useFavorites();
   const items = cards.slice(0, 10);
 
@@ -528,7 +551,7 @@ function ForYouOrderCarousel({
                   />
                 ) : null}
               </View>
-              {showFavoriteButton && token && role === 'USER' ? (
+              {showFavoriteButton && isLoggedIn && role === 'USER' ? (
                 <View className="absolute right-2 top-2 h-8 w-8 items-center justify-center rounded-full" style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}>
                   <Pressable
                     onPress={async (e: any) => {
@@ -830,10 +853,17 @@ export default function HomeScreen() {
   const [searchQuery, setSearchQuery] = useState(initialSearch.query);
   const [searchResults, setSearchResults] = useState<CardItem[]>(initialSearch.results as CardItem[]);
   const [isSearchLoading, setIsSearchLoading] = useState(false);
+  const [searchTips, setSearchTips] = useState<string[]>([]);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [isSearchDropdownMounted, setIsSearchDropdownMounted] = useState(false);
+  const [searchBarHeight, setSearchBarHeight] = useState(SEARCH_BAR_HEIGHT);
   const [eventCards, setEventCards] = useState<BusinessEventItem[]>(getHomeEventsCache() ?? []);
   const [isLoadingEvents, setIsLoadingEvents] = useState(!getHomeEventsCache());
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const navBarWidth = getTabBarWidth(windowWidth, Platform.OS);
+  const navBarLeft = getTabBarLeft(windowWidth, navBarWidth);
   const scrollBottomPadding = getFloatingTabBarScrollPadding(insets.bottom);
   const heroTopInset = useHeroTopInset();
   const scrollY = useRef(new Animated.Value(getHomeScrollOffset())).current;
@@ -841,11 +871,15 @@ export default function HomeScreen() {
   const scrollOffsetRef = useRef(getHomeScrollOffset());
   const searchQueryRef = useRef(searchQuery);
   const searchResultsRef = useRef(searchResults);
+  const searchBlurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchDropdownProgress = useSharedValue(0);
+  const searchBarHeightSv = useSharedValue(SEARCH_BAR_HEIGHT);
+  const searchDropdownHeightSv = useSharedValue(SEARCH_DROPDOWN_MAX_HEIGHT);
   searchQueryRef.current = searchQuery;
   searchResultsRef.current = searchResults;
   const router = useRouter();
   const { markDataReady } = useAppReady();
-  const { token } = useAuth();
+  const { token, authFetch, isLoggedIn } = useAuth();
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
   const homePageBg = theme.cardBg;
@@ -930,6 +964,127 @@ export default function HomeScreen() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      const tips = await fetchSearchTips({
+        take: 8,
+        q: searchQuery.trim().length >= 1 ? searchQuery.trim() : undefined,
+        authFetch,
+        isLoggedIn,
+      });
+      if (!cancelled) {
+        setSearchTips(tips);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [searchQuery, authFetch, isLoggedIn]);
+
+  useEffect(() => {
+    return () => {
+      if (searchBlurTimerRef.current) {
+        clearTimeout(searchBlurTimerRef.current);
+      }
+    };
+  }, []);
+
+  const openSearchDropdown = useCallback(() => {
+    if (searchBlurTimerRef.current) {
+      clearTimeout(searchBlurTimerRef.current);
+      searchBlurTimerRef.current = null;
+    }
+    setIsSearchFocused(true);
+  }, []);
+
+  const closeSearchDropdown = useCallback(() => {
+    if (searchBlurTimerRef.current) {
+      clearTimeout(searchBlurTimerRef.current);
+    }
+    searchBlurTimerRef.current = setTimeout(() => {
+      setIsSearchFocused(false);
+      searchBlurTimerRef.current = null;
+    }, SEARCH_DROPDOWN_CLOSE_MS);
+  }, []);
+
+  const handleSearchTipPress = useCallback((tip: string) => {
+    if (searchBlurTimerRef.current) {
+      clearTimeout(searchBlurTimerRef.current);
+      searchBlurTimerRef.current = null;
+    }
+    setSearchQuery(tip);
+    setIsSearchFocused(true);
+  }, []);
+
+  const showSearchTipsDropdown = isSearchFocused && searchTips.length > 0;
+
+  useEffect(() => {
+    if (showSearchTipsDropdown) {
+      setIsSearchDropdownMounted(true);
+      searchDropdownProgress.value = withTiming(1, {
+        duration: SEARCH_DROPDOWN_OPEN_MS,
+        easing: SEARCH_DROPDOWN_OPEN_EASING,
+      });
+      return;
+    }
+
+    if (!isSearchDropdownMounted) {
+      return;
+    }
+
+    searchDropdownProgress.value = withTiming(
+      0,
+      {
+        duration: SEARCH_DROPDOWN_CLOSE_MS,
+        easing: SEARCH_DROPDOWN_CLOSE_EASING,
+      },
+      (finished) => {
+        if (finished) {
+          runOnJS(setIsSearchDropdownMounted)(false);
+        }
+      }
+    );
+  }, [showSearchTipsDropdown, isSearchDropdownMounted, searchDropdownProgress]);
+
+  const searchDropdownClipAnimatedStyle = useAnimatedStyle(() => {
+    const progress = searchDropdownProgress.value;
+    const barHeight = searchBarHeightSv.value;
+    const disappearRatio = SEARCH_DROPDOWN_DISAPPEAR_RATIO;
+    const openOffset = barHeight * (1 - disappearRatio);
+    const dropdownHeight = searchDropdownHeightSv.value;
+    const disappearLineY = barHeight * disappearRatio;
+    const openClipHeight = openOffset + dropdownHeight;
+
+    return {
+      top: disappearLineY,
+      height: progress > 0.01 ? openClipHeight : 0,
+    };
+  });
+
+  const searchDropdownAnimatedStyle = useAnimatedStyle(() => {
+    const progress = searchDropdownProgress.value;
+    const barHeight = searchBarHeightSv.value;
+    const disappearRatio = SEARCH_DROPDOWN_DISAPPEAR_RATIO;
+    const openOffset = barHeight * (1 - disappearRatio);
+    const dropdownHeight = searchDropdownHeightSv.value;
+
+    return {
+      opacity: interpolate(progress, [0, 0.08, disappearRatio, 1], [0, 1, 1, 1], 'clamp'),
+      transform: [
+        {
+          translateY: interpolate(
+            progress,
+            [0, disappearRatio, 1],
+            [-dropdownHeight, 0, openOffset]
+          ),
+        },
+      ],
+    };
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -1594,6 +1749,9 @@ export default function HomeScreen() {
     outputRange: [16, heroTopInset + 16, heroTopInset + 16 - searchPanelStickyLift],
     extrapolate: 'clamp',
   });
+  const searchDropdownExpanded = showSearchTipsDropdown || isSearchDropdownMounted;
+  const searchDropdownDividerColor = 'rgba(0, 0, 0, 0.08)';
+
   const searchPanelStyle = {
     backgroundColor: homeHeaderPanelBg,
     borderBottomLeftRadius: 24,
@@ -1606,48 +1764,176 @@ export default function HomeScreen() {
       ? ({
           position: 'sticky' as const,
           top: 0,
-          zIndex: 20,
-          overflow: 'hidden' as const,
+          zIndex: searchDropdownExpanded ? 200 : 20,
+          overflow: 'visible' as const,
         } as const)
       : ({
-          zIndex: 10,
-          elevation: 10,
-          overflow: 'hidden' as const,
+          zIndex: searchDropdownExpanded ? 200 : 10,
+          elevation: searchDropdownExpanded ? 200 : 10,
+          overflow: 'visible' as const,
         } as const)),
   };
 
+  const renderSearchTipsDropdown = () =>
+    isSearchDropdownMounted && searchTips.length > 0 ? (
+      <Reanimated.View
+        pointerEvents="box-none"
+        style={[
+          searchDropdownClipAnimatedStyle,
+          {
+            position: 'absolute',
+            left: 0,
+            width: '100%',
+            zIndex: 1,
+            elevation: 1,
+            overflow: 'hidden',
+          },
+        ]}
+      >
+        <Reanimated.View
+          className="w-full overflow-hidden"
+          onLayout={(event) => {
+            const measuredHeight = event.nativeEvent.layout.height;
+            if (measuredHeight > 0) {
+              searchDropdownHeightSv.value = measuredHeight;
+            }
+          }}
+          style={[
+            filterSurfaceStyle,
+            searchDropdownAnimatedStyle,
+            {
+              width: '100%',
+              borderRadius: SEARCH_DROPDOWN_CORNER_RADIUS,
+              ...(Platform.OS === 'web'
+                ? {
+                    boxShadow: '0 12px 28px rgba(0,0,0,0.14)',
+                  }
+                : {
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 8 },
+                    shadowOpacity: 0.12,
+                    shadowRadius: 14,
+                    elevation: 1,
+                  }),
+            },
+          ]}
+        >
+          <View
+            className="px-4 py-2.5"
+            style={{ borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: searchDropdownDividerColor }}
+          >
+            <Text
+              className="text-xs font-semibold uppercase tracking-wide"
+              style={{ color: FilterChipTheme.textMuted }}
+            >
+              {searchQuery.trim() ? 'Förslag' : 'Söktips'}
+            </Text>
+          </View>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled
+            style={{ maxHeight: 220 }}
+            showsVerticalScrollIndicator={false}
+          >
+            {searchTips.map((tip, index) => (
+              <Pressable
+                key={tip}
+                onPress={() => handleSearchTipPress(tip)}
+                className="flex-row items-center px-4 py-3"
+                style={
+                  index < searchTips.length - 1
+                    ? {
+                        borderBottomWidth: StyleSheet.hairlineWidth,
+                        borderBottomColor: searchDropdownDividerColor,
+                      }
+                    : undefined
+                }
+              >
+                <Ionicons
+                  name={searchQuery.trim() ? 'business-outline' : 'bulb-outline'}
+                  size={18}
+                  color={FilterChipTheme.textMuted}
+                  style={{ marginRight: 12 }}
+                />
+                <Text className="flex-1 text-base" style={{ color: FilterChipTheme.text }}>
+                  {tip}
+                </Text>
+                <Ionicons name="arrow-forward" size={16} color={FilterChipTheme.textMuted} />
+              </Pressable>
+            ))}
+          </ScrollView>
+        </Reanimated.View>
+      </Reanimated.View>
+    ) : null;
+
   const renderHomeSearchHeader = () => (
-    <>
-      <View className="px-6">
+  <View style={{ position: 'relative' }} pointerEvents="box-none">
+      <View
+        style={{
+          position: 'relative',
+          marginLeft: navBarLeft,
+          width: navBarWidth,
+          zIndex: searchDropdownExpanded ? 100 : 0,
+          elevation: searchDropdownExpanded ? 100 : 0,
+        }}
+      >
+        {renderSearchTipsDropdown()}
+
         <View
-          className="flex-row items-center rounded-full px-4 py-2.5"
-          style={filterSurfaceStyle}
+          className="flex-row w-full items-center rounded-full px-4"
+          style={[
+            filterSurfaceStyle,
+            {
+              height: SEARCH_BAR_HEIGHT,
+              position: 'relative',
+              zIndex: 2,
+              elevation: 2,
+            },
+          ]}
+          onLayout={(event) => {
+            const measuredHeight = event.nativeEvent.layout.height;
+            if (measuredHeight > 0) {
+              searchBarHeightSv.value = measuredHeight;
+              setSearchBarHeight(measuredHeight);
+            }
+          }}
         >
           <Ionicons name="search" size={18} color={FilterChipTheme.textMuted} style={{ marginRight: 8 }} />
           <TextInput
             value={searchQuery}
             onChangeText={setSearchQuery}
+            onFocus={openSearchDropdown}
+            onBlur={closeSearchDropdown}
             placeholder="Sök restauranger, events, upplevelser"
             placeholderTextColor={FilterChipTheme.placeholder}
             className="flex-1"
-            style={{ color: FilterChipTheme.text }}
+            style={{
+              color: FilterChipTheme.text,
+              height: SEARCH_BAR_HEIGHT,
+              paddingVertical: 0,
+              fontSize: 16,
+              lineHeight: 20,
+            }}
             returnKeyType="search"
           />
-          {searchQuery.trim() ? (
-            <Pressable
-              onPress={() => {
-                setSearchQuery('');
-                clearHomeSearchCache();
-              }}
-              className="ml-2 rounded-full px-2 py-1"
-            >
-              <Ionicons name="close-circle" size={18} color={FilterChipTheme.textMuted} />
-            </Pressable>
-          ) : null}
+          <Pressable
+            onPress={() => {
+              setSearchQuery('');
+              clearHomeSearchCache();
+            }}
+            className="ml-2 items-center justify-center rounded-full"
+            style={{ width: 32, height: 32, opacity: searchQuery.trim() ? 1 : 0 }}
+            pointerEvents={searchQuery.trim() ? 'auto' : 'none'}
+            disabled={!searchQuery.trim()}
+            accessibilityElementsHidden={!searchQuery.trim()}
+            importantForAccessibility={searchQuery.trim() ? 'auto' : 'no-hide-descendants'}
+          >
+            <Ionicons name="close-circle" size={18} color={FilterChipTheme.textMuted} />
+          </Pressable>
         </View>
       </View>
 
-      <View className="mt-4">
+      <View className="mt-4" style={{ zIndex: 1, elevation: 1 }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 24 }}>
           <View className="flex-row gap-2">
             {quickCategories.map((cat) => (
@@ -1696,7 +1982,7 @@ export default function HomeScreen() {
           </View>
         </ScrollView>
       </View>
-    </>
+  </View>
   );
 
   return (
@@ -1748,9 +2034,10 @@ export default function HomeScreen() {
           )}
         </View>
 
-        <View style={searchPanelStyle}>
+        <View style={searchPanelStyle} pointerEvents="box-none">
           {Platform.OS === 'web' ? (
             <Animated.View
+              pointerEvents="box-none"
               style={{
                 paddingTop: webStickyTopPadding,
                 paddingBottom: 10,
@@ -1761,6 +2048,7 @@ export default function HomeScreen() {
             </Animated.View>
           ) : (
             <Animated.View
+              pointerEvents="box-none"
               style={{
                 paddingTop: headerTopPadding,
                 paddingBottom: 10,
