@@ -106,3 +106,26 @@ body {
 #root a:focus-visible {
   outline: none !important;
 }
+
+/* iOS Safari auto-zooms when a focused field has font-size < 16px. */
+input,
+textarea,
+select {
+  font-size: 16px !important;
+}
+
+/* Birth-date wheel columns on web */
+.wheel-picker-column {
+  scroll-snap-type: y mandatory;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+.wheel-picker-item {
+  scroll-snap-align: center;
+}
+
+.wheel-picker-item-active {
+  color: #ffffff !important;
+  opacity: 1 !important;
+}

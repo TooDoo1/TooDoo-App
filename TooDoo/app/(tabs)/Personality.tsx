@@ -1,5 +1,4 @@
 import {
-  ScrollView,
   Text,
   TextInput,
   View,
@@ -15,7 +14,10 @@ import { apiUrl } from "@/lib/api";
 import { hasForegroundLocationPermission, resolveUserCityFromDevice } from "@/lib/geo";
 import { useThemePreference } from "@/context/theme-preference-context";
 import { BrandColors } from "@/lib/brand-colors";
+import { getCategoryAccentColor, getOnAccentTextColor } from "@/lib/category-colors";
 import { uiTheme } from "@/lib/ui-theme";
+import { RegistrationScreenShell } from "@/components/registration-screen-shell";
+import { formatBirthDateDisplay, WebBirthDateWheelPicker } from "@/components/ui/wheel-picker";
 
 export default function PersonalityScreen() {
   const router = useRouter();
@@ -29,7 +31,7 @@ export default function PersonalityScreen() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [birthDate, setBirthDate] = useState<Date | null>(null);
-  const [isIosDatePickerVisible, setIsIosDatePickerVisible] = useState(false);
+  const [isDatePickerVisible, setIsDatePickerVisible] = useState(false);
   const [selectedGender, setSelectedGender] = useState<'MALE' | 'FEMALE' | 'NON_BINARY' | 'OTHER' | null>(null);
   const [categoryOptions, setCategoryOptions] = useState<Array<{ id?: string; name: string }>>([]);
   const [isLoadingCategories, setIsLoadingCategories] = useState(false);
@@ -37,7 +39,6 @@ export default function PersonalityScreen() {
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [city, setCity] = useState('');
   const [isResolvingLocation, setIsResolvingLocation] = useState(false);
-  const [locationAutoAttempted, setLocationAutoAttempted] = useState(false);
   const progressPercent = totalCount > 0 ? Math.min((claimedCount / totalCount) * 100, 100) : 0;
   const lastPendingEmailRef = useRef<string | null>(null);
 
@@ -53,12 +54,11 @@ export default function PersonalityScreen() {
     setFirstName('');
     setLastName('');
     setBirthDate(null);
-    setIsIosDatePickerVisible(false);
+    setIsDatePickerVisible(false);
     setSelectedGender(null);
     setSelectedCategoryIds([]);
     setCity('');
     setIsResolvingLocation(false);
-    setLocationAutoAttempted(false);
   }, [pendingRegistration?.email]);
 
   useEffect(() => {
@@ -68,7 +68,6 @@ export default function PersonalityScreen() {
 
     const autoDetectLocation = async () => {
       if (Platform.OS === 'web') {
-        setLocationAutoAttempted(true);
         return;
       }
 
@@ -83,7 +82,6 @@ export default function PersonalityScreen() {
       } finally {
         if (!cancelled) {
           setIsResolvingLocation(false);
-          setLocationAutoAttempted(true);
         }
       }
     };
@@ -95,14 +93,6 @@ export default function PersonalityScreen() {
     };
   }, [claimedCount, pendingRegistration?.email]);
 
-  const formatBirthDate = (date: Date) => {
-    // Keep a stable YYYY-MM-DD regardless of device locale.
-    const yyyy = date.getFullYear();
-    const mm = String(date.getMonth() + 1).padStart(2, '0');
-    const dd = String(date.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
-  };
-
   const birthDateToIsoDateTime = (date: Date) => {
     // Backend expects date-time; keep the chosen calendar date stable across timezones.
     const yyyy = date.getFullYear();
@@ -113,6 +103,9 @@ export default function PersonalityScreen() {
 
   const openBirthDatePicker = () => {
     const initialValue = birthDate ?? new Date(2000, 0, 1);
+    if (!birthDate) {
+      setBirthDate(initialValue);
+    }
     if (Platform.OS === 'android') {
       DateTimePickerAndroid.open({
         value: initialValue,
@@ -126,7 +119,7 @@ export default function PersonalityScreen() {
       return;
     }
 
-    setIsIosDatePickerVisible(true);
+    setIsDatePickerVisible(true);
   };
 
   useEffect(() => {
@@ -196,233 +189,34 @@ export default function PersonalityScreen() {
   ];
 
   return (
-    <ScrollView
-      className="flex-1"
-      style={{ backgroundColor: theme.screenBg }}
-      contentContainerStyle={{ paddingBottom: 48, flexGrow: 1 }}
-    >
-      <View className="flex-1 justify-between px-6 pt-12">
-        <View>
-        <Text className="pt-10 text-3xl font-semibold" style={{ color: theme.text }}>
-          Skapa konto🎉
-        </Text>
-        <Text className="pt-5 text-md font-semibold" style={{ color: theme.textMuted }}>
-          Steg {claimedCount} av {totalCount}
-        </Text>
-        <View className="mt-2 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: theme.cardBgMuted }}>
-                  <View
-                    className="h-full rounded-full"
-                    style={{ width: `${progressPercent}%`, backgroundColor: accentColor }}
-                  />
-        </View>
-
-        {claimedCount === 1? (
-
-        <View className="mt-20 rounded-2xl px-4 py-5" style={{ backgroundColor: theme.cardBgMuted }}>
-          <Text className="text-2xl" style={{ color: theme.text }}>Berätta om dig själv</Text>
-
-          <Text className="pt-4 text-lg" style={{ color: theme.text }}>Förnamn:</Text>
-          <TextInput
-                value={firstName}
-                onChangeText={setFirstName}
-                placeholder="Förnamn"
-            placeholderTextColor={theme.textFaint}
-                autoCapitalize="words"
-            className="mt-2 rounded-2xl border px-4 py-3"
-            style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
-          />
-          <Text className="pt-4 text-lg" style={{ color: theme.text }}>Efternamn:</Text>
-          <TextInput
-                value={lastName}
-                onChangeText={setLastName}
-                placeholder="Efternamn"
-            placeholderTextColor={theme.textFaint}
-                autoCapitalize="words"
-            className="mt-2 rounded-2xl border px-4 py-3"
-            style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
-          />
-          <Text className="pt-4 text-lg" style={{ color: theme.text }}>Födelsedag:</Text>
+    <RegistrationScreenShell
+      header={
+        <>
+          <Text className="text-3xl font-semibold" style={{ color: theme.text }}>
+            Skapa konto🎉
+          </Text>
+          <Text className="pt-2 text-md font-semibold" style={{ color: theme.textMuted }}>
+            Steg {claimedCount} av {totalCount}
+          </Text>
+          <View className="mt-2 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: theme.cardBgMuted }}>
+            <View
+              className="h-full rounded-full"
+              style={{ width: `${progressPercent}%`, backgroundColor: accentColor }}
+            />
+          </View>
+        </>
+      }
+      footer={
+        claimedCount === 4 ? (
           <Pressable
-            onPress={openBirthDatePicker}
-            className="mt-2 rounded-2xl border px-4 py-3"
-            style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted }}
+            className="rounded-2xl px-4 py-3"
+            style={{ backgroundColor: accentColor }}
+            onPress={() => router.replace('/')}
           >
-            <Text style={{ color: birthDate ? theme.text : theme.textFaint }}>
-              {birthDate ? formatBirthDate(birthDate) : 'Välj datum'}
-            </Text>
+            <Text className="text-center font-medium text-white">Fortsätt</Text>
           </Pressable>
-
-          {Platform.OS === 'ios' && isIosDatePickerVisible ? (
-            <View
-              className="mt-3 overflow-hidden rounded-2xl px-2 py-2"
-              style={{ borderColor: theme.border, borderWidth: 1, backgroundColor: theme.cardBgMuted }}
-            >
-              <DateTimePicker
-                value={birthDate ?? new Date(2000, 0, 1)}
-                mode="date"
-                maximumDate={new Date()}
-                display="spinner"
-                themeVariant={theme.isDark ? 'dark' : 'light'}
-                textColor={theme.text}
-                style={{ height: 190 }}
-                onChange={(_event, selectedDate) => {
-                  if (selectedDate) setBirthDate(selectedDate);
-                }}
-              />
-              <Pressable
-                className="mt-2 rounded-2xl px-4 py-3"
-                style={{ backgroundColor: accentColor }}
-                onPress={() => setIsIosDatePickerVisible(false)}
-              >
-                <Text className="text-center font-medium text-white">Klar</Text>
-              </Pressable>
-            </View>
-          ) : null}
-
-          {locationAutoAttempted && !city.trim() ? (
-            <>
-              <Text className="pt-4 text-lg" style={{ color: theme.text }}>Stad:</Text>
-              <Text className="pt-1 text-sm" style={{ color: theme.textMuted }}>
-                Behövs för att visa erbjudanden nära dig.
-              </Text>
-              <TextInput
-                value={city}
-                onChangeText={setCity}
-                placeholder="T.ex. Helsingborg"
-                placeholderTextColor={theme.textFaint}
-                autoCapitalize="words"
-                className="mt-2 rounded-2xl border px-4 py-3"
-                style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
-              />
-            </>
-          ) : isResolvingLocation ? (
-            <Text className="pt-4 text-sm" style={{ color: theme.textMuted }}>
-              Hämtar din plats...
-            </Text>
-          ) : null}
-
-        </View>
-        ) : null}
-
-        {claimedCount === 2 ? (
-            <View className="">
-            <View
-              className="mt-20 pt-20 rounded-2xl px-2 py-5 "
-              style={{ backgroundColor: 'transparent' }}
-            >
-              <Text className="text-2xl" style={{ color: theme.text }}>
-                Välj kön
-              </Text>
-              </View>
-
-              <View className=" flex-row flex-wrap justify-between">
-                {genderOptions.map((option) => {
-                  const isSelected = selectedGender === option.value;
-                  return (
-                    <Pressable
-                      key={option.value}
-                      className="mb-3 w-[48%] rounded-2xl border px-4 py-3"
-                      style={{
-                        backgroundColor: isSelected ? accentColor : BrandColors.dark.secondary,
-                        borderColor: isSelected ? accentColor : '#ffffff',
-                      }}
-                      onPress={() => setSelectedGender(option.value)}
-                    >
-                      <Text
-                        className="text-center text-lg font-medium"
-                        style={{ color: '#ffffff' }}
-                      >
-                        {option.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-
-
-            </View>
-        ):null}
-
-        {claimedCount === 3 ? (
-           <View className="">
-              <View
-                className="mt-20 pt-20 rounded-2xl px-2 py-5 "
-                style={{ backgroundColor: 'transparent' }}
-              >
-                <Text className="text-2xl" style={{ color: theme.text }}>
-                  Vad tycker du om?
-                </Text>
-                <Text className="pt-2" style={{ color: theme.textMuted }}>
-                  Välj en eller flera kategorier.
-                </Text>
-              </View>
-
-              {isLoadingCategories ? (
-                <Text style={{ color: theme.textFaint }}>Laddar kategorier...</Text>
-              ) : null}
-              {categoryLoadError ? (
-                <Text style={{ color: theme.textFaint }}>{categoryLoadError}</Text>
-              ) : null}
-
-                    <View className="mb-20 flex-row flex-wrap gap-3">
-              {categoryOptions.map((option) => {
-                const isSelected = selectedCategoryIds.includes(option.id ?? '');
-                  return (
-                    <Pressable
-                    key={option.id ?? option.name}
-                      className="rounded-2xl border px-5 py-3"
-                      style={{
-                        backgroundColor: isSelected ? accentColor : BrandColors.dark.secondary,
-                        borderColor: isSelected ? accentColor : '#ffffff',
-                      }}
-                      onPress={() => {
-                        setSelectedCategoryIds((prev) =>
-                        prev.includes(option.id ?? '')
-                          ? prev.filter((item) => item !== (option.id ?? ''))
-                          : [...prev, option.id ?? '']
-                        );
-                      }}
-                    >
-                      <Text
-                        className="text-center text-lg font-medium"
-                        style={{ color: '#ffffff' }}
-                      >
-                      {option.name}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-
-
-            </View>
-        ):null}
-
-        {claimedCount === 4 ? (
-          <View
-            className="mt-20 rounded-2xl px-4 py-8"
-            style={{ backgroundColor: theme.cardBgMuted }}
-          >
-            <Text className="text-center text-2xl font-semibold" style={{ color: theme.text }}>
-              Börja upptäck platser nära dig!
-            </Text>
-          </View>
-        ) : null}
-
-        </View>
-
-        {claimedCount === 4 ? (
-          <View className="mt-8 rounded-2xl px-4 py-5" style={{ backgroundColor: theme.cardBgMuted }}>
-            <Pressable
-              className="rounded-2xl px-4 py-3"
-              style={{ backgroundColor: accentColor }}
-              onPress={() => router.replace('/')}
-            >
-              <Text className="text-center font-medium text-white">Fortsätt</Text>
-            </Pressable>
-          </View>
         ) : (
-          <View className="mt-8 rounded-2xl px-4 py-5" style={{ backgroundColor: theme.cardBgMuted }}>
+          <>
             <Pressable
               className="rounded-2xl px-4 py-3"
               style={{ backgroundColor: accentColor }}
@@ -439,8 +233,8 @@ export default function PersonalityScreen() {
                   Alert.alert("Saknad information", "Välj din födelsedag innan du går vidare.");
                   return;
                 }
-                if (claimedCount === 1 && locationAutoAttempted && !city.trim()) {
-                  Alert.alert("Saknad stad", "Ange din stad eller aktivera platsåtkomst innan du går vidare.");
+                if (claimedCount === 1 && !city.trim()) {
+                  Alert.alert("Saknad stad", "Ange vilken stad du befinner dig i innan du går vidare.");
                   return;
                 }
                 if (claimedCount === 3) {
@@ -567,9 +361,214 @@ export default function PersonalityScreen() {
                 Tillbaka
               </Text>
             </Pressable>
-         </View>
-        )}
-      </View>
-    </ScrollView>
+          </>
+        )
+      }
+    >
+        {claimedCount === 1? (
+
+        <View className="rounded-2xl px-4 py-5" style={{ backgroundColor: theme.cardBgMuted }}>
+          <Text className="text-2xl" style={{ color: theme.text }}>Berätta om dig själv</Text>
+
+          <Text className="pt-4 text-lg" style={{ color: theme.text }}>Förnamn:</Text>
+          <TextInput
+                value={firstName}
+                onChangeText={setFirstName}
+                placeholder="Förnamn"
+            placeholderTextColor={theme.textFaint}
+                autoCapitalize="words"
+            className="mt-2 rounded-2xl border px-4 py-3"
+            style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
+          />
+          <Text className="pt-4 text-lg" style={{ color: theme.text }}>Efternamn:</Text>
+          <TextInput
+                value={lastName}
+                onChangeText={setLastName}
+                placeholder="Efternamn"
+            placeholderTextColor={theme.textFaint}
+                autoCapitalize="words"
+            className="mt-2 rounded-2xl border px-4 py-3"
+            style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
+          />
+          <Text className="pt-4 text-lg" style={{ color: theme.text }}>Födelsedag:</Text>
+          <Pressable
+            onPress={openBirthDatePicker}
+            className="mt-2 rounded-2xl border px-4 py-3"
+            style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted }}
+          >
+            <Text style={{ color: birthDate ? theme.text : theme.textFaint }}>
+              {birthDate ? formatBirthDateDisplay(birthDate) : 'Välj datum'}
+            </Text>
+          </Pressable>
+
+          {isDatePickerVisible && Platform.OS !== 'android' ? (
+            <View
+              className="mt-3 overflow-hidden rounded-2xl px-2 py-2"
+              style={{ borderColor: theme.border, borderWidth: 1, backgroundColor: theme.cardBgMuted }}
+            >
+              {Platform.OS === 'ios' ? (
+                <DateTimePicker
+                  value={birthDate ?? new Date(2000, 0, 1)}
+                  mode="date"
+                  maximumDate={new Date()}
+                  display="spinner"
+                  themeVariant={theme.isDark ? 'dark' : 'light'}
+                  textColor={theme.text}
+                  style={{ height: 190 }}
+                  onChange={(_event, selectedDate) => {
+                    if (selectedDate) setBirthDate(selectedDate);
+                  }}
+                />
+              ) : (
+                <WebBirthDateWheelPicker
+                  value={birthDate ?? new Date(2000, 0, 1)}
+                  maximumDate={new Date()}
+                  theme={theme}
+                  onChange={setBirthDate}
+                />
+              )}
+              <Pressable
+                className="mt-2 rounded-2xl px-4 py-3"
+                style={{ backgroundColor: accentColor }}
+                onPress={() => setIsDatePickerVisible(false)}
+              >
+                <Text className="text-center font-medium text-white">Klar</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          <Text className="pt-4 text-lg" style={{ color: theme.text }}>Stad:</Text>
+          <Text className="pt-1 text-sm" style={{ color: theme.textMuted }}>
+            Behövs för att visa erbjudanden nära dig.
+          </Text>
+          {isResolvingLocation && Platform.OS !== 'web' ? (
+            <Text className="pt-2 text-sm" style={{ color: theme.textMuted }}>
+              Hämtar din plats...
+            </Text>
+          ) : null}
+          <TextInput
+            value={city}
+            onChangeText={setCity}
+            placeholder="T.ex. Helsingborg"
+            placeholderTextColor={theme.textFaint}
+            autoCapitalize="words"
+            className="mt-2 rounded-2xl border px-4 py-3"
+            style={{
+              borderColor: theme.border,
+              backgroundColor: theme.cardBgMuted,
+              color: theme.text,
+              fontSize: 16,
+            }}
+          />
+
+        </View>
+        ) : null}
+
+        {claimedCount === 2 ? (
+            <View className="">
+            <View
+              className="rounded-2xl px-2 py-5"
+              style={{ backgroundColor: 'transparent' }}
+            >
+              <Text className="text-2xl" style={{ color: theme.text }}>
+                Välj kön
+              </Text>
+              </View>
+
+              <View className=" flex-row flex-wrap justify-between">
+                {genderOptions.map((option) => {
+                  const isSelected = selectedGender === option.value;
+                  return (
+                    <Pressable
+                      key={option.value}
+                      className="mb-3 w-[48%] rounded-2xl border px-4 py-3"
+                      style={{
+                        backgroundColor: isSelected ? accentColor : BrandColors.dark.secondary,
+                        borderColor: isSelected ? accentColor : '#ffffff',
+                      }}
+                      onPress={() => setSelectedGender(option.value)}
+                    >
+                      <Text
+                        className="text-center text-lg font-medium"
+                        style={{ color: '#ffffff' }}
+                      >
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+
+            </View>
+        ):null}
+
+        {claimedCount === 3 ? (
+           <View className="">
+              <View
+                className="rounded-2xl px-2 py-5"
+                style={{ backgroundColor: 'transparent' }}
+              >
+                <Text className="text-2xl" style={{ color: theme.text }}>
+                  Vad tycker du om?
+                </Text>
+                <Text className="pt-2" style={{ color: theme.textMuted }}>
+                  Välj en eller flera kategorier.
+                </Text>
+              </View>
+
+              {isLoadingCategories ? (
+                <Text style={{ color: theme.textFaint }}>Laddar kategorier...</Text>
+              ) : null}
+              {categoryLoadError ? (
+                <Text style={{ color: theme.textFaint }}>{categoryLoadError}</Text>
+              ) : null}
+
+                    <View className="mb-20 flex-row flex-wrap gap-3">
+              {categoryOptions.map((option) => {
+                const isSelected = selectedCategoryIds.includes(option.id ?? '');
+                const accent = getCategoryAccentColor(option.name);
+                return (
+                  <Pressable
+                    key={option.id ?? option.name}
+                    className="rounded-2xl border px-5 py-3"
+                    style={{
+                      backgroundColor: isSelected ? accent : theme.cardBgMuted,
+                      borderColor: isSelected ? accent : theme.border,
+                    }}
+                    onPress={() => {
+                      setSelectedCategoryIds((prev) =>
+                        prev.includes(option.id ?? '')
+                          ? prev.filter((item) => item !== (option.id ?? ''))
+                          : [...prev, option.id ?? '']
+                      );
+                    }}
+                  >
+                    <Text
+                      className="text-center text-lg font-medium"
+                      style={{ color: isSelected ? getOnAccentTextColor(accent) : theme.text }}
+                    >
+                      {option.name}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+              </View>
+
+
+            </View>
+        ):null}
+
+        {claimedCount === 4 ? (
+          <View
+            className="rounded-2xl px-4 py-8"
+            style={{ backgroundColor: theme.cardBgMuted }}
+          >
+            <Text className="text-center text-2xl font-semibold" style={{ color: theme.text }}>
+              Börja upptäck platser nära dig!
+            </Text>
+          </View>
+        ) : null}
+    </RegistrationScreenShell>
   );
 }
