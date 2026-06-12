@@ -12,6 +12,7 @@ import '../global.css';
 import { ThemePreferenceProvider, useThemePreference } from '@/context/theme-preference-context';
 import { TabBarMotionProvider } from '@/context/tab-bar-motion-context';
 import { AuthProvider } from '@/context/auth-context';
+import { RealtimeProvider } from '@/context/realtime-context';
 import { FavoritesProvider } from '@/context/favorites-context';
 import { FavoriteOfferNotificationsProvider } from '@/context/favorite-offer-notifications';
 import { AppReadyProvider, useAppReady } from '@/context/app-ready-context';
@@ -24,6 +25,7 @@ import LightningIntroSplash, { SPLASH_EXIT_DURATION_MS } from '@/components/ui/l
 import { WebStackSwipeProvider } from '@/context/web-stack-swipe-context';
 import { getHomeScreenSnapshot } from '@/lib/home-list-cache';
 import { getSwipeableStackScreenOptions } from '@/lib/stack-navigation';
+import { uiTheme } from '@/lib/ui-theme';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -62,7 +64,8 @@ function NativeStackMotionProvider({ children }: { children: ReactNode }) {
 
 function AppShell() {
 	const { width: windowWidth } = useWindowDimensions();
-	const { effectiveScheme } = useThemePreference();
+	const { effectiveScheme, mode } = useThemePreference();
+	const theme = uiTheme(mode);
 	const isStandalonePwa = useStandalonePwa();
 	const { isDataReady, markDataReady } = useAppReady();
 	const swipeableStackScreenOptions = useMemo(
@@ -73,6 +76,13 @@ function AppShell() {
 	const [introComplete, setIntroComplete] = useState(skipStartupSplash);
 	const [hasMaxElapsed, setHasMaxElapsed] = useState(skipStartupSplash);
 	const [isSplashMounted, setIsSplashMounted] = useState(!skipStartupSplash);
+
+	useEffect(() => {
+		if (Platform.OS !== 'web') return;
+		document.documentElement.style.setProperty('--app-bg', theme.screenBg);
+		document.documentElement.style.backgroundColor = theme.screenBg;
+		document.body.style.backgroundColor = theme.screenBg;
+	}, [theme.screenBg]);
 
 	useEffect(() => {
 		SplashScreen.hideAsync().catch(() => {});
@@ -115,10 +125,10 @@ function AppShell() {
 
 	const appShellStyle =
 		Platform.OS === 'web' && isStandalonePwa
-			? { flex: 1, height: '100%', minHeight: 0, backgroundColor: '#0e1325' as const }
+			? { flex: 1, height: '100%', minHeight: 0, backgroundColor: theme.screenBg }
 			: Platform.OS === 'web'
-				? { flex: 1, height: '100%' }
-				: { flex: 1 };
+				? { flex: 1, height: '100%', backgroundColor: theme.screenBg }
+				: { flex: 1, backgroundColor: theme.screenBg };
 
 	return (
 		<TabBarMotionProvider>
@@ -135,7 +145,7 @@ function AppShell() {
 						<View style={appShellStyle}>
 						<Stack
 							screenOptions={{
-								contentStyle: { flex: 1, backgroundColor: '#0e1325' },
+								contentStyle: { flex: 1, backgroundColor: theme.screenBg },
 								...(Platform.OS === 'web' ? { detachInactiveScreens: false } : {}),
 							}}
 						>
@@ -146,6 +156,10 @@ function AppShell() {
 							<Stack.Screen name="slutar-snart" options={swipeableStackScreenOptions} />
 							<Stack.Screen name="evenemang" options={swipeableStackScreenOptions} />
 							<Stack.Screen name="sokresultat" options={swipeableStackScreenOptions} />
+							<Stack.Screen name="profile-konto" options={swipeableStackScreenOptions} />
+							<Stack.Screen name="profile-security" options={swipeableStackScreenOptions} />
+							<Stack.Screen name="profile-policy" options={swipeableStackScreenOptions} />
+							<Stack.Screen name="profile-support" options={swipeableStackScreenOptions} />
 							<Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
 						</Stack>
 						</View>
@@ -177,11 +191,13 @@ export default function RootLayout() {
 		<AppReadyProvider>
 			<ThemePreferenceProvider>
 				<AuthProvider>
+					<RealtimeProvider>
 					<FavoritesProvider>
 						<FavoriteOfferNotificationsProvider>
 							<AppShell />
 						</FavoriteOfferNotificationsProvider>
 					</FavoritesProvider>
+					</RealtimeProvider>
 				</AuthProvider>
 			</ThemePreferenceProvider>
 		</AppReadyProvider>

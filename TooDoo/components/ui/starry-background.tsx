@@ -14,7 +14,7 @@ export function StarrySkyScreenBackground({
   const resolvedGradientColors =
     gradientColors ??
     (variant === 'light'
-      ? ['#fbfaf9', '#f3f1ef', '#fbfaf9']
+      ? [BrandColors.light.background, '#EBE8E2', BrandColors.light.background]
       : [BrandColors.dark.background, BrandColors.dark.secondary, BrandColors.dark.background]);
 
   return (

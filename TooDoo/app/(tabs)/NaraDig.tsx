@@ -19,7 +19,12 @@ import { brandInkRgba } from '@/lib/brand-colors';
 import { uiTheme } from '@/lib/ui-theme';
 import { apiUrl, normalizeImageUrl } from '@/lib/api';
 import { CardMedia } from '@/components/ui/card-media';
+import { CompanyActivityDots } from '@/components/ui/company-activity-dots';
+import { fetchBusinessEvents } from '@/lib/business-events';
+import { getHomeEventsCache } from '@/lib/home-list-cache';
+import { getOrderBusinessId, isActiveOffer, parseOrdersList } from '@/lib/offers';
 import { useAuth } from '@/context/auth-context';
+import { useRealtimeSubscription } from '@/hooks/use-realtime-subscription';
 import { useFavorites } from '@/context/favorites-context';
 import {
   type Coords,
@@ -113,6 +118,8 @@ const NearbyCompanyCard = memo(function NearbyCompanyCard({
   onToggleFavorite,
   onPress,
   imagePriority,
+  hasEvent,
+  hasOffer,
 }: {
   company: NearbyCompany;
   showFavorite: boolean;
@@ -120,6 +127,8 @@ const NearbyCompanyCard = memo(function NearbyCompanyCard({
   onToggleFavorite: (id: string) => void;
   onPress: (company: NearbyCompany) => void;
   imagePriority: 'high' | 'normal';
+  hasEvent: boolean;
+  hasOffer: boolean;
 }) {
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
@@ -148,11 +157,18 @@ const NearbyCompanyCard = memo(function NearbyCompanyCard({
         />
         <View className="absolute inset-0 bg-black/20" />
 
-        <View
-          className="absolute left-2 top-2 rounded-full px-2 py-1"
-          style={{ backgroundColor: brandInkRgba(0.75) }}
-        >
-          <Text className="text-[10px] font-semibold text-white">{distance ?? 'Nära dig'}</Text>
+        <View className="absolute left-2 top-2">
+          <View
+            className="rounded-full px-2 py-1"
+            style={{ backgroundColor: brandInkRgba(0.75) }}
+          >
+            <Text className="text-[10px] font-semibold text-white">{distance ?? 'Nära dig'}</Text>
+          </View>
+          <CompanyActivityDots
+            hasEvent={hasEvent}
+            hasOffer={hasOffer}
+            eventColor={theme.eventColor}
+          />
         </View>
 
         {showFavorite ? (
@@ -222,8 +238,17 @@ export default function NaraDigScreen() {
   const [isLoading, setIsLoading] = useState(cachedCompanies.length === 0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [businessIdsWithEvents, setBusinessIdsWithEvents] = useState<Set<string>>(() => {
+    const cached = getHomeEventsCache();
+    return new Set((cached ?? []).map((event) => event.businessId));
+  });
+  const [businessIdsWithOffers, setBusinessIdsWithOffers] = useState<Set<string>>(new Set());
 
   const showFavorite = Boolean(token && role === 'USER');
+
+  useRealtimeSubscription(() => {
+    setRefreshNonce((nonce) => nonce + 1);
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -235,6 +260,34 @@ export default function NaraDigScreen() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      const [events, ordersRes] = await Promise.all([
+        fetchBusinessEvents(),
+        fetch(apiUrl('/orders')),
+      ]);
+
+      if (cancelled) return;
+
+      setBusinessIdsWithEvents(new Set(events.map((event) => event.businessId)));
+
+      const ordersJson = await ordersRes.json().catch(() => []);
+      const offerBusinessIds = new Set<string>();
+      parseOrdersList(ordersJson).forEach((order) => {
+        if (!isActiveOffer(order)) return;
+        const businessId = getOrderBusinessId(order);
+        if (businessId) offerBusinessIds.add(businessId);
+      });
+      setBusinessIdsWithOffers(offerBusinessIds);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshNonce]);
 
   useEffect(() => {
     let cancelled = false;
@@ -378,9 +431,11 @@ export default function NaraDigScreen() {
         onToggleFavorite={toggleFavorite}
         onPress={openCompany}
         imagePriority={index < 6 ? 'high' : 'normal'}
+        hasEvent={businessIdsWithEvents.has(item.id)}
+        hasOffer={businessIdsWithOffers.has(item.id)}
       />
     ),
-    [showFavorite, isFavorite, toggleFavorite, openCompany]
+    [businessIdsWithEvents, businessIdsWithOffers, showFavorite, isFavorite, toggleFavorite, openCompany]
   );
 
   const listHeader = useMemo(

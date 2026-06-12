@@ -30,6 +30,7 @@ import { getUserCoords } from '@/lib/geo';
 import { getHomeEndingSoonCache, getHomeHotOffersCache } from '@/lib/home-list-cache';
 import { openOfferDetail } from '@/lib/open-offer-detail';
 import { uiTheme } from '@/lib/ui-theme';
+import { useRealtimeSubscription } from '@/hooks/use-realtime-subscription';
 
 type OfferListMode = 'hot' | 'endingSoon';
 
@@ -249,6 +250,16 @@ export function OfferListScreen({
     setIsRefreshing(true);
     setRefreshNonce((n) => n + 1);
   }, []);
+
+  useRealtimeSubscription(
+    () => {
+      setRefreshNonce((n) => n + 1);
+    },
+    {
+      enabled: Boolean(token),
+      filter: (event) => event.type === 'order.updated',
+    }
+  );
 
   const handleCardPress = useCallback(
     (card: OfferCardItem) => {

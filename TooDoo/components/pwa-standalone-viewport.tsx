@@ -1,13 +1,15 @@
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 
+import { useThemePreference } from '@/context/theme-preference-context';
+import { uiTheme } from '@/lib/ui-theme';
 import { useStandalonePwa } from '@/lib/use-standalone-pwa';
-
-const APP_BG = '#0e1325';
 
 /** Locks html/body/#root to the full screen in iOS home-screen PWA mode. */
 export function PwaStandaloneViewport() {
   const standalone = useStandalonePwa();
+  const { mode } = useThemePreference();
+  const appBg = uiTheme(mode).screenBg;
 
   useEffect(() => {
     if (Platform.OS !== 'web' || !standalone) return;
@@ -19,10 +21,10 @@ export function PwaStandaloneViewport() {
     const apply = () => {
       html.classList.add('standalone-pwa');
       html.style.setProperty('--app-height', '100vh');
-      html.style.backgroundColor = APP_BG;
-      body.style.backgroundColor = APP_BG;
+      html.style.backgroundColor = appBg;
+      body.style.backgroundColor = appBg;
       if (root) {
-        root.style.backgroundColor = APP_BG;
+        root.style.backgroundColor = appBg;
       }
     };
 
@@ -34,7 +36,7 @@ export function PwaStandaloneViewport() {
       window.removeEventListener('resize', apply);
       window.removeEventListener('orientationchange', apply);
     };
-  }, [standalone]);
+  }, [appBg, standalone]);
 
   return null;
 }

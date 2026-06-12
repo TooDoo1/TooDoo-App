@@ -17,8 +17,10 @@ export function uiTheme(mode: ThemeMode) {
     textMuted: isDark ? 'rgba(255,255,255,0.70)' : brandInkRgba(0.65),
     textFaint: isDark ? 'rgba(255,255,255,0.55)' : brandInkRgba(0.45),
     // Accents
-    // Light mode: match star colors. Dark mode: beta primary blue.
+    // Light mode primary (pink) for general CTAs; events always use brand blue.
     primary: isDark ? BrandColors.dark.primary : '#EBBBD0',
+    eventColor: BrandColors.dark.primary,
+    eventColorMuted: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(71, 139, 235, 0.72)',
     accentGreen: isDark ? '#ff9b46' : '#BADBC2',
     danger: '#ff3b30',
     link: palette.primary,

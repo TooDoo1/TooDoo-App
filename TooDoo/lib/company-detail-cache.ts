@@ -18,6 +18,14 @@ export function getCachedCompanyDetail(businessId: string) {
   return entry;
 }
 
+export function invalidateCompanyDetailCache(businessId?: string) {
+  if (businessId) {
+    cache.delete(businessId);
+    return;
+  }
+  cache.clear();
+}
+
 export function setCachedCompanyDetail(
   businessId: string,
   data: Omit<CompanyDetailCacheEntry, 'at'>

@@ -20,6 +20,7 @@ import { useRouter } from 'expo-router';
 import { useAppReady } from '@/context/app-ready-context';
 import { apiUrl } from '@/lib/api';
 import { useAuth } from '@/context/auth-context';
+import { useRealtimeSubscription } from '@/hooks/use-realtime-subscription';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { HeroImageCarousel, HERO_HEIGHT } from '@/components/hero-image-carousel';
@@ -30,6 +31,7 @@ import { BrandColors, brandInkRgba, FilterChipTheme } from '@/lib/brand-colors';
 import { uiTheme } from '@/lib/ui-theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CardMedia } from '@/components/ui/card-media';
+import { CompanyActivityDots } from '@/components/ui/company-activity-dots';
 import {
   applyHaversineDistances,
   fillMissingDistancesFromAddresses,
@@ -461,6 +463,8 @@ function ForYouOrderCarousel({
   badgeColor,
   getBadgeLabel,
   showFavoriteButton = false,
+  showActivityDots = false,
+  businessIdsWithEvents,
 }: {
   cards: CardItem[];
   onCardPress?: (card: CardItem) => void;
@@ -470,6 +474,9 @@ function ForYouOrderCarousel({
   getBadgeLabel?: (card: CardItem) => string;
   /** Only företag (not individual erbjudanden) should be favoritable. */
   showFavoriteButton?: boolean;
+  /** Event + offer dots under company cards (Nära dig). */
+  showActivityDots?: boolean;
+  businessIdsWithEvents?: Set<string>;
 }) {
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
@@ -504,13 +511,22 @@ function ForYouOrderCarousel({
             <View className="relative h-32 w-full">
               <CardMedia source={card.image} svgFit="fill" priority={idx < 4 ? 'high' : 'normal'} />
               <View className="absolute inset-0 bg-black/20" />
-              <View
-                className="absolute left-2 top-2 rounded-full px-2 py-1"
-                style={{ backgroundColor: badgeColor }}
-              >
-                <Text className="text-[10px] font-semibold text-white">
-                  {getBadgeLabel ? getBadgeLabel(card) : badgeLabel}
-                </Text>
+              <View className="absolute left-2 top-2">
+                <View
+                  className="rounded-full px-2 py-1"
+                  style={{ backgroundColor: badgeColor }}
+                >
+                  <Text className="text-[10px] font-semibold text-white">
+                    {getBadgeLabel ? getBadgeLabel(card) : badgeLabel}
+                  </Text>
+                </View>
+                {showActivityDots ? (
+                  <CompanyActivityDots
+                    hasEvent={businessIdsWithEvents?.has(card.id) ?? false}
+                    hasOffer={Boolean(card.deal)}
+                    eventColor={theme.eventColor}
+                  />
+                ) : null}
               </View>
               {showFavoriteButton && token && role === 'USER' ? (
                 <View className="absolute right-2 top-2 h-8 w-8 items-center justify-center rounded-full" style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}>
@@ -841,6 +857,13 @@ export default function HomeScreen() {
     setIsRefreshing(true);
     setRefreshNonce((prev) => prev + 1);
   }, []);
+
+  useRealtimeSubscription(
+    () => {
+      setRefreshNonce((prev) => prev + 1);
+    },
+    { enabled: Boolean(token) }
+  );
 
   const restoreHomeScroll = useCallback(() => {
     const y = getHomeScrollOffset();
@@ -1403,6 +1426,11 @@ export default function HomeScreen() {
     return deals.filter((card) => card.categoryId === activeCategory);
   }, [activeCategory, deals]);
 
+  const businessIdsWithEvents = useMemo(
+    () => new Set(eventCards.map((event) => event.businessId)),
+    [eventCards]
+  );
+
   const trimmedSearchQuery = searchQuery.trim();
   const isSearchActive = trimmedSearchQuery.length >= 2;
   const isSearchTooShort = trimmedSearchQuery.length === 1;
@@ -1784,6 +1812,8 @@ export default function HomeScreen() {
                           badgeColor={brandInkRgba(0.75)}
                           getBadgeLabel={getNearbyBadge}
                           showFavoriteButton
+                          showActivityDots
+                          businessIdsWithEvents={businessIdsWithEvents}
                           emptyText={`Inga träffar nära dig för "${trimmedSearchQuery}".`}
                         />
                       </View>
@@ -1825,6 +1855,8 @@ export default function HomeScreen() {
                   badgeColor={brandInkRgba(0.75)}
                   getBadgeLabel={getNearbyBadge}
                   showFavoriteButton
+                  showActivityDots
+                  businessIdsWithEvents={businessIdsWithEvents}
                   emptyText="Inga erbjudanden nära dig just nu."
                 />
               )}
@@ -1870,6 +1902,7 @@ export default function HomeScreen() {
                 <SectionTitleRow
                   title="Evenemang"
                   icon="calendar-outline"
+                  iconColor={theme.eventColor}
                   subtitle="Kommande aktiviteter"
                   onSeeAllPress={() => router.push(EVENEMANG_PATH)}
                 />

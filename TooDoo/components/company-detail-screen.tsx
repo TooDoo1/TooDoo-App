@@ -1,3 +1,4 @@
+import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
@@ -21,6 +22,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { OfferMap } from "@/components/ui/offer-map";
 import { useAuth } from "@/context/auth-context";
+import { useRealtimeSubscription } from "@/hooks/use-realtime-subscription";
 import { apiUrl, normalizeImageUrl } from "@/lib/api";
 import { useThemePreference } from "@/context/theme-preference-context";
 import { uiTheme } from "@/lib/ui-theme";
@@ -31,7 +33,17 @@ import { navigateBackFromDetail } from "@/lib/detail-navigation";
 import { performWebStackBack } from "@/lib/web-stack-navigation";
 import { formatBusinessAddress, isPlaceholderNavigationId } from "@/lib/home-offers";
 import { BrandColors, brandInkRgba, brandNavyRgba } from "@/lib/brand-colors";
-import { getOrderNotClaimableReason, getOrderPublishEndMs } from "@/lib/order-claim-window";
+import {
+  extractClaimCountByOrderId,
+  extractClaimQrCode,
+  getClaimFailureMessage,
+  hasReachedPerPersonClaimLimit,
+  isClaimApiSuccess,
+  isDuplicateClaimReason,
+  isPlaceholderOrderId,
+  parseClaimResponse,
+} from "@/lib/claim-api";
+import { getOrderPublishEndMs } from "@/lib/order-claim-window";
 import { geocodeAddressNominatim, getUserCoordsIfGranted, isPlausibleSwedenCoordinate } from "@/lib/geo";
 import {
   fetchBusinessEvents,
@@ -41,7 +53,11 @@ import {
   removeEventInterest,
   type BusinessEventItem,
 } from "@/lib/business-events";
-import { enrichCompanyDetailImages, loadCompanyDetail } from "@/lib/load-company-detail";
+import {
+  enrichCompanyDetailImages,
+  invalidateCompanyDetailCache,
+  loadCompanyDetail,
+} from "@/lib/load-company-detail";
 
 const localImagesById: Record<string, ImageSourcePropType> = {
   "event-3": require("../assets/images/testbild.jpg"),
@@ -104,10 +120,14 @@ export default function CompanyDetailScreen() {
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
   const [claimingOrderId, setClaimingOrderId] = useState<string | null>(null);
+  const pendingClaimOfferRef = useRef<DetailOffer | null>(null);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [isSubmittingLogin, setIsSubmittingLogin] = useState(false);
-  const [claimedOrderIds, setClaimedOrderIds] = useState<Set<string>>(new Set());
+  const [userClaimCountByOrderId, setUserClaimCountByOrderId] = useState<Map<string, number>>(
+    () => new Map()
+  );
+  const claimInFlightRef = useRef(false);
   const [geocodedCoordinate, setGeocodedCoordinate] = useState<{ latitude: number; longitude: number; addressText?: string }>();
   const [mapOriginCoords, setMapOriginCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [nowMs, setNowMs] = useState(Date.now());
@@ -222,6 +242,38 @@ export default function CompanyDetailScreen() {
 
   const ordersRawRef = useRef<any[]>([]);
   const resolvedBusinessIdRef = useRef<string | undefined>(undefined);
+  const [realtimeRefreshNonce, setRealtimeRefreshNonce] = useState(0);
+
+  const bumpCompanyDetailRefresh = useCallback(() => {
+    const businessId = resolvedBusinessIdRef.current ?? resolvedBusinessId;
+    if (businessId) {
+      invalidateCompanyDetailCache(businessId);
+    }
+    setRealtimeRefreshNonce((nonce) => nonce + 1);
+  }, [resolvedBusinessId]);
+
+  useRealtimeSubscription(
+    () => {
+      bumpCompanyDetailRefresh();
+    },
+    {
+      enabled: Boolean(resolvedBusinessId || claimBusinessIdText || businessIdFromIdParam),
+      filter: (event) => {
+        const businessId = resolvedBusinessIdRef.current ?? resolvedBusinessId;
+        return businessId ? event.businessId === businessId : false;
+      },
+    }
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      const timer = setInterval(() => {
+        bumpCompanyDetailRefresh();
+      }, 30_000);
+
+      return () => clearInterval(timer);
+    }, [bumpCompanyDetailRefresh])
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -238,6 +290,7 @@ export default function CompanyDetailScreen() {
       const result = await loadCompanyDetail({
         businessId,
         claimOrderId: claimOrderIdText,
+        forceRefresh: realtimeRefreshNonce > 0,
       });
 
       if (cancelled || !result) {
@@ -269,7 +322,7 @@ export default function CompanyDetailScreen() {
     return () => {
       cancelled = true;
     };
-  }, [claimBusinessIdText, businessIdFromIdParam, claimOrderIdText]);
+  }, [claimBusinessIdText, businessIdFromIdParam, claimOrderIdText, realtimeRefreshNonce]);
 
   useEffect(() => {
     let cancelled = false;
@@ -291,10 +344,12 @@ export default function CompanyDetailScreen() {
     return () => {
       cancelled = true;
     };
-  }, [resolvedBusinessId]);
+  }, [resolvedBusinessId, realtimeRefreshNonce]);
 
-  const mapOrderToOffer = (order: any, index: number) => {
-    const orderId = String(order?.id ?? order?._id ?? `order-${index}`);
+  const mapOrderToOffer = (order: any): DetailOffer | null => {
+    const orderId = String(order?.id ?? order?._id ?? "");
+    if (isPlaceholderOrderId(orderId)) return null;
+
     const live = liveCountsByOrderId[orderId];
     const claimedCount = live
       ? live.claimed
@@ -330,6 +385,7 @@ export default function CompanyDetailScreen() {
 
     const hydratedOffers = hydratedOrders
       .map(mapOrderToOffer)
+      .filter((offer): offer is DetailOffer => offer != null)
       .filter(isVisibleOffer);
 
     return sortOffersWithFocusedFirst(hydratedOffers, focusedOrderId);
@@ -362,7 +418,9 @@ export default function CompanyDetailScreen() {
       hydratedBusiness?.image?.url ??
       hydratedBusiness?.imageUrl
   );
-  const effectiveImageSource = imageSource ?? (hydratedImageUri ? { uri: hydratedImageUri } : undefined);
+  const effectiveImageSource = hydratedImageUri
+    ? { uri: hydratedImageUri }
+    : imageSource;
   const effectiveWebsiteUrl =
     websiteUrl ||
     (typeof hydratedBusiness?.website === "string" ? hydratedBusiness.website : undefined);
@@ -378,114 +436,6 @@ export default function CompanyDetailScreen() {
       : "";
 
   const showOffersSection = carouselItems.length > 0;
-
-  const isDuplicateClaimConflict = (message: string) => {
-    const normalized = message.toLowerCase();
-    return (
-      normalized.includes('already claimed') ||
-      normalized.includes('already claim') ||
-      normalized.includes('already exists') ||
-      normalized.includes('redan claim') ||
-      normalized.includes('redan registrerad')
-    );
-  };
-
-  const extractClaimedOrderIds = (payload: any) => {
-    const claims = Array.isArray(payload)
-      ? payload
-      : Array.isArray(payload?.claims)
-        ? payload.claims
-        : Array.isArray(payload?.data)
-          ? payload.data
-          : [];
-
-    const ids = new Set<string>();
-    claims.forEach((claim: any) => {
-      const orderId = typeof claim?.orderId === 'string'
-        ? claim.orderId
-        : claim?.orderId?.id ?? claim?.orderId?._id ?? claim?.order?.id ?? claim?.order?._id;
-
-      if (orderId) {
-        ids.add(String(orderId));
-      }
-    });
-
-    return ids;
-  };
-
-  const getApiErrorMessage = (payload: any, status: number) => {
-    const directMessage =
-      payload?.message ??
-      (typeof payload?.error === 'string' ? payload.error : undefined) ??
-      payload?.error?.message ??
-      payload?.details?.message ??
-      (Array.isArray(payload?.details)
-        ? payload.details
-            .map((item: any) => item?.message ?? item?.field ?? String(item))
-            .filter(Boolean)
-            .join(', ')
-        : undefined) ??
-      (Array.isArray(payload?.errors) ? payload.errors.map((item: any) => item?.message ?? String(item)).filter(Boolean).join(', ') : undefined);
-
-    if (typeof directMessage === 'string' && directMessage.trim()) {
-      return directMessage;
-    }
-
-    return `Kunde inte claima erbjudandet (${status})`;
-  };
-
-  const getApiErrorDetails = (payload: any, fallbackText: string) => {
-    const detailParts: string[] = [];
-
-    const reason = payload?.reason;
-    if (reason) {
-      detailParts.push(`Reason: ${String(reason)}`);
-    }
-
-    const code = payload?.code ?? payload?.errorCode ?? payload?.error?.code;
-    if (code) {
-      detailParts.push(`Kod: ${String(code)}`);
-    }
-
-    const detailsMessage =
-      payload?.details?.message ??
-      (typeof payload?.details === 'string' ? payload.details : undefined);
-    if (detailsMessage) {
-      detailParts.push(`Detalj: ${String(detailsMessage)}`);
-    }
-
-    if (Array.isArray(payload?.details) && payload.details.length > 0) {
-      const detailsText = payload.details
-        .map((item: any) => {
-          const field = item?.field ? `${item.field}: ` : '';
-          const message = item?.message ?? item?.msg ?? String(item);
-          return `${field}${message}`;
-        })
-        .filter(Boolean)
-        .join(', ');
-
-      if (detailsText) {
-        detailParts.push(`Detaljer: ${detailsText}`);
-      }
-    }
-
-    if (Array.isArray(payload?.errors) && payload.errors.length > 0) {
-      const errorsText = payload.errors
-        .map((item: any) => item?.message ?? item?.msg ?? String(item))
-        .filter(Boolean)
-        .join(', ');
-
-      if (errorsText) {
-        detailParts.push(`Fältfel: ${errorsText}`);
-      }
-    }
-
-    if (detailParts.length === 0 && fallbackText.trim()) {
-      detailParts.push(`Svar: ${fallbackText.trim().slice(0, 220)}`);
-    }
-
-    return detailParts.join('\n');
-  };
 
   const toggleEventInterest = async (event: BusinessEventItem) => {
     if (!isLoggedIn) {
@@ -538,47 +488,62 @@ export default function CompanyDetailScreen() {
     }
   };
 
-  const resolveOrderForClaim = async (orderId: string) => {
-    const cached = hydratedOrders.find(
-      (order) => String(order?.id ?? order?._id ?? '') === orderId
-    );
-    if (cached) return cached;
+  const resolveOrderForClaim = (orderId: string) =>
+    hydratedOrders.find((order) => String(order?.id ?? order?._id ?? '') === orderId);
 
-    const orderResponse = await fetch(apiUrl(`/orders/${encodeURIComponent(orderId)}`));
-    const orderPayload = await orderResponse.json().catch(() => ({}));
-    return orderPayload?.order ?? orderPayload?.data ?? orderPayload;
+  const syncUserClaimCounts = useCallback(async () => {
+    const response = await authFetch('/user/me/claims');
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      return new Map<string, number>();
+    }
+
+    const counts = extractClaimCountByOrderId(payload);
+    setUserClaimCountByOrderId(counts);
+    return counts;
+  }, [authFetch]);
+
+  const getUserClaimCount = (orderId: string, counts = userClaimCountByOrderId) =>
+    counts.get(orderId) ?? 0;
+
+  const hasExhaustedPersonalClaims = (orderId: string, counts = userClaimCountByOrderId) => {
+    const order = resolveOrderForClaim(orderId);
+    return hasReachedPerPersonClaimLimit(order, getUserClaimCount(orderId, counts));
   };
 
-  const extractClaimQrCode = (payload: any) =>
-    (typeof payload?.qrCode === 'string' ? payload.qrCode : payload?.qrCode?.code) ??
-    payload?.code ??
-    (typeof payload?.claim?.qrCode === 'string' ? payload.claim.qrCode : payload?.claim?.qrCode?.code) ??
-    payload?.claim?.code;
-
-  const claimOffer = async (offer: (typeof offers)[number]) => {
-    if (!isLoggedIn) {
+  const claimOffer = async (
+    offer: DetailOffer,
+    options?: { skipAuthPrompt?: boolean }
+  ) => {
+    if (!options?.skipAuthPrompt && !isLoggedIn) {
+      pendingClaimOfferRef.current = offer;
       setIsLoginOpen(true);
       return;
     }
 
-    if (!offer.orderId) {
+    const orderId = offer.orderId;
+    if (!orderId || isPlaceholderOrderId(orderId)) {
       Alert.alert('Fel', 'Saknar order-id för det här erbjudandet.');
       return;
     }
 
-    if (claimedOrderIds.has(offer.orderId)) {
+    if (claimInFlightRef.current) {
+      return;
+    }
+
+    if (hasExhaustedPersonalClaims(orderId)) {
       Alert.alert('Redan claimad', 'Du har redan claimat det här erbjudandet.');
       return;
     }
 
-    setClaimingOrderId(offer.orderId);
+    setClaimingOrderId(orderId);
+    claimInFlightRef.current = true;
 
     try {
-      const order = await resolveOrderForClaim(offer.orderId);
-
-      const notClaimableReason = getOrderNotClaimableReason(order);
-      if (notClaimableReason) {
-        Alert.alert('Kunde inte claima', notClaimableReason);
+      const latestCounts = await syncUserClaimCounts();
+      if (hasExhaustedPersonalClaims(orderId, latestCounts)) {
+        Alert.alert('Redan claimad', 'Du har redan claimat det här erbjudandet.');
         return;
       }
 
@@ -587,92 +552,52 @@ export default function CompanyDetailScreen() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ orderId: offer.orderId }),
+        body: JSON.stringify({ orderId }),
       });
 
-      const responseText = await response.text();
-      let payload: any = {};
-      const requestId = response.headers.get('x-request-id') ?? response.headers.get('x-correlation-id');
+      const { payload, responseText } = await parseClaimResponse(response);
+      const order = resolveOrderForClaim(orderId);
 
-      if (responseText) {
-        try {
-          payload = JSON.parse(responseText);
-        } catch {
-          payload = { message: responseText };
-        }
-      }
-
-      const claimFailed =
-        !response.ok || payload?.ok === false || String(payload?.reason ?? '') === 'ORDER_NOT_CLAIMABLE';
-
-      if (claimFailed) {
-        const message = getApiErrorMessage(payload, response.status);
-        const details = getApiErrorDetails(payload, responseText);
-        const contextLines = [
-          `HTTP ${response.status}`,
-          `orderId: ${offer.orderId}`,
-          requestId ? `requestId: ${requestId}` : undefined,
-          details || undefined,
-        ].filter(Boolean);
-
+      if (!isClaimApiSuccess(response, payload)) {
         if (response.status === 401 || response.status === 403) {
-          Alert.alert(
-            'Sessionen har gått ut',
-            'Logga in igen för att claima erbjudanden.'
-          );
+          pendingClaimOfferRef.current = offer;
+          Alert.alert('Sessionen har gått ut', 'Logga in igen för att claima erbjudanden.');
           setIsLoginOpen(true);
           return;
         }
 
-        if (isDuplicateClaimConflict(String(message))) {
-          setClaimedOrderIds((prev) => {
-            const next = new Set(prev);
-            next.add(offer.orderId as string);
-            return next;
-          });
+        if (isDuplicateClaimReason(payload)) {
+          await syncUserClaimCounts();
           Alert.alert('Redan claimad', 'Du har redan claimat det här erbjudandet.');
           return;
         }
 
-        if (String(payload?.reason ?? '') === 'ORDER_NOT_CLAIMABLE' || response.status === 409) {
-          const claimsResponse = await authFetch('/user/me/claims');
-          const claimsPayload = await claimsResponse.json().catch(() => ({}));
-          const latestClaimedOrderIds = extractClaimedOrderIds(claimsPayload);
-
-          if (claimsResponse.ok && latestClaimedOrderIds.has(offer.orderId)) {
-            setClaimedOrderIds(latestClaimedOrderIds);
-            Alert.alert('Redan claimad', 'Du har redan claimat det här erbjudandet.');
-            return;
-          }
+        const latestCounts = await syncUserClaimCounts();
+        if (hasExhaustedPersonalClaims(orderId, latestCounts)) {
+          Alert.alert('Redan claimad', 'Du har redan claimat det här erbjudandet.');
+          return;
         }
 
-        const notClaimableMessage =
-          String(payload?.reason ?? '') === 'ORDER_NOT_CLAIMABLE'
-            ? getOrderNotClaimableReason(order) ?? 'Ordern går inte att claima just nu.'
-            : String(message);
+        console.warn('Claim request failed', {
+          status: response.status,
+          orderId: offer.orderId,
+          payload,
+          responseText,
+        });
 
-        if (String(payload?.reason ?? '') !== 'ORDER_NOT_CLAIMABLE') {
-          console.warn('Unexpected claim request failure', {
-            status: response.status,
-            orderId: offer.orderId,
-            requestId,
-            payload,
-            responseText,
-          });
-        }
-
-        Alert.alert('Kunde inte claima', notClaimableMessage);
+        Alert.alert('Kunde inte claima', getClaimFailureMessage(payload, response.status, order));
         return;
       }
 
       const qrCode = extractClaimQrCode(payload);
-      setClaimedOrderIds((prev) => {
-        const next = new Set(prev);
-        next.add(offer.orderId as string);
+      setUserClaimCountByOrderId((prev) => {
+        const next = new Map(prev);
+        next.set(orderId, (next.get(orderId) ?? 0) + 1);
         return next;
       });
+      void syncUserClaimCounts();
       setLiveCountsByOrderId((prev) => {
-        const orderIdKey = String(offer.orderId);
+        const orderIdKey = orderId;
         const current = prev[orderIdKey];
         const fallbackTotal = Number(offer.totalCount ?? 0);
         const nextEntry = {
@@ -685,6 +610,7 @@ export default function CompanyDetailScreen() {
     } catch {
       Alert.alert('Kunde inte claima', 'Kontrollera din anslutning och försök igen.');
     } finally {
+      claimInFlightRef.current = false;
       setClaimingOrderId(null);
     }
   };
@@ -808,13 +734,26 @@ export default function CompanyDetailScreen() {
     return () => clearInterval(timer);
   }, [showOffersSection]);
 
+  const claimOfferRef = useRef(claimOffer);
+  claimOfferRef.current = claimOffer;
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    const pendingOffer = pendingClaimOfferRef.current;
+    if (!pendingOffer) return;
+
+    pendingClaimOfferRef.current = null;
+    void claimOfferRef.current(pendingOffer, { skipAuthPrompt: true });
+  }, [isLoggedIn]);
+
   useEffect(() => {
     let cancelled = false;
 
     const task = InteractionManager.runAfterInteractions(() => {
       void (async () => {
         if (!isLoggedIn) {
-          if (!cancelled) setClaimedOrderIds(new Set());
+          if (!cancelled) setUserClaimCountByOrderId(new Map());
           return;
         }
 
@@ -827,10 +766,10 @@ export default function CompanyDetailScreen() {
             return;
           }
 
-          setClaimedOrderIds(extractClaimedOrderIds(payload));
+          setUserClaimCountByOrderId(extractClaimCountByOrderId(payload));
         } catch {
           if (!cancelled) {
-            setClaimedOrderIds(new Set());
+            setUserClaimCountByOrderId(new Map());
           }
         }
       })();
@@ -840,7 +779,7 @@ export default function CompanyDetailScreen() {
       cancelled = true;
       task.cancel();
     };
-  }, [authFetch, isLoggedIn]);
+  }, [authFetch, isLoggedIn, realtimeRefreshNonce]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1074,7 +1013,9 @@ export default function CompanyDetailScreen() {
             {carouselItems.map((item) => {
               if (item.kind === "offer") {
                 const offer = item.data;
-                const isAlreadyClaimed = offer.orderId ? claimedOrderIds.has(offer.orderId) : false;
+                const isAlreadyClaimed = offer.orderId
+                  ? hasExhaustedPersonalClaims(offer.orderId)
+                  : false;
                 const isThisClaiming = offer.orderId ? claimingOrderId === offer.orderId : false;
                 const isClaimDisabled = isThisClaiming || isAlreadyClaimed;
 
@@ -1151,11 +1092,6 @@ export default function CompanyDetailScreen() {
                           color="#ff3b30"
                           disabled={isClaimDisabled}
                           onPress={() => {
-                            if (!isLoggedIn) {
-                              setIsLoginOpen(true);
-                              return;
-                            }
-
                             void claimOffer(offer);
                           }}
                         >
@@ -1184,14 +1120,14 @@ export default function CompanyDetailScreen() {
 
               return (
                 <View key={`event-${event.id}`} className="mr-3 w-[320px] rounded-2xl p-4" style={{ backgroundColor: theme.cardBg }}>
-                  <View className="flex-row gap-3">
+                  <View className="flex-row gap-4">
                     <View className="relative h-28 w-28 overflow-hidden rounded-xl" style={{ backgroundColor: theme.cardBgMuted }}>
                       {eventImageSource ? (
                         <CardMedia source={eventImageSource} rasterResizeMode="cover" svgContain />
                       ) : null}
                       <View
                         className="absolute left-2 top-2 rounded-[10px] px-2.5 py-1"
-                        style={{ backgroundColor: theme.primary }}
+                        style={{ backgroundColor: theme.eventColor }}
                       >
                         <Text className="text-[11px] font-semibold text-white">Event</Text>
                       </View>
@@ -1234,8 +1170,7 @@ export default function CompanyDetailScreen() {
                         className="mt-2 flex-row items-center justify-between rounded-xl px-3 py-2"
                         style={{
                           alignSelf: "stretch",
-                          marginRight: -12,
-                          backgroundColor: theme.isDark ? "rgba(255,255,255,0.14)" : "rgba(235, 187, 208, 0.72)",
+                          backgroundColor: theme.eventColorMuted,
                         }}
                       >
                         <Text className="text-sm font-semibold text-white">Intresserade:</Text>
@@ -1248,7 +1183,7 @@ export default function CompanyDetailScreen() {
                   <View className="mt-3">
                     <Button
                       variant="filled"
-                      color={theme.primary}
+                      color={theme.eventColor}
                       disabled={isInterestLoading}
                       onPress={() => {
                         void toggleEventInterest(event);

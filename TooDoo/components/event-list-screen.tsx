@@ -26,6 +26,7 @@ import {
 import { getHomeEventsCache, setHomeEventsCache } from '@/lib/home-list-cache';
 import { openEventDetail } from '@/lib/open-event-detail';
 import { uiTheme } from '@/lib/ui-theme';
+import { useRealtimeSubscription } from '@/hooks/use-realtime-subscription';
 
 const LIST_BATCH_SIZE = 8;
 
@@ -60,7 +61,7 @@ const EventCard = memo(function EventCard({
         </View>
       ) : null}
       <View className="absolute inset-0 bg-black/20" />
-      <EventBadge backgroundColor={theme.primary} />
+      <EventBadge backgroundColor={theme.eventColor} />
       <LinearGradient
         colors={['rgba(0,0,0,0.00)', 'rgba(0,0,0,0.85)']}
         start={{ x: 0.5, y: 0 }}
@@ -138,6 +139,13 @@ export function EventListScreen() {
     setRefreshNonce((n) => n + 1);
   }, []);
 
+  useRealtimeSubscription(
+    () => {
+      setRefreshNonce((n) => n + 1);
+    },
+    { filter: (event) => event.type === 'business-event.updated' }
+  );
+
   const handleEventPress = useCallback(
     (event: BusinessEventItem) => {
       openEventDetail(router, event, 'evenemang');
@@ -149,7 +157,7 @@ export function EventListScreen() {
     () => (
       <View className="mb-5">
         <View className="flex-row items-center">
-          <Ionicons name="calendar-outline" size={22} color={theme.text} />
+          <Ionicons name="calendar-outline" size={22} color={theme.eventColor} />
           <Text className="ml-2 text-2xl font-semibold" style={{ color: theme.text }}>
             Evenemang
           </Text>
@@ -159,7 +167,7 @@ export function EventListScreen() {
         </Text>
       </View>
     ),
-    [theme.text, theme.textMuted]
+    [theme.eventColor, theme.text, theme.textMuted]
   );
 
   return (

@@ -53,7 +53,7 @@ export function EventsPortraitRow({
                 <View className="h-full w-full" style={{ backgroundColor: theme.cardBg }} />
               )}
               <View className="absolute inset-0 bg-black/20" />
-              <EventBadge backgroundColor={theme.primary} />
+              <EventBadge backgroundColor={theme.eventColor} />
               <LinearGradient
                 colors={['rgba(0,0,0,0.00)', 'rgba(0,0,0,0.85)']}
                 start={{ x: 0.5, y: 0 }}

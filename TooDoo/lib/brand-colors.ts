@@ -15,7 +15,7 @@ export const BrandColors = {
     primarySoft: '#6c9ef5',
   },
   light: {
-    background: '#fbfaf9',
+    background: '#F5F3EE',
     foreground: '#131720',
     card: '#ffffff',
     mutedForeground: '#737b8c',

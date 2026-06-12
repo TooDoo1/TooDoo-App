@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useAuth } from '@/context/auth-context';
+import { useRealtimeSubscription } from '@/hooks/use-realtime-subscription';
 import ClaimedOffers, { ConfettiAnimation, type ClaimedOfferItem } from '@/components/ui/claimdeOffers';
 import { apiUrl, normalizeImageUrl } from '@/lib/api';
 import { StarrySkyScreenBackground } from '@/components/ui/starry-background';
@@ -123,12 +124,23 @@ export default function MinaDealsScreen() {
 	const [hasWorkerAccess, setHasWorkerAccess] = useState(false);
 	const [manualCode, setManualCode] = useState('');
 	const [isValidating, setIsValidating] = useState(false);
+	const [claimsRealtimeNonce, setClaimsRealtimeNonce] = useState(0);
 	const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 	const router = useRouter();
 	const { isLoggedIn, token } = useAuth();
 	const { mode } = useThemePreference();
 	const theme = uiTheme(mode);
 	const visibleOffers = isLoggedIn ? claimedOffers : [];
+
+	useRealtimeSubscription(
+		() => {
+			setClaimsRealtimeNonce((nonce) => nonce + 1);
+		},
+		{
+			enabled: isLoggedIn,
+			filter: (event) => event.type === 'order.updated',
+		}
+	);
 
 	useEffect(() => {
 		if (!isLoggedIn || !token) {
@@ -345,7 +357,7 @@ export default function MinaDealsScreen() {
 		return () => {
 			cancelledRef.cancelled = true;
 		};
-	}, [isLoggedIn, token, router]);
+	}, [isLoggedIn, token, router, claimsRealtimeNonce]);
 
 	useFocusEffect(
 		useMemo(

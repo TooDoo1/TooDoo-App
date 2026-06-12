@@ -1,9 +1,12 @@
 import { apiUrl, normalizeImageUrl } from '@/lib/api';
 import {
   getCachedCompanyDetail,
+  invalidateCompanyDetailCache,
   patchCachedCompanyDetailImages,
   setCachedCompanyDetail,
 } from '@/lib/company-detail-cache';
+
+export { invalidateCompanyDetailCache };
 import { isActiveOffer, resolveBusinessIdFromOrder } from '@/lib/home-offers';
 
 export type CompanyDetailLoadResult = {
@@ -86,11 +89,16 @@ function buildResult(
 export async function loadCompanyDetail(options: {
   businessId?: string;
   claimOrderId?: string;
+  forceRefresh?: boolean;
 }): Promise<CompanyDetailLoadResult | null> {
   let businessId = options.businessId;
   let bootstrapOrder: any = null;
 
-  if (businessId) {
+  if (businessId && options.forceRefresh) {
+    invalidateCompanyDetailCache(businessId);
+  }
+
+  if (businessId && !options.forceRefresh) {
     const cached = getCachedCompanyDetail(businessId);
     if (cached) {
       return {
