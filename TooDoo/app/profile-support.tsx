@@ -1,6 +1,7 @@
 import { Alert, Linking, Pressable, Text, View } from 'react-native';
 
 import { ProfileScreenShell, profileCardShadow } from '@/components/profile/profile-screen-shell';
+import { OFFERS_CATEGORY_ACCENT } from '@/lib/category-colors';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { uiTheme } from '@/lib/ui-theme';
 
@@ -57,7 +58,7 @@ export default function ProfileSupportScreen() {
         <Pressable
           className="mt-6 rounded-2xl px-4 py-3"
           onPress={() => void openEmail()}
-          style={{ backgroundColor: theme.accentGreen }}
+          style={{ backgroundColor: OFFERS_CATEGORY_ACCENT }}
         >
           <Text className="text-center font-medium text-white">Kontakta support</Text>
         </Pressable>
