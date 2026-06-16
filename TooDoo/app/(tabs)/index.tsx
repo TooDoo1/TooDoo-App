@@ -54,7 +54,8 @@ import {
   getUserCoords,
   haversineKm,
 } from '@/lib/geo';
-import { prefetchImageUris, schedulePrefetchImageUris } from '@/lib/image-prefetch';
+import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
+import { IMAGE_DISPLAY_WIDTH } from '@/lib/image-url';
 import { useFavorites } from '@/context/favorites-context';
 import { EventsPortraitRow } from '@/components/events-portrait-row';
 import { fetchEventFeed, type EventFeedItem } from '@/lib/events-feed';
@@ -525,7 +526,12 @@ function ForYouOrderCarousel({
             onPress={() => onCardPress?.(card)}
           >
             <View className="relative h-32 w-full">
-              <CardMedia source={card.image} svgFit="fill" priority={idx < 4 ? 'high' : 'normal'} />
+              <CardMedia
+                source={card.image}
+                svgFit="fill"
+                priority={idx < 4 ? 'high' : 'normal'}
+                displayWidth={IMAGE_DISPLAY_WIDTH.card}
+              />
               <View className="absolute inset-0 bg-black/20" />
               <View className="absolute left-2 top-2">
                 <View
@@ -626,7 +632,13 @@ function FeaturedDealCard({
       ]}
     >
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
-        <CardMedia source={card.image} svgFit="fill" priority="high" />
+        <CardMedia
+          source={card.image}
+          svgFit="fill"
+          priority="high"
+          displayWidth={IMAGE_DISPLAY_WIDTH.cardWide}
+          lazy={false}
+        />
       </View>
       <LinearGradient
         colors={['rgba(0,0,0,0.00)', 'rgba(0,0,0,0.85)']}
@@ -732,7 +744,12 @@ function EndingSoonPortraitRow({
             style={{ flex: 1, height: 180, backgroundColor: '#000' }}
           >
             <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
-              <CardMedia source={card.image} svgFit="fill" priority={idx < 4 ? 'high' : 'normal'} />
+              <CardMedia
+                source={card.image}
+                svgFit="fill"
+                priority={idx < 4 ? 'high' : 'normal'}
+                displayWidth={IMAGE_DISPLAY_WIDTH.card}
+              />
             </View>
             <View className="absolute inset-0 bg-black/25" />
             {date ? (

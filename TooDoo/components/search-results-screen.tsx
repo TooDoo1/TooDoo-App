@@ -38,6 +38,7 @@ import {
 import { openOfferDetail } from '@/lib/open-offer-detail';
 import { usePaginatedList, SEE_ALL_PAGE_SIZE } from '@/lib/paginated-list';
 import { schedulePrefetchImageUris, usePrefetchPageImages } from '@/lib/image-prefetch';
+import { IMAGE_DISPLAY_WIDTH } from '@/lib/image-url';
 import { uiTheme } from '@/lib/ui-theme';
 
 const LIST_BATCH_SIZE = 8;
@@ -95,7 +96,12 @@ function SearchResultCard({
       }}
     >
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
-        <CardMedia source={card.image} svgFit="fill" priority={imagePriority} />
+        <CardMedia
+          source={card.image}
+          svgFit="fill"
+          priority={imagePriority}
+          displayWidth={IMAGE_DISPLAY_WIDTH.card}
+        />
       </View>
       <View className="absolute inset-0 bg-black/20" />
       {badgeLabel ? (

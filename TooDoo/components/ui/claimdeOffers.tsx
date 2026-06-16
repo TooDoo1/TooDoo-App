@@ -4,6 +4,7 @@ import QRCodeSVG from 'react-native-qrcode-svg';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { uiTheme } from '@/lib/ui-theme';
 import { CardMedia } from '@/components/ui/card-media';
+import { IMAGE_DISPLAY_WIDTH } from '@/lib/image-url';
 import { getRedeemCountdown } from '@/lib/order-claim-window';
 
 export type ClaimedOfferItem = {
@@ -218,6 +219,8 @@ export default function ClaimedOffers({ items, scrollEnabled = true }: Props) {
 											source={{ uri: item.imageUri ?? `https://picsum.photos/seed/${encodeURIComponent(item.id)}/240/240` }}
 											rasterResizeMode="cover"
 											svgFit="contain"
+											priority="low"
+											displayWidth={IMAGE_DISPLAY_WIDTH.thumb}
 										/>
 									)}
 								</View>
@@ -290,6 +293,8 @@ export default function ClaimedOffers({ items, scrollEnabled = true }: Props) {
 											source={{ uri: item.imageUri ?? `https://picsum.photos/seed/${encodeURIComponent(item.id)}/240/240` }}
 											rasterResizeMode="cover"
 											svgFit="contain"
+											priority="low"
+											displayWidth={IMAGE_DISPLAY_WIDTH.thumb}
 										/>
 									)}
 								</View>
@@ -369,6 +374,9 @@ export default function ClaimedOffers({ items, scrollEnabled = true }: Props) {
 												}}
 												rasterResizeMode="cover"
 												svgFit="contain"
+												priority="high"
+												displayWidth={IMAGE_DISPLAY_WIDTH.cardWide}
+												lazy={false}
 											/>
 										)}
 									</View>

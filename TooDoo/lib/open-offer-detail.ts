@@ -3,6 +3,8 @@ import type { Router } from 'expo-router';
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
 import type { OfferCardItem } from '@/lib/home-offers';
 import { isPlaceholderNavigationId } from '@/lib/home-offers';
+import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
+import { IMAGE_DISPLAY_WIDTH, sizedImageUrl } from '@/lib/image-url';
 import { loadCompanyDetail } from '@/lib/load-company-detail';
 
 function compactParams(params: Record<string, string | undefined>) {
@@ -31,6 +33,13 @@ export function openOfferDetail(
     businessId,
     claimOrderId: focusedOrderId,
   });
+
+  if (remoteImageUri) {
+    schedulePrefetchImageUris(
+      [sizedImageUrl(remoteImageUri, IMAGE_DISPLAY_WIDTH.hero) ?? remoteImageUri],
+      1
+    );
+  }
 
   router.push({
     pathname: COMPANY_DETAIL_PATH,

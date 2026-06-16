@@ -54,7 +54,12 @@ export function EventsPortraitRow({
             >
               <View className="relative h-full w-full">
                 {event.image ? (
-                  <CardMedia source={event.image} svgFit="fill" priority={idx < 4 ? 'high' : 'normal'} />
+                  <CardMedia
+                    source={event.image}
+                    svgFit="fill"
+                    priority={idx < 4 ? 'high' : 'normal'}
+                    displayWidth={EVENT_CARD_WIDTH}
+                  />
                 ) : (
                   <View className="h-full w-full" style={{ backgroundColor: theme.cardBg }} />
                 )}

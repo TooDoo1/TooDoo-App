@@ -39,6 +39,7 @@ import {
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
 import { usePaginatedList, SEE_ALL_PAGE_SIZE } from '@/lib/paginated-list';
 import { schedulePrefetchImageUris, usePrefetchPageImages } from '@/lib/image-prefetch';
+import { IMAGE_DISPLAY_WIDTH } from '@/lib/image-url';
 import { FAVORITE_HEART_COLOR } from '@/lib/tab-colors';
 import {
   getHomeNearbyBusinessesCache,
@@ -160,6 +161,7 @@ const NearbyCompanyCard = memo(function NearbyCompanyCard({
           }}
           svgFit="fill"
           priority={imagePriority}
+          displayWidth={IMAGE_DISPLAY_WIDTH.cardWide}
         />
         <View className="absolute inset-0 bg-black/20" />
 

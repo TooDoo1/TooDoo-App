@@ -28,6 +28,7 @@ import { getHomeEventsCache, setHomeEventsCache } from '@/lib/home-list-cache';
 import { openEventFeedItem } from '@/lib/open-event-feed';
 import { usePaginatedList, SEE_ALL_PAGE_SIZE } from '@/lib/paginated-list';
 import { schedulePrefetchImageUris, usePrefetchPageImages } from '@/lib/image-prefetch';
+import { IMAGE_DISPLAY_WIDTH } from '@/lib/image-url';
 import { uiTheme } from '@/lib/ui-theme';
 import { useRealtimeSubscription } from '@/hooks/use-realtime-subscription';
 
@@ -57,7 +58,12 @@ const EventCard = memo(function EventCard({
     >
       <View className="relative h-44 w-full">
         {event.image ? (
-          <CardMedia source={event.image} svgFit="fill" priority={imagePriority} />
+          <CardMedia
+            source={event.image}
+            svgFit="fill"
+            priority={imagePriority}
+            displayWidth={IMAGE_DISPLAY_WIDTH.card}
+          />
         ) : (
           <View className="h-full w-full" style={{ backgroundColor: theme.cardBg }} />
         )}

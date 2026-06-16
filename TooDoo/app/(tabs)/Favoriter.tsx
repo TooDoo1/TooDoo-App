@@ -13,6 +13,7 @@ import { useFavorites } from '@/context/favorites-context';
 import { apiUrl, normalizeImageUrl } from '@/lib/api';
 import { CardMedia } from '@/components/ui/card-media';
 import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
+import { IMAGE_DISPLAY_WIDTH } from '@/lib/image-url';
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
 import { OFFERS_CATEGORY_ACCENT } from '@/lib/category-colors';
 import { FAVORITE_HEART_COLOR } from '@/lib/tab-colors';
@@ -213,9 +214,11 @@ export default function FavoriterScreen() {
                     <View className="relative h-44 w-full">
                       <CardMedia
                         source={{
-                          uri: imageUri ?? `https://picsum.photos/seed/${encodeURIComponent(id)}/600/400`,
+                          uri: imageUri ?? `https://picsum.photos/seed/${encodeURIComponent(id)}/336/224`,
                         }}
                         svgFit="fill"
+                        priority={idx < 4 ? 'high' : 'normal'}
+                        displayWidth={IMAGE_DISPLAY_WIDTH.cardWide}
                       />
                       <View className="absolute inset-0 bg-black/20" />
 

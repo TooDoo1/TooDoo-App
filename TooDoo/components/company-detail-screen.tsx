@@ -26,6 +26,8 @@ import { normalizeImageUrl } from "@/lib/api";
 import { useThemePreference } from "@/context/theme-preference-context";
 import { uiTheme } from "@/lib/ui-theme";
 import { CardMedia } from "@/components/ui/card-media";
+import { schedulePrefetchImageUris } from "@/lib/image-prefetch";
+import { IMAGE_DISPLAY_WIDTH } from "@/lib/image-url";
 import { CompanyDetailTabBarSync } from "@/components/company-detail-tab-bar-sync";
 import { WebStackSwipeContainer } from "@/components/web-stack-edge-swipe-back";
 import { navigateBackFromDetail } from "@/lib/detail-navigation";
@@ -195,6 +197,12 @@ export default function CompanyDetailScreen() {
     : id
       ? localImagesById[id]
       : undefined;
+
+  useEffect(() => {
+    if (!imageUri) return;
+    schedulePrefetchImageUris([imageUri], 1);
+  }, [imageUri]);
+
   const websiteUrl = Array.isArray(Website) ? Website[0] : Website;
   const rawAddressText = Array.isArray(Adress) ? Adress[0] : Adress;
   const paramAddressText = (() => {
@@ -902,7 +910,16 @@ export default function CompanyDetailScreen() {
       >
       {effectiveImageSource ? (
         <View className="relative h-72 w-full overflow-hidden rounded-xl">
-          {effectiveImageSource ? <CardMedia source={effectiveImageSource} rasterResizeMode="cover" svgFit="contain" /> : null}
+          {effectiveImageSource ? (
+            <CardMedia
+              source={effectiveImageSource}
+              rasterResizeMode="cover"
+              svgFit="contain"
+              priority="high"
+              displayWidth={IMAGE_DISPLAY_WIDTH.hero}
+              lazy={false}
+            />
+          ) : null}
           <LinearGradient
             colors={mode === "dark" ? [brandNavyRgba(0), BrandColors.dark.background] : [brandInkRgba(0), BrandColors.light.background]}
             start={{ x: 0, y: 0 }}
@@ -1023,7 +1040,13 @@ export default function CompanyDetailScreen() {
                             ? ({ uri: offerImageUri } as const)
                             : effectiveImageSource;
                           return offerImageSource ? (
-                            <CardMedia source={offerImageSource} rasterResizeMode="cover" svgFit="contain" />
+                            <CardMedia
+                              source={offerImageSource}
+                              rasterResizeMode="cover"
+                              svgFit="contain"
+                              priority="low"
+                              displayWidth={IMAGE_DISPLAY_WIDTH.thumb}
+                            />
                           ) : null;
                         })()}
                         <LinearGradient
@@ -1108,7 +1131,13 @@ export default function CompanyDetailScreen() {
                   <View className="flex-row gap-4">
                     <View className="relative h-28 w-28 overflow-hidden rounded-xl" style={{ backgroundColor: theme.cardBgMuted }}>
                       {eventImageSource ? (
-                        <CardMedia source={eventImageSource} rasterResizeMode="cover" svgFit="contain" />
+                        <CardMedia
+                          source={eventImageSource}
+                          rasterResizeMode="cover"
+                          svgFit="contain"
+                          priority="low"
+                          displayWidth={IMAGE_DISPLAY_WIDTH.thumb}
+                        />
                       ) : null}
                       <View
                         className="absolute left-2 top-2 rounded-[10px] px-2.5 py-1"

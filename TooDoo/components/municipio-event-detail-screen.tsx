@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CompanyDetailTabBarSync } from '@/components/company-detail-tab-bar-sync';
 import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
 import { CardMedia } from '@/components/ui/card-media';
+import { IMAGE_DISPLAY_WIDTH } from '@/lib/image-url';
 import { OfferMap } from '@/components/ui/offer-map';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { navigateBackFromDetail } from '@/lib/detail-navigation';
@@ -243,7 +244,14 @@ export function MunicipioEventDetailScreen() {
         >
           {event.image ? (
             <View className="relative h-72 w-full overflow-hidden rounded-xl">
-              <CardMedia source={event.image} rasterResizeMode="cover" svgFit="contain" priority="high" />
+              <CardMedia
+                source={event.image}
+                rasterResizeMode="cover"
+                svgFit="contain"
+                priority="high"
+                displayWidth={IMAGE_DISPLAY_WIDTH.hero}
+                lazy={false}
+              />
               <LinearGradient
                 colors={
                   themeMode === 'dark'
@@ -313,7 +321,13 @@ export function MunicipioEventDetailScreen() {
                     style={{ backgroundColor: theme.cardBgMuted }}
                   >
                     {event.image ? (
-                      <CardMedia source={event.image} rasterResizeMode="cover" svgFit="contain" />
+                      <CardMedia
+                        source={event.image}
+                        rasterResizeMode="cover"
+                        svgFit="contain"
+                        priority="low"
+                        displayWidth={IMAGE_DISPLAY_WIDTH.thumb}
+                      />
                     ) : null}
                     <View
                       className="absolute left-2 top-2 rounded-[10px] px-2.5 py-1"
