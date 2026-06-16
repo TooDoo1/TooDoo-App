@@ -36,6 +36,7 @@ export const FULL_SCREEN_STACK_SEGMENTS = [
   'heta-erbjudanden',
   'slutar-snart',
   'evenemang',
+  'municipio-event-detail',
   'sokresultat',
 ] as const;
 
@@ -61,7 +62,7 @@ export function shouldRevealTabBarOnStackSwipeBack(
   topSegment: string | undefined,
   returnTo: string | string[] | undefined
 ) {
-  if (topSegment === 'company-detail') {
+  if (topSegment === 'company-detail' || topSegment === 'municipio-event-detail') {
     const key = Array.isArray(returnTo) ? returnTo[0] : returnTo;
     if (key && DETAIL_RETURN_TO_LIST_KEYS.has(key)) {
       return false;

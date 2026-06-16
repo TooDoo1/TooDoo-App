@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/auth-context';
 import { apiUrl } from '@/lib/api';
+import { PasswordInput } from '@/components/ui/password-input';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { BrandColors } from '@/lib/brand-colors';
 import { TAB_ACTIVE_COLORS } from '@/lib/tab-colors';
@@ -287,15 +288,15 @@ export default function MinaDealsScreen() {
 															style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
 														/>
 								<Text className="pt-4 text-xl" style={{ color: theme.text }}>Lösenord:</Text>
-								<TextInput
-																value={userPassword}
-																onChangeText={setUserPassword}
-															placeholder="lösenord"
-															placeholderTextColor={theme.textFaint}
-															secureTextEntry
-															className="mt-2 rounded-2xl border px-4 py-3"
-															style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
-														/>
+								<PasswordInput
+									value={userPassword}
+									onChangeText={setUserPassword}
+									placeholder="lösenord"
+									placeholderTextColor={theme.textFaint}
+									wrapperStyle={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted }}
+									style={{ color: theme.text }}
+									toggleColor={theme.textMuted}
+								/>
 								<Pressable
 									className="mt-3 self-end"
 									onPress={() =>
@@ -334,15 +335,15 @@ export default function MinaDealsScreen() {
 															style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
 														/>
 								<Text className="pt-4 text-xl" style={{ color: theme.text }}>Lösenord:</Text>
-								<TextInput
-																value={companyPassword}
-																onChangeText={setCompanyPassword}
-															placeholder="lösenord"
-															placeholderTextColor={theme.textFaint}
-															secureTextEntry
-															className="mt-2 rounded-2xl border px-4 py-3"
-															style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
-														/>
+								<PasswordInput
+									value={companyPassword}
+									onChangeText={setCompanyPassword}
+									placeholder="lösenord"
+									placeholderTextColor={theme.textFaint}
+									wrapperStyle={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted }}
+									style={{ color: theme.text }}
+									toggleColor={theme.textMuted}
+								/>
 								<Pressable
 									className="mt-3 self-end"
 									onPress={() =>

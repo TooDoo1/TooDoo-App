@@ -5,6 +5,7 @@ import { useAuth } from '@/context/auth-context';
 import { apiUrl } from '@/lib/api';
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
 import { RegistrationScreenShell } from '@/components/registration-screen-shell';
+import { PasswordInput } from '@/components/ui/password-input';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { uiTheme } from '@/lib/ui-theme';
 
@@ -252,35 +253,31 @@ export default function RegistreringScreen() {
 				) : null}
 
 				<Text className="pt-4 text-xl" style={{ color: theme.text }}>Lösenord:</Text>
-				<TextInput
+				<PasswordInput
 					value={password}
 					onChangeText={setPassword}
 					placeholder="Välj lösenord"
 					placeholderTextColor={theme.textFaint}
-					secureTextEntry
-					className="mt-2 rounded-2xl border px-4 py-3"
-					style={{
+					wrapperStyle={{
 						borderColor: theme.border,
 						backgroundColor: theme.cardBgMuted,
-						color: theme.text,
-						fontSize: 16,
 					}}
+					style={{ color: theme.text }}
+					toggleColor={theme.textMuted}
 				/>
 
 				<Text className="pt-4 text-xl" style={{ color: theme.text }}>Bekräfta lösenord:</Text>
-				<TextInput
+				<PasswordInput
 					value={confirmPassword}
 					onChangeText={setConfirmPassword}
 					placeholder="Bekräfta lösenord"
 					placeholderTextColor={theme.textFaint}
-					secureTextEntry
-					className="mt-2 rounded-2xl border px-4 py-3"
-					style={{
+					wrapperStyle={{
 						borderColor: theme.border,
 						backgroundColor: theme.cardBgMuted,
-						color: theme.text,
-						fontSize: 16,
 					}}
+					style={{ color: theme.text }}
+					toggleColor={theme.textMuted}
 				/>
 			</View>
 		</RegistrationScreenShell>

@@ -1,5 +1,13 @@
 {
   "private": true,
+  "scripts": {
+    "start": "npm --prefix TooDoo start",
+    "web": "npm --prefix TooDoo run web",
+    "web:lan": "npm --prefix TooDoo run web:lan",
+    "web:lan:clear": "npm --prefix TooDoo run web:lan:clear",
+    "build:web": "npm --prefix TooDoo run build:web",
+    "lint": "npm --prefix TooDoo run lint"
+  },
   "dependencies": {
     "react-native-qrcode-svg": "^6.3.21"
   }

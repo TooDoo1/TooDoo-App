@@ -55,8 +55,8 @@ import {
 import { prefetchImageUris } from '@/lib/image-prefetch';
 import { useFavorites } from '@/context/favorites-context';
 import { EventsPortraitRow } from '@/components/events-portrait-row';
-import { fetchBusinessEvents, type BusinessEventItem } from '@/lib/business-events';
-import { openEventDetail } from '@/lib/open-event-detail';
+import { fetchEventFeed, type EventFeedItem } from '@/lib/events-feed';
+import { openEventFeedItem } from '@/lib/open-event-feed';
 import { openOfferDetail } from '@/lib/open-offer-detail';
 import {
   EVENEMANG_PATH,
@@ -857,7 +857,7 @@ export default function HomeScreen() {
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [isSearchDropdownMounted, setIsSearchDropdownMounted] = useState(false);
   const [searchBarHeight, setSearchBarHeight] = useState(SEARCH_BAR_HEIGHT);
-  const [eventCards, setEventCards] = useState<BusinessEventItem[]>(getHomeEventsCache() ?? []);
+  const [eventCards, setEventCards] = useState<EventFeedItem[]>(getHomeEventsCache() ?? []);
   const [isLoadingEvents, setIsLoadingEvents] = useState(!getHomeEventsCache());
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const insets = useSafeAreaInsets();
@@ -1094,7 +1094,7 @@ export default function HomeScreen() {
         setIsLoadingEvents(true);
       }
       try {
-        const events = await fetchBusinessEvents();
+        const events = await fetchEventFeed();
         if (!cancelled) {
           setEventCards(events);
           setHomeEventsCache(events);
@@ -1582,7 +1582,12 @@ export default function HomeScreen() {
   }, [activeCategory, deals]);
 
   const businessIdsWithEvents = useMemo(
-    () => new Set(eventCards.map((event) => event.businessId)),
+    () =>
+      new Set(
+        eventCards
+          .map((event) => event.businessId)
+          .filter((businessId): businessId is string => Boolean(businessId))
+      ),
     [eventCards]
   );
 
@@ -1714,9 +1719,9 @@ export default function HomeScreen() {
     openOfferDetail(router, card, 'index');
   };
 
-  const handleEventPress = (event: BusinessEventItem) => {
+  const handleEventPress = (event: EventFeedItem) => {
     setHomeScrollOffset(scrollOffsetRef.current);
-    openEventDetail(router, event, 'index');
+    openEventFeedItem(router, event, 'index');
   };
 
   const openSearchResultsView = useCallback(

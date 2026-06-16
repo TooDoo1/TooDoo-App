@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Alert, Pressable, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, Text, View } from 'react-native';
 
 import { ProfileScreenShell, profileCardShadow } from '@/components/profile/profile-screen-shell';
+import { PasswordInput } from '@/components/ui/password-input';
 import { useAuth } from '@/context/auth-context';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { OFFERS_CATEGORY_ACCENT } from '@/lib/category-colors';
@@ -69,12 +70,6 @@ export default function ProfileSecurityScreen() {
     }
   };
 
-  const fieldStyle = {
-    borderColor: theme.border,
-    backgroundColor: theme.cardBgMuted,
-    color: theme.text,
-  };
-
   return (
     <ProfileScreenShell
       title="Säkerhet"
@@ -84,46 +79,43 @@ export default function ProfileSecurityScreen() {
         <Text className="text-sm" style={{ color: theme.textFaint }}>
           Nuvarande lösenord
         </Text>
-        <TextInput
+        <PasswordInput
           value={currentPassword}
           onChangeText={setCurrentPassword}
-          secureTextEntry
-          autoCapitalize="none"
-          autoCorrect={false}
           placeholder="Nuvarande lösenord"
           placeholderTextColor={theme.textFaint}
-          className="mt-1 rounded-2xl border px-4 py-3"
-          style={fieldStyle}
+          wrapperClassName="mt-1 flex-row items-center rounded-2xl border px-4 py-3"
+          wrapperStyle={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted }}
+          style={{ color: theme.text }}
+          toggleColor={theme.textMuted}
         />
 
         <Text className="mt-4 text-sm" style={{ color: theme.textFaint }}>
           Nytt lösenord
         </Text>
-        <TextInput
+        <PasswordInput
           value={newPassword}
           onChangeText={setNewPassword}
-          secureTextEntry
-          autoCapitalize="none"
-          autoCorrect={false}
           placeholder="Minst 8 tecken"
           placeholderTextColor={theme.textFaint}
-          className="mt-1 rounded-2xl border px-4 py-3"
-          style={fieldStyle}
+          wrapperClassName="mt-1 flex-row items-center rounded-2xl border px-4 py-3"
+          wrapperStyle={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted }}
+          style={{ color: theme.text }}
+          toggleColor={theme.textMuted}
         />
 
         <Text className="mt-4 text-sm" style={{ color: theme.textFaint }}>
           Bekräfta nytt lösenord
         </Text>
-        <TextInput
+        <PasswordInput
           value={confirmPassword}
           onChangeText={setConfirmPassword}
-          secureTextEntry
-          autoCapitalize="none"
-          autoCorrect={false}
           placeholder="Upprepa nytt lösenord"
           placeholderTextColor={theme.textFaint}
-          className="mt-1 rounded-2xl border px-4 py-3"
-          style={fieldStyle}
+          wrapperClassName="mt-1 flex-row items-center rounded-2xl border px-4 py-3"
+          wrapperStyle={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted }}
+          style={{ color: theme.text }}
+          toggleColor={theme.textMuted}
         />
 
         <Pressable

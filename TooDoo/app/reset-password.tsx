@@ -3,6 +3,7 @@ import { Alert, Pressable, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { ProfileScreenShell, profileCardShadow } from '@/components/profile/profile-screen-shell';
+import { PasswordInput } from '@/components/ui/password-input';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { resetPasswordWithToken } from '@/lib/forgot-password-api';
 import { uiTheme } from '@/lib/ui-theme';
@@ -127,35 +128,33 @@ export default function ResetPasswordScreen() {
         <Text className="mt-4 text-sm" style={{ color: theme.textFaint }}>
           Nytt lösenord
         </Text>
-        <TextInput
+        <PasswordInput
           value={password}
           onChangeText={setPassword}
           placeholder="Minst 8 tecken"
           placeholderTextColor={theme.textFaint}
-          secureTextEntry
-          className="mt-2 rounded-2xl border px-4 py-3"
-          style={{
+          wrapperStyle={{
             borderColor: theme.border,
             backgroundColor: theme.cardBgMuted,
-            color: theme.text,
           }}
+          style={{ color: theme.text }}
+          toggleColor={theme.textMuted}
         />
 
         <Text className="mt-4 text-sm" style={{ color: theme.textFaint }}>
           Bekräfta lösenord
         </Text>
-        <TextInput
+        <PasswordInput
           value={confirmPassword}
           onChangeText={setConfirmPassword}
           placeholder="Upprepa lösenord"
           placeholderTextColor={theme.textFaint}
-          secureTextEntry
-          className="mt-2 rounded-2xl border px-4 py-3"
-          style={{
+          wrapperStyle={{
             borderColor: theme.border,
             backgroundColor: theme.cardBgMuted,
-            color: theme.text,
           }}
+          style={{ color: theme.text }}
+          toggleColor={theme.textMuted}
         />
 
         <Pressable

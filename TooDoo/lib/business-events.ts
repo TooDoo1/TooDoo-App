@@ -17,6 +17,8 @@ export type BusinessEventItem = {
   businessCity?: string;
   businessAddress?: string;
   categoryName?: string;
+  latitude?: number;
+  longitude?: number;
   image?: ImageSourcePropType;
   interestCount?: number;
 };
@@ -42,6 +44,9 @@ export function mapApiBusinessEvent(raw: any): BusinessEventItem {
       business?.imageUrl
   );
 
+  const latitude = Number(business?.latitude);
+  const longitude = Number(business?.longitude);
+
   return {
     id: eventId,
     title: raw?.title ?? 'Evenemang',
@@ -56,6 +61,8 @@ export function mapApiBusinessEvent(raw: any): BusinessEventItem {
     businessCity: business?.city ?? undefined,
     businessAddress: formatBusinessAddress(business),
     categoryName: business?.category?.name ?? business?.categoryName ?? undefined,
+    ...(Number.isFinite(latitude) ? { latitude } : {}),
+    ...(Number.isFinite(longitude) ? { longitude } : {}),
     ...(imageUri ? { image: { uri: imageUri } } : {}),
     interestCount:
       typeof raw?._count?.interests === 'number'
