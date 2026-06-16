@@ -38,6 +38,10 @@ export function getHomeNearbyBusinessesCache(): NearbyBusinessCard[] | null {
   return isFresh(nearbyBusinessesCache) ? nearbyBusinessesCache.data : null;
 }
 
+export function hasFreshHomeNearbyBusinessesCache(): boolean {
+  return isFresh(nearbyBusinessesCache);
+}
+
 export function setHomeHotOffersCache(data: OfferCardItem[]) {
   hotOffersCache = { data, at: Date.now() };
 }

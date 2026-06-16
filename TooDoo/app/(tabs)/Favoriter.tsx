@@ -17,13 +17,44 @@ import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
 import { OFFERS_CATEGORY_ACCENT } from '@/lib/category-colors';
 import { FAVORITE_HEART_COLOR } from '@/lib/tab-colors';
 
+async function fetchFavoriteBusinesses(
+  authFetch: (path: string, init?: RequestInit) => Promise<Response>,
+  favoriteIds: string[]
+) {
+  const res = await authFetch('/user/me');
+  const json = await res.json().catch(() => ({}));
+  const fromProfile = Array.isArray(json?.favoriteBusinesses) ? json.favoriteBusinesses : [];
+
+  if (fromProfile.length > 0) {
+    return fromProfile;
+  }
+
+  if (favoriteIds.length === 0) {
+    return [];
+  }
+
+  const results = await Promise.all(
+    favoriteIds.map(async (id) => {
+      try {
+        const businessRes = await fetch(apiUrl(`/business/${encodeURIComponent(id)}`));
+        if (!businessRes.ok) return null;
+        return businessRes.json().catch(() => null);
+      } catch {
+        return null;
+      }
+    })
+  );
+
+  return results.filter(Boolean);
+}
+
 export default function FavoriterScreen() {
   const router = useRouter();
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
   const insets = useSafeAreaInsets();
   const scrollBottomPadding = getFloatingTabBarScrollPadding(insets.bottom, undefined, 24);
-  const { token, isLoggedIn, role } = useAuth();
+  const { token, isLoggedIn, role, authFetch } = useAuth();
   const { favoriteBusinessIds, isFavorite, toggleFavorite } = useFavorites();
 
   const [isLoading, setIsLoading] = useState(true);
@@ -32,6 +63,7 @@ export default function FavoriterScreen() {
   const [companies, setCompanies] = useState<any[]>([]);
 
   const favoriteIds = useMemo(() => Array.from(favoriteBusinessIds), [favoriteBusinessIds]);
+  const favoriteIdsKey = favoriteIds.join('|');
 
   useEffect(() => {
     let cancelled = false;
@@ -41,13 +73,17 @@ export default function FavoriterScreen() {
         setIsLoading(false);
         return;
       }
+
+      if (favoriteIds.length === 0) {
+        setCompanies([]);
+        setIsLoading(false);
+        setIsRefreshing(false);
+        return;
+      }
+
       setIsLoading(true);
       try {
-        const res = await fetch(apiUrl('/business?status=APPROVED'));
-        const json = await res.json().catch(() => []);
-        const list: any[] = Array.isArray(json) ? json : Array.isArray(json?.businesses) ? json.businesses : json?.data ?? [];
-        const byId = new Set(favoriteIds.map(String));
-        const filtered = list.filter((b) => byId.has(String(b?.id ?? b?._id)));
+        const filtered = await fetchFavoriteBusinesses(authFetch, favoriteIds);
         if (!cancelled) {
           setCompanies(filtered);
           void prefetchImageUris(
@@ -69,7 +105,7 @@ export default function FavoriterScreen() {
     return () => {
       cancelled = true;
     };
-  }, [token, refreshNonce, favoriteIds.join('|')]);
+  }, [token, refreshNonce, favoriteIdsKey, authFetch, favoriteIds]);
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.screenBg }}>

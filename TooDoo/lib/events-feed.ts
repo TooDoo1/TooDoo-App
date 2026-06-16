@@ -96,14 +96,21 @@ export function getFeedEventStartParts(
   return { day, month };
 }
 
-export async function fetchEventFeed(): Promise<EventFeedItem[]> {
+export async function fetchEventFeed(options?: { limit?: number }): Promise<EventFeedItem[]> {
   const [businessEvents, municipioEvents] = await Promise.all([
     fetchBusinessEvents(),
     fetchMunicipioEvents(),
   ]);
 
-  return sortFeedItems([
+  const merged = sortFeedItems([
     ...businessEvents.map(toBusinessFeedItem),
     ...municipioEvents.map(toMunicipioFeedItem),
   ]);
+
+  const limit = options?.limit;
+  if (typeof limit === 'number' && limit > 0) {
+    return merged.slice(0, limit);
+  }
+
+  return merged;
 }

@@ -4,7 +4,6 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   Alert,
   Animated,
-  Image,
   ImageSourcePropType,
   InteractionManager,
   Linking,

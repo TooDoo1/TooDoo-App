@@ -397,15 +397,6 @@ function resolveCarouselCards(
   return applyCarouselMode(businessOfferCards, mode, limit);
 }
 
-function buildOrderCardsFromCatalog(
-  ordersRaw: any[],
-  approvedBusinesses: ApiBusiness[],
-  mode: 'hot' | 'endingSoon' | 'random',
-  limit = 10
-): CardItem[] {
-  return applyCarouselMode(buildCatalogOfferCardsFlat(ordersRaw, approvedBusinesses), mode, limit);
-}
-
 function buildCatalogOfferCardsFlat(ordersRaw: any[], approvedBusinesses: ApiBusiness[]): CardItem[] {
   const businessById = new Map<string, ApiBusiness>();
   approvedBusinesses.forEach((business, index) => {
@@ -871,6 +862,7 @@ export default function HomeScreen() {
   const scrollOffsetRef = useRef(getHomeScrollOffset());
   const searchQueryRef = useRef(searchQuery);
   const searchResultsRef = useRef(searchResults);
+  const knownCardsRef = useRef<CardItem[]>([]);
   const searchBlurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchDropdownProgress = useSharedValue(0);
   const searchBarHeightSv = useSharedValue(SEARCH_BAR_HEIGHT);
@@ -939,7 +931,7 @@ export default function HomeScreen() {
 
     let cancelled = false;
     void (async () => {
-      const enriched = await fillMissingDistancesFromAddresses(deals, coords, { maxGeocode: 24 });
+      const enriched = await fillMissingDistancesFromAddresses(deals, coords, { maxGeocode: 10 });
       if (!cancelled) {
         setDeals(sortDealsByDistance(enriched));
       }
@@ -1094,7 +1086,7 @@ export default function HomeScreen() {
         setIsLoadingEvents(true);
       }
       try {
-        const events = await fetchEventFeed();
+        const events = await fetchEventFeed({ limit: 12 });
         if (!cancelled) {
           setEventCards(events);
           setHomeEventsCache(events);
@@ -1173,7 +1165,9 @@ export default function HomeScreen() {
         const ordersFromBusinessList = businessesRaw.flatMap(parseOrdersFromBusinessRecord);
         let allOrdersRaw = mergeOrdersById(ordersRaw, ordersFromBusinessList);
         if (!token) {
-          const fromBusinessDetails = await fetchOrdersFromBusinessDetails(approvedBusinessesEarly);
+          const fromBusinessDetails = await fetchOrdersFromBusinessDetails(
+            approvedBusinessesEarly.slice(0, 12)
+          );
           allOrdersRaw = mergeOrdersById(allOrdersRaw, fromBusinessDetails);
         } else if (allOrdersRaw.length === 0) {
           allOrdersRaw = await fetchOrdersFromBusinessDetails(approvedBusinessesEarly.slice(0, 16));
@@ -1571,7 +1565,7 @@ export default function HomeScreen() {
     return () => {
       cancelled = true;
     };
-  }, [markDataReady, refreshNonce, token]);
+  }, [markDataReady, refreshNonce, token, coords?.lat, coords?.lng]);
 
   const filteredDeals = useMemo(() => {
     if (activeCategory === ALL_CATEGORIES_ID || activeCategory === OFFERS_CATEGORY_ID) {
@@ -1594,6 +1588,10 @@ export default function HomeScreen() {
   const trimmedSearchQuery = searchQuery.trim();
   const isSearchActive = trimmedSearchQuery.length >= 2;
   const isSearchTooShort = trimmedSearchQuery.length === 1;
+
+  useEffect(() => {
+    knownCardsRef.current = [...deals, ...hotOfferCards, ...nearYouCards];
+  }, [deals, hotOfferCards, nearYouCards]);
 
   const categoryOptions = useMemo<FilterCategory[]>(
     () => [
@@ -1659,7 +1657,7 @@ export default function HomeScreen() {
         setIsSearchLoading(true);
       }
       void searchCatalog(trimmedSearchQuery, {
-        knownCards: [...deals, ...hotOfferCards, ...nearYouCards],
+        knownCards: knownCardsRef.current,
       })
         .then((results) => {
           if (!cancelled) {
@@ -1685,7 +1683,7 @@ export default function HomeScreen() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [deals, hotOfferCards, isSearchActive, nearYouCards, trimmedSearchQuery]);
+  }, [isSearchActive, searchQuery, trimmedSearchQuery]);
 
   useEffect(() => {
     if (!coords || !isSearchActive || searchResults.length === 0) return;

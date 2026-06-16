@@ -15,6 +15,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
 import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
 import { ScreenBackButton } from '@/components/ui/screen-back-button';
+import { ListItemSeparator } from '@/components/ui/list-item-separator';
+import { PaginatedListFooter } from '@/components/ui/paginated-list-footer';
 import { CardMedia } from '@/components/ui/card-media';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { brandInkRgba } from '@/lib/brand-colors';
@@ -34,6 +36,7 @@ import {
   getUserCoords,
 } from '@/lib/geo';
 import { openOfferDetail } from '@/lib/open-offer-detail';
+import { usePaginatedList } from '@/lib/paginated-list';
 import { uiTheme } from '@/lib/ui-theme';
 
 const LIST_BATCH_SIZE = 8;
@@ -256,14 +259,32 @@ export function SearchResultsScreen() {
     [view]
   );
 
+  const pagination = usePaginatedList(cards, `${refreshNonce}-${query}-${view}`);
+
+  const listFooter = useMemo(
+    () => (
+      <PaginatedListFooter
+        page={pagination.page}
+        totalPages={pagination.totalPages}
+        totalCount={pagination.totalCount}
+        canGoPrevious={pagination.canGoPrevious}
+        canGoNext={pagination.canGoNext}
+        onPrevious={pagination.goToPrevious}
+        onNext={pagination.goToNext}
+        theme={theme}
+      />
+    ),
+    [pagination, theme]
+  );
+
   return (
     <WebStackSwipeContainer>
       <View style={{ flex: 1, backgroundColor: theme.screenBg }}>
         <StackScreenTabBarSync />
         <ScreenBackButton />
         <FlatList
-          data={cards}
-          keyExtractor={(item, idx) => `${item.orderIds?.[0] ?? item.id}-${idx}`}
+          data={pagination.pageItems}
+          keyExtractor={(item, idx) => `${item.orderIds?.[0] ?? item.id}-p${pagination.page}-${idx}`}
           renderItem={({ item }) => (
             <SearchResultCard
               card={item}
@@ -273,12 +294,13 @@ export function SearchResultsScreen() {
             />
           )}
           ListHeaderComponent={listHeader}
+          ListFooterComponent={listFooter}
           contentContainerStyle={{
             paddingHorizontal: 24,
             paddingTop: insets.top + 56,
             paddingBottom: insets.bottom + 24,
           }}
-          ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+          ItemSeparatorComponent={ListItemSeparator}
           initialNumToRender={6}
           maxToRenderPerBatch={LIST_BATCH_SIZE}
           windowSize={7}

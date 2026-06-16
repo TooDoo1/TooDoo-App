@@ -15,6 +15,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
 import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
 import { ScreenBackButton } from '@/components/ui/screen-back-button';
+import { ListItemSeparator } from '@/components/ui/list-item-separator';
+import { PaginatedListFooter } from '@/components/ui/paginated-list-footer';
 import { CardMedia } from '@/components/ui/card-media';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { brandInkRgba } from '@/lib/brand-colors';
@@ -24,6 +26,7 @@ import {
 } from '@/lib/events-feed';
 import { getHomeEventsCache, setHomeEventsCache } from '@/lib/home-list-cache';
 import { openEventFeedItem } from '@/lib/open-event-feed';
+import { usePaginatedList } from '@/lib/paginated-list';
 import { uiTheme } from '@/lib/ui-theme';
 import { useRealtimeSubscription } from '@/hooks/use-realtime-subscription';
 
@@ -156,6 +159,8 @@ export function EventListScreen() {
     [router]
   );
 
+  const pagination = usePaginatedList(events, refreshNonce);
+
   const listHeader = useMemo(
     () => (
       <View className="mb-5">
@@ -173,14 +178,30 @@ export function EventListScreen() {
     [theme.eventColor, theme.text, theme.textMuted]
   );
 
+  const listFooter = useMemo(
+    () => (
+      <PaginatedListFooter
+        page={pagination.page}
+        totalPages={pagination.totalPages}
+        totalCount={pagination.totalCount}
+        canGoPrevious={pagination.canGoPrevious}
+        canGoNext={pagination.canGoNext}
+        onPrevious={pagination.goToPrevious}
+        onNext={pagination.goToNext}
+        theme={theme}
+      />
+    ),
+    [pagination, theme]
+  );
+
   return (
     <WebStackSwipeContainer>
       <View style={{ flex: 1, backgroundColor: theme.screenBg }}>
         <StackScreenTabBarSync />
         <ScreenBackButton />
         <FlatList
-          data={events}
-          keyExtractor={(item) => item.id}
+          data={pagination.pageItems}
+          keyExtractor={(item) => `${item.id}-p${pagination.page}`}
           renderItem={({ item, index }) => (
             <EventCard
               event={item}
@@ -190,12 +211,13 @@ export function EventListScreen() {
             />
           )}
           ListHeaderComponent={listHeader}
+          ListFooterComponent={listFooter}
           contentContainerStyle={{
             paddingHorizontal: 24,
             paddingTop: insets.top + 56,
             paddingBottom: insets.bottom + 24,
           }}
-          ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+          ItemSeparatorComponent={ListItemSeparator}
           initialNumToRender={6}
           maxToRenderPerBatch={LIST_BATCH_SIZE}
           windowSize={7}

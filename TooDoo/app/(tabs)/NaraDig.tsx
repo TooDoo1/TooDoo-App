@@ -12,6 +12,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
 import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
 import { ScreenBackButton } from '@/components/ui/screen-back-button';
+import { ListItemSeparator } from '@/components/ui/list-item-separator';
+import { PaginatedListFooter } from '@/components/ui/paginated-list-footer';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useThemePreference } from '@/context/theme-preference-context';
@@ -34,9 +36,11 @@ import {
   haversineKm,
 } from '@/lib/geo';
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
+import { usePaginatedList } from '@/lib/paginated-list';
 import { FAVORITE_HEART_COLOR } from '@/lib/tab-colors';
 import {
   getHomeNearbyBusinessesCache,
+  hasFreshHomeNearbyBusinessesCache,
   setHomeNearbyBusinessesCache,
   type NearbyBusinessCard,
 } from '@/lib/home-list-cache';
@@ -293,6 +297,12 @@ export default function NaraDigScreen() {
     let cancelled = false;
 
     (async () => {
+      if (refreshNonce === 0 && hasFreshHomeNearbyBusinessesCache()) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+        return;
+      }
+
       if (companies.length === 0) {
         setIsLoading(true);
       }
@@ -455,22 +465,41 @@ export default function NaraDigScreen() {
     [headerNote, theme.text, theme.textMuted]
   );
 
+  const pagination = usePaginatedList(companies, refreshNonce);
+
+  const listFooter = useMemo(
+    () => (
+      <PaginatedListFooter
+        page={pagination.page}
+        totalPages={pagination.totalPages}
+        totalCount={pagination.totalCount}
+        canGoPrevious={pagination.canGoPrevious}
+        canGoNext={pagination.canGoNext}
+        onPrevious={pagination.goToPrevious}
+        onNext={pagination.goToNext}
+        theme={theme}
+      />
+    ),
+    [pagination, theme]
+  );
+
   return (
     <WebStackSwipeContainer>
       <View style={{ flex: 1, backgroundColor: theme.screenBg }}>
         <StackScreenTabBarSync />
         <ScreenBackButton />
         <FlatList
-          data={companies}
-          keyExtractor={(item) => item.id}
+          data={pagination.pageItems}
+          keyExtractor={(item) => `${item.id}-p${pagination.page}`}
           renderItem={renderItem}
           ListHeaderComponent={listHeader}
+          ListFooterComponent={listFooter}
           contentContainerStyle={{
             paddingHorizontal: 24,
             paddingTop: insets.top + 56,
             paddingBottom: insets.bottom + 24,
           }}
-          ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+          ItemSeparatorComponent={ListItemSeparator}
           initialNumToRender={6}
           maxToRenderPerBatch={LIST_BATCH_SIZE}
           windowSize={7}
