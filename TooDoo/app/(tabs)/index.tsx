@@ -637,7 +637,6 @@ function FeaturedDealCard({
           svgFit="fill"
           priority="high"
           displayWidth={IMAGE_DISPLAY_WIDTH.cardWide}
-          lazy={false}
         />
       </View>
       <LinearGradient

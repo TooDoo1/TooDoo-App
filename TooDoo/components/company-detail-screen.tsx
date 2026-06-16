@@ -917,7 +917,6 @@ export default function CompanyDetailScreen() {
               svgFit="contain"
               priority="high"
               displayWidth={IMAGE_DISPLAY_WIDTH.hero}
-              lazy={false}
             />
           ) : null}
           <LinearGradient

@@ -250,7 +250,6 @@ export function MunicipioEventDetailScreen() {
                 svgFit="contain"
                 priority="high"
                 displayWidth={IMAGE_DISPLAY_WIDTH.hero}
-                lazy={false}
               />
               <LinearGradient
                 colors={

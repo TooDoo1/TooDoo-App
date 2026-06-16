@@ -376,7 +376,6 @@ export default function ClaimedOffers({ items, scrollEnabled = true }: Props) {
 												svgFit="contain"
 												priority="high"
 												displayWidth={IMAGE_DISPLAY_WIDTH.cardWide}
-												lazy={false}
 											/>
 										)}
 									</View>
