@@ -26,7 +26,8 @@ import {
 } from '@/lib/events-feed';
 import { getHomeEventsCache, setHomeEventsCache } from '@/lib/home-list-cache';
 import { openEventFeedItem } from '@/lib/open-event-feed';
-import { usePaginatedList } from '@/lib/paginated-list';
+import { usePaginatedList, SEE_ALL_PAGE_SIZE } from '@/lib/paginated-list';
+import { schedulePrefetchImageUris, usePrefetchPageImages } from '@/lib/image-prefetch';
 import { uiTheme } from '@/lib/ui-theme';
 import { useRealtimeSubscription } from '@/hooks/use-realtime-subscription';
 
@@ -122,6 +123,10 @@ export function EventListScreen() {
         if (!cancelled) {
           setEvents(next);
           setHomeEventsCache(next);
+          schedulePrefetchImageUris(
+            next.slice(0, 12).map((event) => event.image),
+            16
+          );
         }
       } catch {
         if (!cancelled) {
@@ -160,6 +165,8 @@ export function EventListScreen() {
   );
 
   const pagination = usePaginatedList(events, refreshNonce);
+
+  usePrefetchPageImages(events, pagination.page, SEE_ALL_PAGE_SIZE, { resetKey: refreshNonce });
 
   const listHeader = useMemo(
     () => (

@@ -31,6 +31,8 @@ import Reanimated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAppReady } from '@/context/app-ready-context';
+import { hydrateOfferCardImages } from '@/lib/business-image';
+import { invalidateCatalogCache } from '@/lib/catalog-cache';
 import { apiUrl } from '@/lib/api';
 import { useAuth } from '@/context/auth-context';
 import { useRealtimeSubscription } from '@/hooks/use-realtime-subscription';
@@ -52,7 +54,7 @@ import {
   getUserCoords,
   haversineKm,
 } from '@/lib/geo';
-import { prefetchImageUris } from '@/lib/image-prefetch';
+import { prefetchImageUris, schedulePrefetchImageUris } from '@/lib/image-prefetch';
 import { useFavorites } from '@/context/favorites-context';
 import { EventsPortraitRow } from '@/components/events-portrait-row';
 import { fetchEventFeed, type EventFeedItem } from '@/lib/events-feed';
@@ -75,6 +77,7 @@ import {
 } from '@/lib/category-colors';
 import {
   computeDiscountLabel,
+  fetchHomeScreenData,
   getDiscountBadgeColor,
   resolveBusinessIdFromOrder,
   type OfferCardItem,
@@ -85,6 +88,7 @@ import {
   getHomeScreenSnapshot,
   getHomeScrollOffset,
   getHomeSearchCache,
+  hasFreshHomeScreenSnapshot,
   setHomeEndingSoonCache,
   setHomeEventsCache,
   setHomeHotOffersCache,
@@ -100,8 +104,6 @@ import {
   sortSearchResultsNearYou,
 } from '@/lib/catalog-search';
 import { fetchSearchTips } from '@/lib/search-tips';
-
-const IMAGE_HYDRATE_CONCURRENCY = 5;
 
 const ALL_CATEGORIES_ID = 'all';
 const OFFERS_CATEGORY_ID = 'offers';
@@ -620,11 +622,11 @@ function FeaturedDealCard({
       className="overflow-hidden rounded-2xl"
       style={[
         { height, backgroundColor: '#000' },
-        Platform.OS === 'web' ? ({ outlineStyle: 'none', outlineWidth: 0 } as const) : null,
+        Platform.OS === 'web' ? ({ outlineWidth: 0 } as const) : null,
       ]}
     >
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
-        <CardMedia source={card.image} svgFit="fill" />
+        <CardMedia source={card.image} svgFit="fill" priority="high" />
       </View>
       <LinearGradient
         colors={['rgba(0,0,0,0.00)', 'rgba(0,0,0,0.85)']}
@@ -880,6 +882,7 @@ export default function HomeScreen() {
   const searchPanelBorderColor = theme.isDark ? 'rgba(255,255,255,0.10)' : brandInkRgba(0.10);
 
   const handleRefresh = useCallback(() => {
+    invalidateCatalogCache();
     setIsRefreshing(true);
     setRefreshNonce((prev) => prev + 1);
   }, []);
@@ -1081,467 +1084,90 @@ export default function HomeScreen() {
   useEffect(() => {
     let cancelled = false;
 
-    void (async () => {
-      if (!getHomeEventsCache()) {
-        setIsLoadingEvents(true);
-      }
-      try {
-        const events = await fetchEventFeed({ limit: 12 });
-        if (!cancelled) {
-          setEventCards(events);
-          setHomeEventsCache(events);
-        }
-      } catch {
-        if (!cancelled) {
-          setEventCards([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingEvents(false);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshNonce]);
-
-  useEffect(() => {
-    let cancelled = false;
-
     const loadHomeData = async (background = false) => {
-      const hasSnapshot = Boolean(getHomeScreenSnapshot());
-      if (hasSnapshot && refreshNonce === 0 && !background) {
+      if (hasFreshHomeScreenSnapshot() && refreshNonce === 0 && !background) {
         markDataReady();
         setTimeout(() => {
-          if (!cancelled) void loadHomeData(true);
-        }, 500);
+          if (!cancelled && !hasFreshHomeScreenSnapshot(60_000)) {
+            void loadHomeData(true);
+          }
+        }, 2000);
         return;
       }
 
-      if (!hasSnapshot && !background) {
+      if (!getHomeScreenSnapshot() && !background) {
         setIsLoadingData(true);
       }
+      if (!getHomeEventsCache() && !background) {
+        setIsLoadingEvents(true);
+      }
+
       try {
-        const [categoryRes, businessRes, ordersRes] = await Promise.all([
-          fetch(apiUrl('/category')),
-          fetch(apiUrl('/business?status=APPROVED')),
-          fetch(apiUrl('/orders')),
+        const [data, events] = await Promise.all([
+          fetchHomeScreenData({ token, coords }),
+          fetchEventFeed({ limit: 12 }).catch(() => [] as EventFeedItem[]),
         ]);
 
-        const categoryJson = await categoryRes.json().catch(() => []);
-        const businessJson = await businessRes.json().catch(() => []);
-        const ordersJson = await ordersRes.json().catch(() => []);
+        if (cancelled) return;
 
-        const categoriesRaw: ApiCategory[] = Array.isArray(categoryJson)
-          ? categoryJson
-          : Array.isArray(categoryJson?.categories)
-            ? categoryJson.categories
-            : Array.isArray(categoryJson?.data)
-              ? categoryJson.data
-              : [];
+        const dealsList = data.deals;
+        const nearYouFromApi = data.nearYouCards;
+        const hotFromApi = data.hotOfferCards;
 
-        const businessesRaw: ApiBusiness[] = Array.isArray(businessJson)
-          ? businessJson
-          : Array.isArray(businessJson?.businesses)
-            ? businessJson.businesses
-            : Array.isArray(businessJson?.data)
-              ? businessJson.data
-              : [];
+        setCategoryFilters(data.categoryFilters);
+        setDeals(dealsList);
+        setNearYouCards(nearYouFromApi);
+        setHotOfferCards(hotFromApi);
+        setEventCards(events);
+        setHomeEventsCache(events);
 
-        const ordersRaw: ApiOrder[] = Array.isArray(ordersJson)
-          ? ordersJson
-          : Array.isArray(ordersJson?.orders)
-            ? ordersJson.orders
-            : Array.isArray(ordersJson?.data)
-              ? ordersJson.data
-              : [];
-
-        const approvedBusinessesEarly = businessesRaw.filter(
-          (business) => (business.status ?? 'APPROVED').toUpperCase() === 'APPROVED'
-        );
-
-        const ordersFromBusinessList = businessesRaw.flatMap(parseOrdersFromBusinessRecord);
-        let allOrdersRaw = mergeOrdersById(ordersRaw, ordersFromBusinessList);
-        if (!token) {
-          const fromBusinessDetails = await fetchOrdersFromBusinessDetails(
-            approvedBusinessesEarly.slice(0, 12)
-          );
-          allOrdersRaw = mergeOrdersById(allOrdersRaw, fromBusinessDetails);
-        } else if (allOrdersRaw.length === 0) {
-          allOrdersRaw = await fetchOrdersFromBusinessDetails(approvedBusinessesEarly.slice(0, 16));
-        }
-
-        let nearYouFromApi: CardItem[] = [];
-        let hotFromApi: CardItem[] = [];
-        if (token) {
-          const authHeaders = { Authorization: `Bearer ${token}` };
-          const closeUrl = coords
-            ? `/orders/for-you/close?take=10&lat=${coords.lat}&lng=${coords.lng}`
-            : '/orders/for-you/close?take=10';
-          const [closeRes, hotRes] = await Promise.all([
-            fetch(apiUrl(closeUrl), { headers: authHeaders }),
-            fetch(apiUrl('/orders/for-you/hot?take=10'), { headers: authHeaders }),
-          ]);
-          const closeJson = closeRes.ok ? await closeRes.json().catch(() => ({})) : {};
-          const hotJson = hotRes.ok ? await hotRes.json().catch(() => ({})) : {};
-          const nowMsForYou = Date.now();
-          nearYouFromApi = buildCatalogOfferCardsFlat(
-            parseOrdersPayload(closeJson).filter((order) => isActiveOffer(order, nowMsForYou)),
-            approvedBusinessesEarly
-          );
-          hotFromApi = buildCatalogOfferCardsFlat(
-            parseOrdersPayload(hotJson).filter((order) => isActiveOffer(order, nowMsForYou)),
-            approvedBusinessesEarly
-          );
-        }
-
-        const categoryNameById = new Map<string, string>();
-        categoriesRaw.forEach((category) => {
-          const id = category.id ?? category._id;
-          if (id && category.name) {
-            categoryNameById.set(id, category.name);
-          }
+        setHomeScreenSnapshot({
+          categoryFilters: data.categoryFilters,
+          deals: dealsList,
+          nearYouCards: nearYouFromApi,
+          hotOfferCards: hotFromApi,
         });
 
-        const apiCategoryFilters: FilterCategory[] = categoriesRaw
-          .map((category, index) => {
-            const id = category.id ?? category._id ?? `category-${index}`;
-            const name = category.name?.trim();
-            if (!name) {
-              return null;
-            }
-
+        setHomeNearbyBusinessesCache(
+          dealsList.map((card) => {
+            const uri =
+              typeof card.image === 'object' &&
+              card.image &&
+              'uri' in card.image &&
+              typeof card.image.uri === 'string'
+                ? card.image.uri
+                : '';
             return {
-              id,
-              label: name,
+              id: card.id,
+              title: card.title,
+              image: { uri },
+              Adress: card.Adress,
+              kortbeskrivning: card.kortbeskrivning,
+              långbeskrivning: card.långbeskrivning,
+              latitude: card.latitude,
+              longitude: card.longitude,
+              distanceKm: card.distanceKm,
             };
           })
-          .filter((item): item is FilterCategory => Boolean(item));
+        );
+        setHomeHotOffersCache(hotFromApi);
+        setHomeEndingSoonCache(nearYouFromApi);
 
-        const ordersByBusinessId = new Map<string, ApiOrder[]>();
-        allOrdersRaw.forEach((order) => {
-          const businessId =
-            typeof order.businessId === 'string'
-              ? order.businessId
-              : order.businessId?.id ?? order.businessId?._id;
-
-          if (!businessId) {
-            return;
-          }
-
-          if (!ordersByBusinessId.has(businessId)) {
-            ordersByBusinessId.set(businessId, []);
-          }
-          ordersByBusinessId.get(businessId)?.push(order);
-        });
-
-        const nowMs = Date.now();
-
-        const approvedBusinesses = approvedBusinessesEarly;
-
-        // Mirror the portal behavior: if the backend doesn't return `imageUrl` consistently,
-        // fall back to the last known value per business id from local storage.
-        const businessImageCacheKey = (businessId: string) => `toodoo_business_image_url_${businessId}`;
-        const approvedBusinessIds = approvedBusinesses.map(
-          (b, i) => String(b.id ?? b._id ?? `business-${i}`)
+        schedulePrefetchImageUris(
+          [
+            ...dealsList.slice(0, 12).map((c) => c.image),
+            ...nearYouFromApi.slice(0, 6).map((c) => c.image),
+            ...hotFromApi.slice(0, 6).map((c) => c.image),
+            ...events.slice(0, 6).map((event) => event.image),
+          ],
+          24
         );
 
-        const cachedImageUrlByBusinessId = new Map<string, string>();
-        try {
-          const cachedPairs = await AsyncStorage.multiGet(
-            approvedBusinessIds.map((id) => businessImageCacheKey(id))
-          );
-          cachedPairs.forEach(([key, value]) => {
-            if (!value) return;
-            const match = key.match(/^toodoo_business_image_url_(.+)$/);
-            const id = match?.[1];
-            if (id) cachedImageUrlByBusinessId.set(id, value);
-          });
-        } catch {
-          // ignore cache read errors
-        }
-
-        const cards: CardItem[] = approvedBusinesses.map((business, index) => {
-          const businessId = business.id ?? business._id ?? `business-${index}`;
-          const businessOrders = ordersByBusinessId.get(businessId) ?? [];
-          const visibleOrders = businessOrders.filter((order) => isActiveOffer(order, nowMs));
-
-          const offers = visibleOrders.map((order) => order.title ?? 'Erbjudande');
-          const orderIds = visibleOrders.map((order, orderIndex) => order.id ?? order._id ?? `${businessId}-order-${orderIndex}`);
-          const offerPrices = visibleOrders.map((order) => String(order.price ?? 0));
-          const offerOriginalPrices = visibleOrders.map((order) => order.originalPrice !== undefined ? String(order.originalPrice) : '');
-          const offerClaimed = visibleOrders.map((order) =>
-            String(order.claimedRedemptions ?? order.claimedCount ?? 0)
-          );
-          const offerAmount = visibleOrders.map((order) => String(order.maxRedemptions ?? 0));
-          const offerEnd = visibleOrders.map((order) => order.orderTimeTo ?? '');
-          const firstVisibleOrder = visibleOrders[0] as any | undefined;
-
-          const cachedBusinessImageUrl = cachedImageUrlByBusinessId.get(String(businessId));
-          const effectiveBusinessImageUrl =
-            typeof business.imageUrl === 'string' && business.imageUrl.trim()
-              ? business.imageUrl
-              : typeof (business as any)?.image?.publicUrl === 'string' && (business as any).image.publicUrl.trim()
-                ? (business as any).image.publicUrl
-              : cachedBusinessImageUrl;
-
-          const imageCandidateRaw =
-            effectiveBusinessImageUrl ??
-            (business as any)?.image?.publicUrl ??
-            (business as any)?.image?.url ??
-            (business as any).imageUri ??
-            (business as any).imageURI ??
-            (business as any).imagePath ??
-            (business as any).imageKey ??
-            (business as any).thumbnailUrl ??
-            (business as any).thumbnail?.url ??
-            (business as any).logoUrl ??
-            (business as any).logo?.url ??
-            (business as any).logo ??
-            (business as any).photoUrl ??
-            (business as any).pictureUrl ??
-            (business as any).mediaUrl ??
-            (business as any).media?.url ??
-            // If businesses don't carry an image, fall back to the first active order image.
-            firstVisibleOrder?.imageUrl ??
-            firstVisibleOrder?.imageURI ??
-            firstVisibleOrder?.imageUri ??
-            firstVisibleOrder?.imagePath ??
-            firstVisibleOrder?.photoUrl ??
-            firstVisibleOrder?.thumbnailUrl ??
-            firstVisibleOrder?.image?.url ??
-            firstVisibleOrder?.image?.publicUrl ??
-            // Sometimes image is an array of URLs.
-            (Array.isArray((business as any).images) ? (business as any).images[0] : undefined);
-
-          const normalizedImageUri = normalizeImageUrl(imageCandidateRaw);
-
-          const resolvedCategoryIdRaw =
-            (business as any)?.categoryId ??
-            (business as any)?.category?.id ??
-            (business as any)?.category?._id ??
-            (business as any)?.category;
-          const resolvedCategoryId =
-            typeof resolvedCategoryIdRaw === 'string' || typeof resolvedCategoryIdRaw === 'number'
-              ? String(resolvedCategoryIdRaw)
-              : undefined;
-
-          return {
-            id: businessId,
-            title: business.name ?? 'Okänd verksamhet',
-            image: {
-              uri:
-                normalizedImageUri ?? `https://picsum.photos/seed/${encodeURIComponent(businessId)}/300/200`,
-            },
-            categoryId: resolvedCategoryId,
-            categoryName:
-              business.categoryName ??
-              (resolvedCategoryId ? categoryNameById.get(resolvedCategoryId) : undefined),
-            deal: visibleOrders.length > 0,
-            orderIds,
-            erbjudandepris: offerPrices,
-            erbjudandeoriginalpris: offerOriginalPrices,
-            Adress: [business.address, business.city].filter(Boolean).join(', ') || 'Adress saknas',
-            latitude: business.latitude,
-            longitude: business.longitude,
-            Telefon: business.contactPhone ?? undefined,
-            Website: business.website ?? '',
-            kortbeskrivning: business.description ?? '',
-            långbeskrivning: business.description ?? '',
-            erbjudande: offers,
-            erbjudandeclaimade: offerClaimed,
-            erbjudandemängd: offerAmount,
-            erbjudandelängd: offerEnd,
-          };
-        });
-
-        // Update cache with any `imageUrl` we did receive from the backend.
-        try {
-          const toCache: [string, string][] = approvedBusinesses
-            .map((business, index) => {
-              const businessId = String(business.id ?? business._id ?? `business-${index}`);
-              const url =
-                typeof business.imageUrl === 'string'
-                  ? business.imageUrl.trim()
-                  : typeof (business as any)?.image?.publicUrl === 'string'
-                    ? String((business as any).image.publicUrl).trim()
-                    : '';
-              if (!url) return null;
-              return [businessImageCacheKey(businessId), url] as [string, string];
-            })
-            .filter((pair): pair is [string, string] => Boolean(pair));
-
-          if (toCache.length > 0) {
-            await AsyncStorage.multiSet(toCache);
-          }
-        } catch {
-          // ignore cache write errors
-        }
-
-        // "Nära dig" lists real approved companies regardless of whether they
-        // currently have an active (non-expired) offer.
-        // When the user's location is known, rank by actual distance (nearest
-        // first); otherwise fall back to surfacing companies with active offers.
-        const cardsWithDistance = cards.map((card) => {
-          if (
-            coords &&
-            typeof card.latitude === 'number' &&
-            typeof card.longitude === 'number' &&
-            Number.isFinite(card.latitude) &&
-            Number.isFinite(card.longitude)
-          ) {
-            return {
-              ...card,
-              distanceKm: haversineKm(coords.lat, coords.lng, card.latitude, card.longitude),
-            };
-          }
-          return card;
-        });
-
-        const dealsList = coords
-          ? [...cardsWithDistance].sort((a, b) => {
-              const da = typeof a.distanceKm === 'number' ? a.distanceKm : Number.POSITIVE_INFINITY;
-              const db = typeof b.distanceKm === 'number' ? b.distanceKm : Number.POSITIVE_INFINITY;
-              if (da !== db) return da - db;
-              return Number(b.deal) - Number(a.deal);
-            })
-          : [...cardsWithDistance].sort((a, b) => Number(b.deal) - Number(a.deal));
-        const businessOfferCards = buildOfferCardsFromBusinessCards(cards);
-        const catalogCardsFlat = buildCatalogOfferCardsFlat(allOrdersRaw, approvedBusinessesEarly);
-
-        if (token) {
-          if (nearYouFromApi.length === 0) {
-            nearYouFromApi = resolveCarouselCards(catalogCardsFlat, businessOfferCards, 'endingSoon');
-          }
-          if (hotFromApi.length === 0) {
-            hotFromApi = resolveCarouselCards(catalogCardsFlat, businessOfferCards, 'hot');
-          }
-        } else {
-          nearYouFromApi = resolveCarouselCards(catalogCardsFlat, businessOfferCards, 'endingSoon');
-          hotFromApi = resolveCarouselCards(catalogCardsFlat, businessOfferCards, 'random');
-        }
-
-        if (!cancelled) {
-          setCategoryFilters(apiCategoryFilters);
-          setDeals(dealsList);
-          setNearYouCards(nearYouFromApi);
-          setHotOfferCards(hotFromApi);
-
-          setHomeScreenSnapshot({
-            categoryFilters: apiCategoryFilters,
-            deals: dealsList,
-            nearYouCards: nearYouFromApi,
-            hotOfferCards: hotFromApi,
-          });
-
-          setHomeNearbyBusinessesCache(
-            dealsList.map((card) => {
-              const uri =
-                typeof card.image === 'object' &&
-                card.image &&
-                'uri' in card.image &&
-                typeof card.image.uri === 'string'
-                  ? card.image.uri
-                  : '';
-              return {
-                id: card.id,
-                title: card.title,
-                image: { uri },
-                Adress: card.Adress,
-                kortbeskrivning: card.kortbeskrivning,
-                långbeskrivning: card.långbeskrivning,
-                latitude: card.latitude,
-                longitude: card.longitude,
-                distanceKm: card.distanceKm,
-              };
-            })
-          );
-          setHomeHotOffersCache(hotFromApi as OfferCardItem[]);
-          setHomeEndingSoonCache(nearYouFromApi as OfferCardItem[]);
-
-          void prefetchImageUris(
-            [
-              ...dealsList.slice(0, 12).map((c) => c.image),
-              ...nearYouFromApi.slice(0, 6).map((c) => c.image),
-              ...hotFromApi.slice(0, 6).map((c) => c.image),
-            ],
-            20
-          );
-        }
-
-        // If list endpoint omits `imageUrl`, hydrate missing images by fetching the portal-like
-        // details endpoint `GET /business/:id` in the background, then cache + update UI.
         void (async () => {
-          const needsHydrationIds = approvedBusinesses
-            .map((business, index) => String(business.id ?? business._id ?? `business-${index}`))
-            .filter((id) => {
-              const card = cards.find((c) => String(c.id) === id);
-              const uri =
-                typeof card?.image === 'object' && card.image && 'uri' in card.image
-                  ? String((card.image as any).uri ?? '')
-                  : '';
-              return !uri || isLikelyPicsumUrl(uri);
-            })
-            .slice(0, 20);
-
-          if (needsHydrationIds.length === 0) return;
-
-          const fetchBusinessImage = async (id: string): Promise<{ id: string; uri: string } | null> => {
-            try {
-              const res = await fetch(apiUrl(`/business/${encodeURIComponent(id)}`));
-              const json = await res.json().catch(() => ({}));
-              const imageUrlRaw =
-                (json as any)?.imageUrl ??
-                (json as any)?.image?.publicUrl ??
-                (json as any)?.image?.url ??
-                (json as any)?.business?.imageUrl ??
-                (json as any)?.business?.image?.publicUrl ??
-                (json as any)?.business?.image?.url ??
-                (Array.isArray((json as any)?.images) ? (json as any).images[0] : undefined);
-
-              const normalized = normalizeImageUrl(imageUrlRaw);
-              if (!normalized) return null;
-              return { id, uri: normalized };
-            } catch {
-              return null;
-            }
-          };
-
-          const imageByBusinessId = new Map<string, string>();
-          const fetchedPairs: [string, string][] = [];
-
-          for (let i = 0; i < needsHydrationIds.length; i += IMAGE_HYDRATE_CONCURRENCY) {
-            if (cancelled) return;
-            const batch = needsHydrationIds.slice(i, i + IMAGE_HYDRATE_CONCURRENCY);
-            const results = await Promise.all(batch.map(fetchBusinessImage));
-            for (const result of results) {
-              if (!result) continue;
-              imageByBusinessId.set(result.id, result.uri);
-              fetchedPairs.push([businessImageCacheKey(result.id), result.uri]);
-            }
-          }
-
-          if (cancelled || imageByBusinessId.size === 0) return;
-
-          const patchCardImage = (prev: CardItem[]) =>
-            prev.map((c) => {
-              const nextUri = imageByBusinessId.get(String(c.id));
-              return nextUri ? { ...c, image: { uri: nextUri } } : c;
-            });
-
-          setDeals(patchCardImage);
-
-          void prefetchImageUris([...imageByBusinessId.values()], imageByBusinessId.size);
-
-          try {
-            if (fetchedPairs.length > 0) {
-              await AsyncStorage.multiSet(fetchedPairs);
-            }
-          } catch {
-            // ignore cache write errors
-          }
+          const hydrated = await hydrateOfferCardImages(dealsList, { knownCards: dealsList });
+          if (cancelled) return;
+          setDeals(hydrated);
+          schedulePrefetchImageUris(hydrated.slice(0, 12).map((card) => card.image), 12);
         })();
       } catch {
         if (!cancelled) {
@@ -1549,18 +1175,20 @@ export default function HomeScreen() {
           setDeals([]);
           setNearYouCards([]);
           setHotOfferCards([]);
+          setEventCards([]);
           Alert.alert('Fel', 'Kunde inte ladda startsidan just nu.');
         }
       } finally {
         if (!cancelled) {
           setIsLoadingData(false);
+          setIsLoadingEvents(false);
           setIsRefreshing(false);
           markDataReady();
         }
       }
     };
 
-    loadHomeData();
+    void loadHomeData();
 
     return () => {
       cancelled = true;

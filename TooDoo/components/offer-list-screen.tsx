@@ -31,7 +31,8 @@ import {
 import { getUserCoords } from '@/lib/geo';
 import { getHomeEndingSoonCache, getHomeHotOffersCache } from '@/lib/home-list-cache';
 import { openOfferDetail } from '@/lib/open-offer-detail';
-import { usePaginatedList } from '@/lib/paginated-list';
+import { usePaginatedList, SEE_ALL_PAGE_SIZE } from '@/lib/paginated-list';
+import { schedulePrefetchImageUris, usePrefetchPageImages } from '@/lib/image-prefetch';
 import { uiTheme } from '@/lib/ui-theme';
 import { useRealtimeSubscription } from '@/hooks/use-realtime-subscription';
 
@@ -233,7 +234,13 @@ export function OfferListScreen({
       }
       try {
         const list = await fetchOfferListCards(mode, { token, coords });
-        if (!cancelled) setCards(list);
+        if (!cancelled) {
+          setCards(list);
+          schedulePrefetchImageUris(
+            list.slice(0, 12).map((card) => card.image),
+            16
+          );
+        }
       } catch {
         if (!cancelled && cards.length === 0) setCards([]);
       } finally {
@@ -272,6 +279,8 @@ export function OfferListScreen({
   );
 
   const pagination = usePaginatedList(cards, refreshNonce);
+
+  usePrefetchPageImages(cards, pagination.page, SEE_ALL_PAGE_SIZE, { resetKey: refreshNonce });
 
   const listHeader = useMemo(
     () => (

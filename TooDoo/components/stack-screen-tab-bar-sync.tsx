@@ -17,7 +17,9 @@ export function StackScreenTabBarSync() {
     useCallback(() => {
       if (Platform.OS === 'web') {
         stackHideProgress.value = 1;
-        return;
+        return () => {
+          stackHideProgress.value = 0;
+        };
       }
       stackHideProgress.value = withTiming(1, {
         duration: getStackMotionMs(),

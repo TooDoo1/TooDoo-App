@@ -1,55 +1,61 @@
-import { useMemo } from 'react';
-import { Platform } from 'react-native';
+import { memo, useMemo } from 'react';
+import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { WebView } from 'react-native-webview';
 
 import { buildGoogleMapsEmbedUrl } from './offer-map-url';
 import type { OfferMapProps } from './offer-map.types';
+import { useDeferUntilVisible } from '@/hooks/use-defer-until-visible';
 
 export type { OfferMapProps };
 
-export function OfferMap({
+function OfferMapComponent({
   mapKey,
   latitude,
   longitude,
   title,
   addressText,
-  originCoords,
 }: OfferMapProps) {
+  const { ref, shouldLoad } = useDeferUntilVisible();
   const embedSrc = useMemo(
     () =>
       buildGoogleMapsEmbedUrl(
         { latitude, longitude },
-        addressText,
-        originCoords
+        addressText
       ),
-    [addressText, latitude, longitude, originCoords]
+    [addressText, latitude, longitude]
   );
 
-  const hasOrigin =
-    originCoords &&
-    Number.isFinite(originCoords.latitude) &&
-    Number.isFinite(originCoords.longitude);
   const hasAddress = Boolean(addressText?.trim());
 
-  if (hasOrigin || hasAddress) {
+  if (hasAddress && embedSrc) {
     return (
-      <WebView
-        key={mapKey}
-        source={{ uri: embedSrc }}
-        style={{ width: '100%', aspectRatio: 1, backgroundColor: '#e8ecf4' }}
-        scrollEnabled={false}
-        nestedScrollEnabled
-        originWhitelist={['https://*']}
-      />
+      <View ref={ref} key={mapKey} style={styles.embedShell}>
+        {shouldLoad ? (
+          <WebView
+            source={{ uri: embedSrc }}
+            style={styles.embed}
+            scrollEnabled={false}
+            nestedScrollEnabled
+            originWhitelist={['https://*']}
+          />
+        ) : (
+          <ActivityIndicator style={styles.embed} />
+        )}
+      </View>
     );
+  }
+
+  const hasCoords = Number.isFinite(latitude) && Number.isFinite(longitude);
+  if (!hasCoords) {
+    return null;
   }
 
   return (
     <MapView
       key={mapKey}
       provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
-      style={{ width: '100%', aspectRatio: 1 }}
+      style={styles.embed}
       scrollEnabled
       zoomEnabled
       rotateEnabled
@@ -65,3 +71,20 @@ export function OfferMap({
     </MapView>
   );
 }
+
+export const OfferMap = memo(OfferMapComponent);
+
+const styles = StyleSheet.create({
+  embedShell: {
+    width: '100%',
+    aspectRatio: 1,
+    backgroundColor: '#e8ecf4',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  embed: {
+    width: '100%',
+    aspectRatio: 1,
+    backgroundColor: '#e8ecf4',
+  },
+});

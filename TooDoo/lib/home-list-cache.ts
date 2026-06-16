@@ -90,6 +90,10 @@ export function getHomeScreenSnapshot(): HomeScreenSnapshot | null {
   return isSnapshotFresh(homeScreenSnapshot) ? homeScreenSnapshot.data : null;
 }
 
+export function hasFreshHomeScreenSnapshot(maxAgeMs = HOME_SNAPSHOT_TTL_MS) {
+  return Boolean(homeScreenSnapshot && Date.now() - homeScreenSnapshot.at < maxAgeMs);
+}
+
 let homeScrollOffsetY = 0;
 
 export function setHomeScrollOffset(y: number) {

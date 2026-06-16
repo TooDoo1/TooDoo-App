@@ -13,6 +13,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { resolveHeroImageUri, type HeroSlide } from '@/lib/hero-slides';
+import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
 
 export type { HeroSlide };
 
@@ -36,10 +37,12 @@ function HeroSlideImage({
   source,
   width,
   height,
+  priority = 'normal',
 }: {
   source: ImageSourcePropType;
   width: number;
   height: number;
+  priority?: 'high' | 'normal' | 'low';
 }) {
   const uri = resolveHeroImageUri(source);
 
@@ -49,6 +52,9 @@ function HeroSlideImage({
         src={uri}
         alt=""
         draggable={false}
+        loading={priority === 'high' ? 'eager' : 'lazy'}
+        fetchPriority={priority === 'high' ? 'high' : 'auto'}
+        decoding="async"
         style={{
           position: 'absolute',
           top: 0,
@@ -68,6 +74,8 @@ function HeroSlideImage({
       style={{ width, height }}
       contentFit="cover"
       cachePolicy="memory-disk"
+      priority={priority}
+      allowDownscaling
     />
   );
 }
@@ -92,6 +100,10 @@ function HeroImageCarouselInner({
   const loopSlides = useMemo(() => buildLoopSlides(slides), [slides]);
   const loopStartIndex = slideCount > 1 ? 1 : 0;
   const slideStride = screenWidth;
+
+  useEffect(() => {
+    schedulePrefetchImageUris(slides.map((slide) => slide.source), slideCount);
+  }, [slides, slideCount]);
 
   useEffect(() => {
     if (slideStride <= 0 || slideCount === 0) return;
@@ -202,7 +214,12 @@ function HeroImageCarouselInner({
             key={`hero-${idx}-${slide.title}`}
             style={{ width: slideStride, height: shellHeight, position: 'relative', overflow: 'hidden' }}
           >
-            <HeroSlideImage source={slide.source} width={slideStride} height={shellHeight} />
+            <HeroSlideImage
+              source={slide.source}
+              width={slideStride}
+              height={shellHeight}
+              priority={idx === loopStartIndex ? 'high' : 'low'}
+            />
             <LinearGradient
               colors={['rgba(0,0,0,0.2)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.7)']}
               locations={[0, 0.45, 1]}

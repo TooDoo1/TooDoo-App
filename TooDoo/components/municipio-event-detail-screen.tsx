@@ -243,7 +243,7 @@ export function MunicipioEventDetailScreen() {
         >
           {event.image ? (
             <View className="relative h-72 w-full overflow-hidden rounded-xl">
-              <CardMedia source={event.image} rasterResizeMode="cover" svgContain priority="high" />
+              <CardMedia source={event.image} rasterResizeMode="cover" svgFit="contain" priority="high" />
               <LinearGradient
                 colors={
                   themeMode === 'dark'
@@ -313,7 +313,7 @@ export function MunicipioEventDetailScreen() {
                     style={{ backgroundColor: theme.cardBgMuted }}
                   >
                     {event.image ? (
-                      <CardMedia source={event.image} rasterResizeMode="cover" svgContain />
+                      <CardMedia source={event.image} rasterResizeMode="cover" svgFit="contain" />
                     ) : null}
                     <View
                       className="absolute left-2 top-2 rounded-[10px] px-2.5 py-1"
@@ -373,7 +373,7 @@ export function MunicipioEventDetailScreen() {
             </View>
           ) : null}
 
-          {mapCoordinate ? (
+          {addressText ? (
             <View className="mx-6 mb-2 mt-6">
               <Text className="mb-2 ml-4 text-xl font-medium" style={{ color: theme.text }}>
                 Hitta hit:
@@ -381,11 +381,10 @@ export function MunicipioEventDetailScreen() {
               <View className="overflow-hidden rounded-2xl border" style={{ borderColor: theme.border }}>
                 <OfferMap
                   mapKey={mapResetKey}
-                  latitude={mapCoordinate.latitude}
-                  longitude={mapCoordinate.longitude}
+                  latitude={mapCoordinate?.latitude ?? Number.NaN}
+                  longitude={mapCoordinate?.longitude ?? Number.NaN}
                   title={event.title}
                   addressText={addressText}
-                  originCoords={mapOriginCoords}
                 />
               </View>
             </View>

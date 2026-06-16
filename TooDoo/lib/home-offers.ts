@@ -1,7 +1,11 @@
 import type { ImageSourcePropType } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { apiUrl, normalizeImageUrl } from '@/lib/api';
+import { businessImageCacheKey } from '@/lib/business-image';
+import { fetchApprovedBusinessesCatalog, fetchCategoriesCatalog } from '@/lib/catalog-cache';
 import { getCategoryAccentForItem } from '@/lib/category-colors';
+import { haversineKm } from '@/lib/geo';
 import { isWithinOrderPublishWindow } from '@/lib/order-claim-window';
 
 export type OfferCardItem = {
@@ -136,26 +140,38 @@ function mergeOrdersById(...groups: any[][]): any[] {
   return Array.from(byId.values());
 }
 
+const BUSINESS_DETAIL_CONCURRENCY = 4;
+const GUEST_BUSINESS_DETAIL_MAX = 8;
+const MIN_ACTIVE_OFFERS_BEFORE_FANOUT = 6;
+
 async function fetchOrdersFromBusinessDetails(
   businesses: ApiBusiness[],
-  maxBusinesses = 24
+  maxBusinesses = GUEST_BUSINESS_DETAIL_MAX,
+  concurrency = BUSINESS_DETAIL_CONCURRENCY
 ): Promise<any[]> {
   const slice = businesses.slice(0, maxBusinesses);
-  const batches = await Promise.all(
-    slice.map(async (business, index) => {
-      const businessId = String(business.id ?? business._id ?? `business-${index}`);
-      try {
-        const res = await fetch(apiUrl(`/business/${encodeURIComponent(businessId)}`));
-        if (!res.ok) return [];
-        const json = await res.json().catch(() => ({}));
-        const businessObj = (json as any)?.business ?? json;
-        return parseOrdersFromBusinessRecord({ ...businessObj, id: businessId });
-      } catch {
-        return [];
-      }
-    })
-  );
-  return batches.flat();
+  const merged: any[] = [];
+
+  for (let i = 0; i < slice.length; i += concurrency) {
+    const batch = slice.slice(i, i + concurrency);
+    const results = await Promise.all(
+      batch.map(async (business, index) => {
+        const businessId = String(business.id ?? business._id ?? `business-${i + index}`);
+        try {
+          const res = await fetch(apiUrl(`/business/${encodeURIComponent(businessId)}`));
+          if (!res.ok) return [];
+          const json = await res.json().catch(() => ({}));
+          const businessObj = (json as any)?.business ?? json;
+          return parseOrdersFromBusinessRecord({ ...businessObj, id: businessId });
+        } catch {
+          return [];
+        }
+      })
+    );
+    merged.push(...results.flat());
+  }
+
+  return merged;
 }
 
 export function mapApiOrderToCardItem(order: any, index: number): OfferCardItem {
@@ -320,7 +336,11 @@ function resolveCarouselCards(
 
 function buildBusinessCards(
   approvedBusinesses: ApiBusiness[],
-  ordersByBusinessId: Map<string, any[]>
+  ordersByBusinessId: Map<string, any[]>,
+  options?: {
+    cachedImageUrlById?: Map<string, string>;
+    categoryNameById?: Map<string, string>;
+  }
 ): OfferCardItem[] {
   const nowMs = Date.now();
 
@@ -328,6 +348,7 @@ function buildBusinessCards(
     const businessId = business.id ?? business._id ?? `business-${index}`;
     const businessOrders = ordersByBusinessId.get(String(businessId)) ?? [];
     const visibleOrders = businessOrders.filter((order) => isActiveOffer(order, nowMs));
+    const firstVisibleOrder = visibleOrders[0] as any | undefined;
 
     const offers = visibleOrders.map((order) => order.title ?? 'Erbjudande');
     const orderIds = visibleOrders.map(
@@ -343,7 +364,21 @@ function buildBusinessCards(
     const offerAmount = visibleOrders.map((order) => String(order.maxRedemptions ?? 0));
     const offerEnd = visibleOrders.map((order) => order.orderTimeTo ?? '');
 
-    const normalizedImageUri = normalizeImageUrl(business.imageUrl);
+    const cachedUrl = options?.cachedImageUrlById?.get(String(businessId));
+    const normalizedImageUri = normalizeImageUrl(
+      business.imageUrl ??
+        (business as any)?.image?.publicUrl ??
+        (business as any)?.image?.url ??
+        cachedUrl ??
+        firstVisibleOrder?.imageUrl ??
+        firstVisibleOrder?.image?.publicUrl ??
+        firstVisibleOrder?.image?.url
+    );
+
+    const resolvedCategoryId =
+      typeof business.categoryId === 'string' || typeof business.categoryId === 'number'
+        ? String(business.categoryId)
+        : undefined;
 
     return {
       id: String(businessId),
@@ -353,8 +388,10 @@ function buildBusinessCards(
           normalizedImageUri ??
           `https://picsum.photos/seed/${encodeURIComponent(String(businessId))}/300/200`,
       },
-      categoryId: business.categoryId,
-      categoryName: business.categoryName,
+      categoryId: resolvedCategoryId,
+      categoryName:
+        business.categoryName ??
+        (resolvedCategoryId ? options?.categoryNameById?.get(resolvedCategoryId) : undefined),
       deal: visibleOrders.length > 0,
       orderIds,
       erbjudandepris: offerPrices,
@@ -419,21 +456,15 @@ export async function fetchOfferListCards(
         : coords
           ? `/orders/for-you/close?take=${limit}&lat=${coords.lat}&lng=${coords.lng}`
           : `/orders/for-you/close?take=${limit}`;
-    const [res, businessRes] = await Promise.all([
+    const [res, approvedBusinesses] = await Promise.all([
       fetch(apiUrl(endpoint), { headers: authHeaders }),
-      fetch(apiUrl('/business?status=APPROVED')),
+      fetchApprovedBusinessesCatalog().then((raw) =>
+        (raw as ApiBusiness[]).filter(
+          (business) => (business.status ?? 'APPROVED').toUpperCase() === 'APPROVED'
+        )
+      ),
     ]);
     const json = res.ok ? await res.json().catch(() => ({})) : {};
-    const businessJson = await businessRes.json().catch(() => []);
-    const approvedBusinesses: ApiBusiness[] = (
-      Array.isArray(businessJson)
-        ? businessJson
-        : Array.isArray(businessJson?.businesses)
-          ? businessJson.businesses
-          : Array.isArray(businessJson?.data)
-            ? businessJson.data
-            : []
-    ).filter((business) => (business.status ?? 'APPROVED').toUpperCase() === 'APPROVED');
     const fromApi = buildCatalogOfferCardsFlat(
       parseOrdersPayload(json).filter((order) => isActiveOffer(order, nowMs)),
       approvedBusinesses
@@ -443,41 +474,30 @@ export async function fetchOfferListCards(
     }
   }
 
-  const [businessRes, ordersRes] = await Promise.all([
-    fetch(apiUrl('/business?status=APPROVED')),
-    fetch(apiUrl('/orders')),
+  const [approvedBusinesses, ordersJson] = await Promise.all([
+    fetchApprovedBusinessesCatalog().then((raw) =>
+      (raw as ApiBusiness[]).filter(
+        (business) => (business.status ?? 'APPROVED').toUpperCase() === 'APPROVED'
+      )
+    ),
+    fetch(apiUrl('/orders')).then((res) => res.json().catch(() => [])),
   ]);
 
-  const businessJson = await businessRes.json().catch(() => []);
-  const ordersJson = await ordersRes.json().catch(() => []);
+  const ordersRaw: any[] = parseOrdersPayload(ordersJson);
 
-  const businessesRaw: ApiBusiness[] = Array.isArray(businessJson)
-    ? businessJson
-    : Array.isArray(businessJson?.businesses)
-      ? businessJson.businesses
-      : Array.isArray(businessJson?.data)
-        ? businessJson.data
-        : [];
-
-  const ordersRaw: any[] = Array.isArray(ordersJson)
-    ? ordersJson
-    : Array.isArray(ordersJson?.orders)
-      ? ordersJson.orders
-      : Array.isArray(ordersJson?.data)
-        ? ordersJson.data
-        : [];
-
-  const approvedBusinesses = businessesRaw.filter(
-    (business) => (business.status ?? 'APPROVED').toUpperCase() === 'APPROVED'
+  const ordersFromBusinessList = (approvedBusinesses as ApiBusiness[]).flatMap(
+    parseOrdersFromBusinessRecord
   );
-
-  const ordersFromBusinessList = businessesRaw.flatMap(parseOrdersFromBusinessRecord);
   let allOrdersRaw = mergeOrdersById(ordersRaw, ordersFromBusinessList);
-  if (!token) {
-    const fromBusinessDetails = await fetchOrdersFromBusinessDetails(approvedBusinesses, 12);
+  const activeCount = allOrdersRaw.filter((order) => isActiveOffer(order, nowMs)).length;
+  if (!token && activeCount < MIN_ACTIVE_OFFERS_BEFORE_FANOUT) {
+    const fromBusinessDetails = await fetchOrdersFromBusinessDetails(approvedBusinesses as ApiBusiness[]);
     allOrdersRaw = mergeOrdersById(allOrdersRaw, fromBusinessDetails);
-  } else if (allOrdersRaw.length === 0) {
-    allOrdersRaw = await fetchOrdersFromBusinessDetails(approvedBusinesses.slice(0, 12));
+  } else if (token && allOrdersRaw.length === 0) {
+    const fromBusinessDetails = await fetchOrdersFromBusinessDetails(
+      (approvedBusinesses as ApiBusiness[]).slice(0, GUEST_BUSINESS_DETAIL_MAX)
+    );
+    allOrdersRaw = mergeOrdersById(allOrdersRaw, fromBusinessDetails);
   }
 
   const ordersByBusinessId = new Map<string, any[]>();
@@ -499,4 +519,195 @@ export async function fetchOfferListCards(
   const carouselMode = mode === 'hot' && !token ? 'random' : mode;
 
   return resolveCarouselCards(catalogCardsFlat, businessOfferCards, carouselMode, limit);
+}
+
+export type HomeFilterCategory = { id: string; label: string };
+
+export type HomeScreenData = {
+  categoryFilters: HomeFilterCategory[];
+  deals: OfferCardItem[];
+  nearYouCards: OfferCardItem[];
+  hotOfferCards: OfferCardItem[];
+};
+
+async function readCachedBusinessImageUrls(ids: string[]): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  if (ids.length === 0) return map;
+
+  try {
+    const pairs = await AsyncStorage.multiGet(ids.map(businessImageCacheKey));
+    const prefix = 'toodoo_business_image_url_';
+    pairs.forEach(([key, value]) => {
+      if (!value || !key.startsWith(prefix)) return;
+      map.set(key.slice(prefix.length), value);
+    });
+  } catch {
+    // ignore cache read errors
+  }
+
+  return map;
+}
+
+function sortHomeDeals(
+  cards: OfferCardItem[],
+  coords?: { lat: number; lng: number } | null
+): OfferCardItem[] {
+  const withDistance = cards.map((card) => {
+    if (
+      coords &&
+      typeof card.latitude === 'number' &&
+      typeof card.longitude === 'number' &&
+      Number.isFinite(card.latitude) &&
+      Number.isFinite(card.longitude)
+    ) {
+      return {
+        ...card,
+        distanceKm: haversineKm(coords.lat, coords.lng, card.latitude, card.longitude),
+      };
+    }
+    return card;
+  });
+
+  if (coords) {
+    return [...withDistance].sort((a, b) => {
+      const da = typeof a.distanceKm === 'number' ? a.distanceKm : Number.POSITIVE_INFINITY;
+      const db = typeof b.distanceKm === 'number' ? b.distanceKm : Number.POSITIVE_INFINITY;
+      if (da !== db) return da - db;
+      return Number(b.deal) - Number(a.deal);
+    });
+  }
+
+  return [...withDistance].sort((a, b) => Number(b.deal) - Number(a.deal));
+}
+
+/** Optimized home bootstrap — shared catalog cache, batched fan-out, parallel for-you APIs. */
+export async function fetchHomeScreenData(options: {
+  token?: string | null;
+  coords?: { lat: number; lng: number } | null;
+}): Promise<HomeScreenData> {
+  const { token, coords } = options;
+  const nowMs = Date.now();
+
+  const [categoriesRaw, businessesRaw] = await Promise.all([
+    fetchCategoriesCatalog(),
+    fetchApprovedBusinessesCatalog(),
+  ]);
+
+  const approvedBusinessesEarly = (businessesRaw as ApiBusiness[]).filter(
+    (business) => (business.status ?? 'APPROVED').toUpperCase() === 'APPROVED'
+  );
+
+  const categoryNameById = new Map<string, string>();
+  (categoriesRaw as any[]).forEach((category) => {
+    const id = category?.id ?? category?._id;
+    if (id && category?.name) {
+      categoryNameById.set(String(id), String(category.name));
+    }
+  });
+
+  const categoryFilters: HomeFilterCategory[] = (categoriesRaw as any[])
+    .map((category, index) => {
+      const id = String(category?.id ?? category?._id ?? `category-${index}`);
+      const name = typeof category?.name === 'string' ? category.name.trim() : '';
+      return name ? { id, label: name } : null;
+    })
+    .filter((item): item is HomeFilterCategory => Boolean(item));
+
+  const ordersFromBusinessList = approvedBusinessesEarly.flatMap(parseOrdersFromBusinessRecord);
+  let allOrdersRaw: any[] = [...ordersFromBusinessList];
+  let nearYouFromApi: OfferCardItem[] = [];
+  let hotFromApi: OfferCardItem[] = [];
+
+  if (token) {
+    const authHeaders = { Authorization: `Bearer ${token}` };
+    const closeUrl = coords
+      ? `/orders/for-you/close?take=10&lat=${coords.lat}&lng=${coords.lng}`
+      : '/orders/for-you/close?take=10';
+
+    const [ordersJson, closeRes, hotRes] = await Promise.all([
+      fetch(apiUrl('/orders')).then((res) => res.json().catch(() => [])),
+      fetch(apiUrl(closeUrl), { headers: authHeaders }),
+      fetch(apiUrl('/orders/for-you/hot?take=10'), { headers: authHeaders }),
+    ]);
+
+    allOrdersRaw = mergeOrdersById(parseOrdersPayload(ordersJson), ordersFromBusinessList);
+
+    const closeJson = closeRes.ok ? await closeRes.json().catch(() => ({})) : {};
+    const hotJson = hotRes.ok ? await hotRes.json().catch(() => ({})) : {};
+    nearYouFromApi = buildCatalogOfferCardsFlat(
+      parseOrdersPayload(closeJson).filter((order) => isActiveOffer(order, nowMs)),
+      approvedBusinessesEarly
+    );
+    hotFromApi = buildCatalogOfferCardsFlat(
+      parseOrdersPayload(hotJson).filter((order) => isActiveOffer(order, nowMs)),
+      approvedBusinessesEarly
+    );
+  } else {
+    const ordersJson = await fetch(apiUrl('/orders')).then((res) => res.json().catch(() => []));
+    allOrdersRaw = mergeOrdersById(parseOrdersPayload(ordersJson), ordersFromBusinessList);
+  }
+
+  const activeCount = allOrdersRaw.filter((order) => isActiveOffer(order, nowMs)).length;
+  if (activeCount < MIN_ACTIVE_OFFERS_BEFORE_FANOUT) {
+    allOrdersRaw = mergeOrdersById(
+      allOrdersRaw,
+      await fetchOrdersFromBusinessDetails(approvedBusinessesEarly)
+    );
+  }
+
+  const ordersByBusinessId = new Map<string, any[]>();
+  allOrdersRaw.forEach((order) => {
+    const businessId =
+      typeof order.businessId === 'string'
+        ? order.businessId
+        : order.businessId?.id ?? order.businessId?._id;
+    if (!businessId) return;
+    const key = String(businessId);
+    if (!ordersByBusinessId.has(key)) {
+      ordersByBusinessId.set(key, []);
+    }
+    ordersByBusinessId.get(key)?.push(order);
+  });
+
+  const needsImageCacheIds = approvedBusinessesEarly
+    .map((business, index) => {
+      const id = String(business.id ?? business._id ?? `business-${index}`);
+      const hasImage =
+        (typeof business.imageUrl === 'string' && business.imageUrl.trim()) ||
+        (typeof (business as any)?.image?.publicUrl === 'string' &&
+          (business as any).image.publicUrl.trim());
+      return hasImage ? null : id;
+    })
+    .filter((id): id is string => Boolean(id))
+    .slice(0, 24);
+
+  const cachedImageUrlById = await readCachedBusinessImageUrls(needsImageCacheIds);
+
+  const cards = buildBusinessCards(approvedBusinessesEarly, ordersByBusinessId, {
+    cachedImageUrlById,
+    categoryNameById,
+  });
+
+  const deals = sortHomeDeals(cards, coords);
+  const businessOfferCards = buildOfferCardsFromBusinessCards(cards);
+  const catalogCardsFlat = buildCatalogOfferCardsFlat(allOrdersRaw, approvedBusinessesEarly);
+
+  if (token) {
+    if (nearYouFromApi.length === 0) {
+      nearYouFromApi = resolveCarouselCards(catalogCardsFlat, businessOfferCards, 'endingSoon');
+    }
+    if (hotFromApi.length === 0) {
+      hotFromApi = resolveCarouselCards(catalogCardsFlat, businessOfferCards, 'hot');
+    }
+  } else {
+    nearYouFromApi = resolveCarouselCards(catalogCardsFlat, businessOfferCards, 'endingSoon');
+    hotFromApi = resolveCarouselCards(catalogCardsFlat, businessOfferCards, 'random');
+  }
+
+  return {
+    categoryFilters,
+    deals,
+    nearYouCards: nearYouFromApi,
+    hotOfferCards: hotFromApi,
+  };
 }

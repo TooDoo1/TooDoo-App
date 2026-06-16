@@ -2,7 +2,7 @@ import { useGlobalSearchParams, useRouter, useSegments } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 
-import { performWebStackBack } from '@/lib/web-stack-navigation';
+import { performWebStackBack, shouldIgnoreWebPopState } from '@/lib/web-stack-navigation';
 import { FULL_SCREEN_STACK_SEGMENTS } from '@/lib/stack-navigation';
 
 function isFullScreenStackSegment(segment: string) {
@@ -19,17 +19,29 @@ export function WebHistoryBackSync() {
   const isOnStackScreen = segments.some(isFullScreenStackSegment);
   const segmentsRef = useRef(segments);
   const paramsRef = useRef(params);
+  const trapPushedRef = useRef(false);
   segmentsRef.current = segments;
   paramsRef.current = params;
 
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined' || !isOnStackScreen) {
+      trapPushedRef.current = false;
       return;
     }
 
-    history.pushState({ toodooBackTrap: true }, '');
+    if (!trapPushedRef.current) {
+      history.pushState({ toodooBackTrap: true }, '');
+      trapPushedRef.current = true;
+    }
 
     const onPopState = () => {
+      if (shouldIgnoreWebPopState()) {
+        trapPushedRef.current = false;
+        history.pushState({ toodooBackTrap: true }, '');
+        trapPushedRef.current = true;
+        return;
+      }
+
       const currentSegments = segmentsRef.current;
       const topSegment = currentSegments[currentSegments.length - 1];
       performWebStackBack(router, {
@@ -37,12 +49,15 @@ export function WebHistoryBackSync() {
         isCompanyDetail: topSegment === 'company-detail',
         topSegment,
       });
+      trapPushedRef.current = false;
       history.pushState({ toodooBackTrap: true }, '');
+      trapPushedRef.current = true;
     };
 
     window.addEventListener('popstate', onPopState);
     return () => {
       window.removeEventListener('popstate', onPopState);
+      trapPushedRef.current = false;
       // Do not history.back() here — it races swipe-back dismiss and freezes Safari/PWA.
       if (history.state?.toodooBackTrap) {
         history.replaceState(null, '', window.location.href);

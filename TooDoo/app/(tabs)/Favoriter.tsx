@@ -12,7 +12,7 @@ import { useAuth } from '@/context/auth-context';
 import { useFavorites } from '@/context/favorites-context';
 import { apiUrl, normalizeImageUrl } from '@/lib/api';
 import { CardMedia } from '@/components/ui/card-media';
-import { prefetchImageUris } from '@/lib/image-prefetch';
+import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
 import { OFFERS_CATEGORY_ACCENT } from '@/lib/category-colors';
 import { FAVORITE_HEART_COLOR } from '@/lib/tab-colors';
@@ -26,7 +26,10 @@ async function fetchFavoriteBusinesses(
   const fromProfile = Array.isArray(json?.favoriteBusinesses) ? json.favoriteBusinesses : [];
 
   if (fromProfile.length > 0) {
-    return fromProfile;
+    const favoriteIdSet = new Set(favoriteIds);
+    return fromProfile.filter((business: { id?: string; _id?: string }) =>
+      favoriteIdSet.has(String(business?.id ?? business?._id))
+    );
   }
 
   if (favoriteIds.length === 0) {
@@ -86,8 +89,8 @@ export default function FavoriterScreen() {
         const filtered = await fetchFavoriteBusinesses(authFetch, favoriteIds);
         if (!cancelled) {
           setCompanies(filtered);
-          void prefetchImageUris(
-            filtered.slice(0, 12).map((company) => ({
+          schedulePrefetchImageUris(
+            filtered.slice(0, 12).map((company: { image?: { publicUrl?: string; url?: string }; imageUrl?: string }) => ({
               uri: normalizeImageUrl(company?.image?.publicUrl ?? company?.image?.url ?? company?.imageUrl),
             })),
             12
@@ -162,7 +165,7 @@ export default function FavoriterScreen() {
               </Text>
               <Pressable
                 className="rounded-xl px-4 py-3"
-                onPress={() => router.push('/(tabs)/')}
+                onPress={() => router.push('/')}
                 style={{ backgroundColor: OFFERS_CATEGORY_ACCENT }}
               >
                 <Text className="text-center font-semibold text-white">Favoritisera</Text>

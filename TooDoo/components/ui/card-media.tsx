@@ -62,11 +62,21 @@ function CardMediaComponent({
         contentPosition="top center"
         cachePolicy={Platform.OS === 'web' ? 'disk' : 'memory-disk'}
         priority={priority}
-        transition={Platform.OS === 'web' || isSvg ? 0 : 180}
+        allowDownscaling
+        transition={Platform.OS === 'web' || isSvg ? 0 : 120}
         placeholder={Platform.OS === 'web' ? undefined : { blurhash: PLACEHOLDER_BLURHASH }}
       />
     </View>
   );
 }
 
-export const CardMedia = React.memo(CardMediaComponent);
+function cardMediaPropsAreEqual(prev: CardMediaProps, next: CardMediaProps) {
+  return (
+    extractUri(prev.source) === extractUri(next.source) &&
+    prev.rasterResizeMode === next.rasterResizeMode &&
+    prev.svgFit === next.svgFit &&
+    prev.priority === next.priority
+  );
+}
+
+export const CardMedia = React.memo(CardMediaComponent, cardMediaPropsAreEqual);

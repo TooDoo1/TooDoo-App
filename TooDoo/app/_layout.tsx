@@ -18,6 +18,7 @@ import { FavoriteOfferNotificationsProvider } from '@/context/favorite-offer-not
 import { AppReadyProvider, useAppReady } from '@/context/app-ready-context';
 import { PwaStandaloneViewport } from '@/components/pwa-standalone-viewport';
 import { RootFloatingTabBarOverlay } from '@/components/root-floating-tab-bar-overlay';
+import { TabBarStackMotionReset } from '@/components/tab-bar-stack-motion-reset';
 import { useStandalonePwa } from '@/lib/use-standalone-pwa';
 import { WebStackEdgeSwipeBack } from '@/components/web-stack-edge-swipe-back';
 import { WebHistoryBackSync } from '@/components/web-history-back-sync';
@@ -140,6 +141,7 @@ function AppShell() {
 					style={appShellStyle}
 				>
 					<ThemeProvider value={effectiveScheme === 'dark' ? DarkTheme : DefaultTheme}>
+						<TabBarStackMotionReset />
 						<WebStackEdgeSwipeBack />
 						<WebHistoryBackSync />
 						<View style={appShellStyle}>

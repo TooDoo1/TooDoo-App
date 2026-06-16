@@ -11,7 +11,7 @@ import {
 export const COMPANY_DETAIL_PATH = '/company-detail' as const;
 
 export const DETAIL_RETURN_ROUTES = {
-  index: '/(tabs)/',
+  index: '/',
   favoriter: '/(tabs)/Favoriter',
   naradig: NARA_DIG_PATH,
   heta: HETA_ERBJUDANDEN_PATH,

@@ -1,6 +1,7 @@
 import { Alert } from 'react-native';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAuth } from '@/context/auth-context';
+import { apiUrl } from '@/lib/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type FavoritesContextValue = {
@@ -24,7 +25,7 @@ function parseFavoriteIds(payload: any): string[] {
 
   if (Array.isArray(candidates)) {
     return candidates
-      .map((x) => (typeof x === 'string' ? x : x?.id ?? x?._id))
+      .map((x) => (typeof x === 'string' ? x : (x as { id?: string; _id?: string })?.id ?? (x as { id?: string; _id?: string })?._id))
       .filter((x): x is string => typeof x === 'string' && x.length > 0);
   }
 

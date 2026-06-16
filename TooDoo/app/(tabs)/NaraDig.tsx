@@ -19,6 +19,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { brandInkRgba } from '@/lib/brand-colors';
 import { uiTheme } from '@/lib/ui-theme';
+import { fetchApprovedBusinessesCatalog } from '@/lib/catalog-cache';
 import { apiUrl, normalizeImageUrl } from '@/lib/api';
 import { CardMedia } from '@/components/ui/card-media';
 import { CompanyActivityDots } from '@/components/ui/company-activity-dots';
@@ -36,7 +37,8 @@ import {
   haversineKm,
 } from '@/lib/geo';
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
-import { usePaginatedList } from '@/lib/paginated-list';
+import { usePaginatedList, SEE_ALL_PAGE_SIZE } from '@/lib/paginated-list';
+import { schedulePrefetchImageUris, usePrefetchPageImages } from '@/lib/image-prefetch';
 import { FAVORITE_HEART_COLOR } from '@/lib/tab-colors';
 import {
   getHomeNearbyBusinessesCache,
@@ -244,7 +246,11 @@ export default function NaraDigScreen() {
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [businessIdsWithEvents, setBusinessIdsWithEvents] = useState<Set<string>>(() => {
     const cached = getHomeEventsCache();
-    return new Set((cached ?? []).map((event) => event.businessId));
+    return new Set(
+      (cached ?? [])
+        .map((event) => event.businessId)
+        .filter((businessId): businessId is string => Boolean(businessId))
+    );
   });
   const [businessIdsWithOffers, setBusinessIdsWithOffers] = useState<Set<string>>(new Set());
 
@@ -307,9 +313,7 @@ export default function NaraDigScreen() {
         setIsLoading(true);
       }
       try {
-        const res = await fetch(apiUrl('/business?status=APPROVED'));
-        const json = await res.json().catch(() => []);
-        const businessesRaw = parseBusinesses(json).filter(
+        const businessesRaw = ((await fetchApprovedBusinessesCatalog()) as any[]).filter(
           (b) => (b?.status ?? 'APPROVED').toUpperCase() === 'APPROVED'
         );
 
@@ -340,6 +344,14 @@ export default function NaraDigScreen() {
         if (!cancelled) {
           setCompanies(sorted);
           setHomeNearbyBusinessesCache(sorted.map(nearbyToCacheItem));
+          schedulePrefetchImageUris(
+            sorted.slice(0, 12).map((company) => ({
+              uri:
+                company.imageUri ??
+                `https://picsum.photos/seed/${encodeURIComponent(company.id)}/300/200`,
+            })),
+            12
+          );
         }
       } catch {
         if (!cancelled && companies.length === 0) setCompanies([]);
@@ -466,6 +478,20 @@ export default function NaraDigScreen() {
   );
 
   const pagination = usePaginatedList(companies, refreshNonce);
+
+  const selectNearbyImage = useCallback(
+    (company: NearbyCompany) => ({
+      uri:
+        company.imageUri ??
+        `https://picsum.photos/seed/${encodeURIComponent(company.id)}/300/200`,
+    }),
+    []
+  );
+
+  usePrefetchPageImages(companies, pagination.page, SEE_ALL_PAGE_SIZE, {
+    resetKey: refreshNonce,
+    selectImage: selectNearbyImage,
+  });
 
   const listFooter = useMemo(
     () => (

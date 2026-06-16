@@ -1,5 +1,5 @@
 import { useGlobalSearchParams, useRouter, useSegments } from 'expo-router';
-import { useCallback, useEffect, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { Platform, useWindowDimensions } from 'react-native';
 import Animated, {
   runOnJS,
@@ -40,22 +40,30 @@ export function WebStackEdgeSwipeBack() {
   const { stackHideProgress } = useTabBarMotion();
   const { translateX } = useWebStackSwipe();
 
+  const segmentsRef = useRef(segments);
+  const paramsRef = useRef(params);
+  const navigatingBackRef = useRef(false);
+  segmentsRef.current = segments;
+  paramsRef.current = params;
+
   const isOnStackScreen = segments.some(isFullScreenStackSegment);
   const topSegment = segments[segments.length - 1];
   const revealTabBarOnBack = shouldRevealTabBarOnStackSwipeBack(topSegment, params.returnTo);
 
   const performBack = useCallback(() => {
-    const currentTop = segments[segments.length - 1];
+    const currentTop = segmentsRef.current[segmentsRef.current.length - 1];
     performWebStackBack(router, {
-      returnTo: params.returnTo,
+      returnTo: paramsRef.current.returnTo,
       isCompanyDetail: currentTop === 'company-detail',
       topSegment: currentTop,
     });
-  }, [params.returnTo, router, segments]);
+  }, [router]);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || !isOnStackScreen || typeof window === 'undefined') {
-      translateX.value = 0;
+      if (!navigatingBackRef.current) {
+        translateX.value = 0;
+      }
       return;
     }
 
@@ -80,7 +88,18 @@ export function WebStackEdgeSwipeBack() {
       });
     };
 
+    const finishBack = () => {
+      navigatingBackRef.current = false;
+      translateX.value = 0;
+      blurActiveElementOnWeb();
+      requestAnimationFrame(() => {
+        performBack();
+      });
+    };
+
     const completeBack = () => {
+      if (navigatingBackRef.current) return;
+      navigatingBackRef.current = true;
       tracking = false;
       decided = false;
 
@@ -88,26 +107,20 @@ export function WebStackEdgeSwipeBack() {
         stackHideProgress.value = 0;
       }
 
-      const finishBack = () => {
-        translateX.value = 0;
-        blurActiveElementOnWeb();
-        requestAnimationFrame(() => {
-          performBack();
-        });
-      };
-
       translateX.value = withTiming(
         windowWidth,
         { duration: WEB_STACK_MOTION_MS, easing: DETAIL_SCREEN_MOTION_EASING },
         (finished) => {
-          if (finished) {
-            runOnJS(finishBack)();
+          runOnJS(finishBack)();
+          if (!finished) {
+            // Animation interrupted (resize/effect cleanup) — still navigate.
           }
         }
       );
     };
 
     const onPointerDown = (event: PointerEvent) => {
+      if (navigatingBackRef.current) return;
       if (event.button !== 0) return;
       if (event.clientX > edgeWidth) return;
 
@@ -119,7 +132,7 @@ export function WebStackEdgeSwipeBack() {
     };
 
     const onPointerMove = (event: PointerEvent) => {
-      if (!tracking) return;
+      if (!tracking || navigatingBackRef.current) return;
 
       const deltaX = event.clientX - startX;
       const deltaY = event.clientY - startY;
@@ -144,7 +157,7 @@ export function WebStackEdgeSwipeBack() {
     };
 
     const onPointerEnd = (event: PointerEvent) => {
-      if (!tracking) return;
+      if (!tracking || navigatingBackRef.current) return;
 
       const deltaX = event.clientX - startX;
       const shouldGoBack = decided && deltaX > windowWidth * SWIPE_COMPLETE_FRACTION;
@@ -167,7 +180,9 @@ export function WebStackEdgeSwipeBack() {
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerEnd);
       window.removeEventListener('pointercancel', onPointerEnd);
-      translateX.value = 0;
+      if (!navigatingBackRef.current) {
+        translateX.value = 0;
+      }
     };
   }, [
     isOnStackScreen,

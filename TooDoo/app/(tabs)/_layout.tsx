@@ -3,7 +3,6 @@ import React from 'react';
 import { Platform, Text, View } from 'react-native';
 
 import { FloatingTabBar } from '@/components/floating-tab-bar';
-import { TabBarStackMotionReset } from '@/components/tab-bar-stack-motion-reset';
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
@@ -15,9 +14,11 @@ function tabBarIcon(
   name: React.ComponentProps<typeof IconSymbol>['name'],
   activeColor: string
 ) {
-  return ({ color, focused, size = 24 }: { color: string; focused: boolean; size?: number }) => (
-    <IconSymbol size={size} name={name} color={focused ? activeColor : color} />
-  );
+  function TabBarIcon({ color, focused, size = 24 }: { color: string; focused: boolean; size?: number }) {
+    return <IconSymbol size={size} name={name} color={focused ? activeColor : color} />;
+  }
+  TabBarIcon.displayName = `TabBarIcon(${name})`;
+  return TabBarIcon;
 }
 
 function selectedWhiteLabel({
@@ -61,7 +62,6 @@ export default function TabLayout() {
   const { isLoggedIn } = useAuth();
   return (
     <View style={{ flex: 1, ...(Platform.OS === 'web' ? { minHeight: 0 } : {}) }}>
-      <TabBarStackMotionReset />
       <Tabs
       tabBar={(props) => <FloatingTabBar {...props} />}
       screenOptions={{

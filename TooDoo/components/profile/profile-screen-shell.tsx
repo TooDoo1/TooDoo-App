@@ -24,7 +24,7 @@ export function ProfileScreenShell({
 }: {
   title: string;
   subtitle?: string;
-  children: ReactNode;
+  children?: ReactNode;
 }) {
   const insets = useSafeAreaInsets();
   const { mode } = useThemePreference();

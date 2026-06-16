@@ -36,7 +36,8 @@ import {
   getUserCoords,
 } from '@/lib/geo';
 import { openOfferDetail } from '@/lib/open-offer-detail';
-import { usePaginatedList } from '@/lib/paginated-list';
+import { usePaginatedList, SEE_ALL_PAGE_SIZE } from '@/lib/paginated-list';
+import { schedulePrefetchImageUris, usePrefetchPageImages } from '@/lib/image-prefetch';
 import { uiTheme } from '@/lib/ui-theme';
 
 const LIST_BATCH_SIZE = 8;
@@ -69,11 +70,13 @@ function SearchResultCard({
   onPress,
   theme,
   badgeLabel,
+  imagePriority = 'normal',
 }: {
   card: OfferCardItem;
   onPress: () => void;
   theme: ReturnType<typeof uiTheme>;
   badgeLabel?: string;
+  imagePriority?: 'high' | 'normal';
 }) {
   const discount = computeDiscountLabel(card);
   const discountColor = getDiscountBadgeColor(card);
@@ -92,7 +95,7 @@ function SearchResultCard({
       }}
     >
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
-        <CardMedia source={card.image} svgFit="fill" />
+        <CardMedia source={card.image} svgFit="fill" priority={imagePriority} />
       </View>
       <View className="absolute inset-0 bg-black/20" />
       {badgeLabel ? (
@@ -181,6 +184,10 @@ export function SearchResultsScreen() {
         const sorted = sortSearchResultsForView(withDistance, view, coords);
         if (!cancelled) {
           setCards(sorted);
+          schedulePrefetchImageUris(
+            sorted.slice(0, 12).map((card) => card.image),
+            16
+          );
         }
       } catch {
         if (!cancelled) {
@@ -261,6 +268,10 @@ export function SearchResultsScreen() {
 
   const pagination = usePaginatedList(cards, `${refreshNonce}-${query}-${view}`);
 
+  usePrefetchPageImages(cards, pagination.page, SEE_ALL_PAGE_SIZE, {
+    resetKey: `${refreshNonce}-${query}-${view}`,
+  });
+
   const listFooter = useMemo(
     () => (
       <PaginatedListFooter
@@ -285,12 +296,13 @@ export function SearchResultsScreen() {
         <FlatList
           data={pagination.pageItems}
           keyExtractor={(item, idx) => `${item.orderIds?.[0] ?? item.id}-p${pagination.page}-${idx}`}
-          renderItem={({ item }) => (
+          renderItem={({ item, index }) => (
             <SearchResultCard
               card={item}
               onPress={() => handleCardPress(item)}
               theme={theme}
               badgeLabel={getBadgeLabel(item)}
+              imagePriority={index < 6 ? 'high' : 'normal'}
             />
           )}
           ListHeaderComponent={listHeader}

@@ -11,12 +11,11 @@ function encodeAddressQuery(addressText: string) {
   return encodeURIComponent(addressText.trim());
 }
 
-/** Google Maps embed — directions when origin is known, otherwise a destination pin. */
+/** Google Maps embed — destination pin (directions open via external maps link). */
 export function buildGoogleMapsEmbedUrl(
   destination: MapPoint,
-  addressText: string,
-  origin?: MapPoint | null
-) {
+  addressText: string
+): string | null {
   const trimmedAddress = addressText?.trim() ?? '';
   const hasAddress = trimmedAddress.length > 0;
   const hasDestCoords =
@@ -28,15 +27,8 @@ export function buildGoogleMapsEmbedUrl(
       ? formatMapPoint(destination)
       : '';
 
-  const hasOrigin =
-    origin &&
-    Number.isFinite(origin.latitude) &&
-    Number.isFinite(origin.longitude);
-
-  if (hasOrigin) {
-    const originQuery = formatMapPoint(origin);
-    const daddr = hasAddress ? encodeAddressQuery(trimmedAddress) : destinationQuery;
-    return `https://maps.google.com/maps?saddr=${encodeURIComponent(originQuery)}&daddr=${daddr}&hl=sv&output=embed`;
+  if (!destinationQuery) {
+    return null;
   }
 
   return `https://maps.google.com/maps?q=${destinationQuery}&hl=sv&z=15&output=embed`;

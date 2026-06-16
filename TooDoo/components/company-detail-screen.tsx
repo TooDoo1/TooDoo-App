@@ -1,4 +1,4 @@
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
@@ -44,7 +44,7 @@ import {
   parseClaimResponse,
 } from "@/lib/claim-api";
 import { getOrderPublishEndMs } from "@/lib/order-claim-window";
-import { geocodeAddressNominatim, getUserCoordsIfGranted, isPlausibleSwedenCoordinate } from "@/lib/geo";
+import { geocodeAddressCached, getUserCoordsIfGranted, isPlausibleSwedenCoordinate } from "@/lib/geo";
 import {
   fetchBusinessEvents,
   formatEventDateRange,
@@ -666,7 +666,7 @@ export default function CompanyDetailScreen() {
     return undefined;
   }, [businessCoordinate, paramCoordinate]);
 
-  const mapCoordinate = geocodedCoordinate;
+  const mapCoordinate = geocodedCoordinate ?? fallbackCoordinate;
   const mapsUrl = addressText
     ? mapOriginCoords
       ? `https://www.google.com/maps/dir/?api=1&origin=${mapOriginCoords.latitude},${mapOriginCoords.longitude}&destination=${encodeURIComponent(addressText)}&travelmode=driving`
@@ -674,8 +674,10 @@ export default function CompanyDetailScreen() {
     : undefined;
   const mapResetKey = `${id ?? "no-id"}-${addressText ?? "no-address"}-${resetNonceText ?? "no-reset"}`;
 
+  const isFocused = useIsFocused();
+
   useEffect(() => {
-    if (!showOffersSection) {
+    if (!showOffersSection || !isFocused) {
       return;
     }
 
@@ -684,7 +686,7 @@ export default function CompanyDetailScreen() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [showOffersSection]);
+  }, [showOffersSection, isFocused]);
 
   const claimOfferRef = useRef(claimOffer);
   claimOfferRef.current = claimOffer;
@@ -743,26 +745,29 @@ export default function CompanyDetailScreen() {
       };
     }
 
-    void (async () => {
-      const geocoded = await geocodeAddressNominatim(addressText);
-      if (cancelled) return;
+    const task = InteractionManager.runAfterInteractions(() => {
+      void (async () => {
+        const geocoded = await geocodeAddressCached(addressText);
+        if (cancelled) return;
 
-      if (geocoded) {
-        setGeocodedCoordinate({
-          latitude: geocoded.lat,
-          longitude: geocoded.lng,
-          addressText,
-        });
-        return;
-      }
+        if (geocoded) {
+          setGeocodedCoordinate({
+            latitude: geocoded.lat,
+            longitude: geocoded.lng,
+            addressText,
+          });
+          return;
+        }
 
-      if (fallbackCoordinate) {
-        setGeocodedCoordinate({ ...fallbackCoordinate, addressText });
-      }
-    })();
+        if (fallbackCoordinate) {
+          setGeocodedCoordinate({ ...fallbackCoordinate, addressText });
+        }
+      })();
+    });
 
     return () => {
       cancelled = true;
+      task.cancel();
     };
   }, [
     addressText,
@@ -897,7 +902,7 @@ export default function CompanyDetailScreen() {
       >
       {effectiveImageSource ? (
         <View className="relative h-72 w-full overflow-hidden rounded-xl">
-          {effectiveImageSource ? <CardMedia source={effectiveImageSource} rasterResizeMode="cover" svgContain /> : null}
+          {effectiveImageSource ? <CardMedia source={effectiveImageSource} rasterResizeMode="cover" svgFit="contain" /> : null}
           <LinearGradient
             colors={mode === "dark" ? [brandNavyRgba(0), BrandColors.dark.background] : [brandInkRgba(0), BrandColors.light.background]}
             start={{ x: 0, y: 0 }}
@@ -1018,7 +1023,7 @@ export default function CompanyDetailScreen() {
                             ? ({ uri: offerImageUri } as const)
                             : effectiveImageSource;
                           return offerImageSource ? (
-                            <CardMedia source={offerImageSource} rasterResizeMode="cover" svgContain />
+                            <CardMedia source={offerImageSource} rasterResizeMode="cover" svgFit="contain" />
                           ) : null;
                         })()}
                         <LinearGradient
@@ -1103,7 +1108,7 @@ export default function CompanyDetailScreen() {
                   <View className="flex-row gap-4">
                     <View className="relative h-28 w-28 overflow-hidden rounded-xl" style={{ backgroundColor: theme.cardBgMuted }}>
                       {eventImageSource ? (
-                        <CardMedia source={eventImageSource} rasterResizeMode="cover" svgContain />
+                        <CardMedia source={eventImageSource} rasterResizeMode="cover" svgFit="contain" />
                       ) : null}
                       <View
                         className="absolute left-2 top-2 rounded-[10px] px-2.5 py-1"
@@ -1248,11 +1253,10 @@ export default function CompanyDetailScreen() {
           <View className="overflow-hidden rounded-2xl border" style={{ borderColor: theme.border }}>
             <OfferMap
               mapKey={mapResetKey}
-              latitude={mapCoordinate?.latitude ?? Number.NaN}
-              longitude={mapCoordinate?.longitude ?? Number.NaN}
+              latitude={mapCoordinate?.latitude ?? fallbackCoordinate?.latitude ?? Number.NaN}
+              longitude={mapCoordinate?.longitude ?? fallbackCoordinate?.longitude ?? Number.NaN}
               title={displayTitle || "Erbjudande"}
               addressText={addressText}
-              originCoords={mapOriginCoords}
             />
           </View>
         </View>

@@ -217,7 +217,7 @@ export default function ClaimedOffers({ items, scrollEnabled = true }: Props) {
 										<CardMedia
 											source={{ uri: item.imageUri ?? `https://picsum.photos/seed/${encodeURIComponent(item.id)}/240/240` }}
 											rasterResizeMode="cover"
-											svgContain
+											svgFit="contain"
 										/>
 									)}
 								</View>
@@ -289,7 +289,7 @@ export default function ClaimedOffers({ items, scrollEnabled = true }: Props) {
 										<CardMedia
 											source={{ uri: item.imageUri ?? `https://picsum.photos/seed/${encodeURIComponent(item.id)}/240/240` }}
 											rasterResizeMode="cover"
-											svgContain
+											svgFit="contain"
 										/>
 									)}
 								</View>
@@ -368,7 +368,7 @@ export default function ClaimedOffers({ items, scrollEnabled = true }: Props) {
 														`https://picsum.photos/seed/${encodeURIComponent(selectedItem.id)}/240/240`,
 												}}
 												rasterResizeMode="cover"
-												svgContain
+												svgFit="contain"
 											/>
 										)}
 									</View>

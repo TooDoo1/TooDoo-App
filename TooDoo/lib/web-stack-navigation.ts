@@ -17,6 +17,22 @@ function resolveDetailReturnRoute(returnTo?: string | string[]) {
   return DETAIL_RETURN_ROUTES.index;
 }
 
+let webStackBackInFlight = false;
+let appInitiatedWebBackUntil = 0;
+
+/** Skip duplicate popstate handling when the app already initiated stack back. */
+export function markAppInitiatedWebBack() {
+  appInitiatedWebBackUntil = Date.now() + 900;
+}
+
+export function shouldIgnoreWebPopState() {
+  if (Date.now() < appInitiatedWebBackUntil) {
+    appInitiatedWebBackUntil = 0;
+    return true;
+  }
+  return false;
+}
+
 /** Pop stack screens on web without replace (keeps tabs mounted in the background). */
 export function performWebStackBack(
   router: Router,
@@ -37,30 +53,46 @@ export function performWebStackBack(
     return;
   }
 
+  if (webStackBackInFlight) {
+    return;
+  }
+
+  webStackBackInFlight = true;
+  markAppInitiatedWebBack();
   blurActiveElementOnWeb();
 
+  const release = () => {
+    window.setTimeout(() => {
+      webStackBackInFlight = false;
+    }, 350);
+  };
+
   const dismiss = () => {
-    if (options?.isCompanyDetail) {
+    try {
+      if (options?.isCompanyDetail) {
+        if (router.canDismiss()) {
+          router.dismiss();
+          return;
+        }
+        router.dismissTo(resolveDetailReturnRoute(options.returnTo));
+        return;
+      }
+
+      const top = options?.topSegment;
+      if (top && isFullScreenStackRouteName(top)) {
+        router.dismissTo(DETAIL_RETURN_ROUTES.index);
+        return;
+      }
+
       if (router.canDismiss()) {
         router.dismiss();
         return;
       }
-      router.dismissTo(resolveDetailReturnRoute(options.returnTo));
-      return;
-    }
 
-    const top = options?.topSegment;
-    if (top && isFullScreenStackRouteName(top)) {
       router.dismissTo(DETAIL_RETURN_ROUTES.index);
-      return;
+    } finally {
+      release();
     }
-
-    if (router.canDismiss()) {
-      router.dismiss();
-      return;
-    }
-
-    router.dismissTo(DETAIL_RETURN_ROUTES.index);
   };
 
   if (typeof requestAnimationFrame === 'function') {
