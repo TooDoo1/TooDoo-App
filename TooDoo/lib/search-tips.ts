@@ -18,7 +18,7 @@ type SuggestionsResponse = {
   take?: number;
 };
 
-const FALLBACK_TIPS = [
+export const DEFAULT_SEARCH_TIPS = [
   'pizza',
   'sushi',
   'live musik',
@@ -56,6 +56,32 @@ function mapSuggestionRows(rows: SuggestionsResponse['suggestions'], take: numbe
     .filter(Boolean);
 
   return uniqueLabels(labels, take);
+}
+
+export function getLocalSearchTips(query: string, names: string[], take = 8) {
+  const q = query.trim().toLocaleLowerCase('sv-SE');
+  if (!q) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const raw of names) {
+    const label = raw.trim();
+    if (!label) continue;
+    const key = label.toLocaleLowerCase('sv-SE');
+    if (!key.includes(q) || seen.has(key)) continue;
+    seen.add(key);
+    result.push(label);
+    if (result.length >= take) break;
+  }
+
+  return result;
+}
+
+export function mergeSearchTips(...groups: string[][]) {
+  return uniqueLabels(groups.flat(), 8);
 }
 
 async function fetchBusinessSuggestions(q: string, take: number, city?: string) {
@@ -142,5 +168,5 @@ export async function fetchSearchTips(options?: {
     // fall through to local defaults
   }
 
-  return FALLBACK_TIPS.slice(0, take);
+  return DEFAULT_SEARCH_TIPS.slice(0, take);
 }

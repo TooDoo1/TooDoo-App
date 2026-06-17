@@ -19,13 +19,20 @@ import { uiTheme } from "@/lib/ui-theme";
 import { RegistrationScreenShell } from "@/components/registration-screen-shell";
 import { formatBirthDateDisplay, WebBirthDateWheelPicker } from "@/components/ui/wheel-picker";
 
+type FormStep = 'name' | 'birthday' | 'location' | 'gender' | 'interests';
+
+function buildFormSteps(skipLocation: boolean): FormStep[] {
+  return skipLocation
+    ? ['name', 'birthday', 'gender', 'interests']
+    : ['name', 'birthday', 'location', 'gender', 'interests'];
+}
+
 export default function PersonalityScreen() {
   const router = useRouter();
   const { pendingRegistration, clearPendingRegistration, signIn } = useAuth();
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
   const accentColor = theme.danger;
-  const totalCount = 6;
   const [claimedCount, setClaimedCount] = useState(1);
   const [isSubmittingCreate, setIsSubmittingCreate] = useState(false);
   const [firstName, setFirstName] = useState('');
@@ -38,7 +45,12 @@ export default function PersonalityScreen() {
   const [categoryLoadError, setCategoryLoadError] = useState('');
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [city, setCity] = useState('');
+  const [skipLocationStep, setSkipLocationStep] = useState(false);
   const [isResolvingLocation, setIsResolvingLocation] = useState(false);
+  const formSteps = buildFormSteps(skipLocationStep);
+  const totalCount = formSteps.length + 1;
+  const currentFormStep = claimedCount <= formSteps.length ? formSteps[claimedCount - 1] : null;
+  const isSuccessStep = claimedCount > formSteps.length;
   const progressPercent = totalCount > 0 ? Math.min((claimedCount / totalCount) * 100, 100) : 0;
   const lastPendingEmailRef = useRef<string | null>(null);
 
@@ -58,11 +70,28 @@ export default function PersonalityScreen() {
     setSelectedGender(null);
     setSelectedCategoryIds([]);
     setCity('');
+    setSkipLocationStep(false);
     setIsResolvingLocation(false);
+
+    let cancelled = false;
+    void (async () => {
+      const result = await resolveUserCityFromDevice({ requestPermission: false });
+      if (cancelled) return;
+
+      const resolvedCity = result?.city?.trim();
+      if (resolvedCity) {
+        setCity(resolvedCity);
+        setSkipLocationStep(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [pendingRegistration?.email]);
 
   useEffect(() => {
-    if (claimedCount !== 3) return;
+    if (currentFormStep !== 'location') return;
 
     let cancelled = false;
 
@@ -91,7 +120,7 @@ export default function PersonalityScreen() {
     return () => {
       cancelled = true;
     };
-  }, [claimedCount, pendingRegistration?.email]);
+  }, [currentFormStep, pendingRegistration?.email]);
 
   const birthDateToIsoDateTime = (date: Date) => {
     // Backend expects date-time; keep the chosen calendar date stable across timezones.
@@ -207,7 +236,7 @@ export default function PersonalityScreen() {
         </>
       }
       footer={
-        claimedCount === 6 ? (
+        isSuccessStep ? (
           <Pressable
             className="rounded-2xl px-4 py-3"
             style={{ backgroundColor: accentColor }}
@@ -221,23 +250,23 @@ export default function PersonalityScreen() {
               className="rounded-2xl px-4 py-3"
               style={{ backgroundColor: accentColor }}
               onPress={async () => {
-                if (claimedCount === 1 && (!firstName.trim() || !lastName.trim())) {
+                if (currentFormStep === 'name' && (!firstName.trim() || !lastName.trim())) {
                   Alert.alert("Saknad information", "Fyll i förnamn och efternamn innan du går vidare.");
                   return;
                 }
-                if (claimedCount === 2 && !birthDate) {
+                if (currentFormStep === 'birthday' && !birthDate) {
                   Alert.alert("Saknad information", "Välj din födelsedag innan du går vidare.");
                   return;
                 }
-                if (claimedCount === 3 && !city.trim()) {
+                if (currentFormStep === 'location' && !city.trim()) {
                   Alert.alert("Saknad stad", "Ange vilken stad du befinner dig i innan du går vidare.");
                   return;
                 }
-                if (claimedCount === 4 && !selectedGender) {
+                if (currentFormStep === 'gender' && !selectedGender) {
                   Alert.alert("Välj ett alternativ", "Välj Man, Kvinna, Ickebinär eller Vill ej ange innan du går vidare.");
                   return;
                 }
-                if (claimedCount === 5) {
+                if (currentFormStep === 'interests') {
                   if (!pendingRegistration) {
                     Alert.alert("Saknad registrering", "Fyll i registrering först innan du fortsätter.");
                     router.replace("/(tabs)/Registrering");
@@ -314,7 +343,7 @@ export default function PersonalityScreen() {
                       }
 
                       clearPendingRegistration();
-                      setClaimedCount(6);
+                      setClaimedCount(totalCount);
                       return;
                     }
 
@@ -365,7 +394,7 @@ export default function PersonalityScreen() {
         )
       }
     >
-        {claimedCount === 1 ? (
+        {currentFormStep === 'name' ? (
         <View className="rounded-2xl px-4 py-5" style={{ backgroundColor: theme.cardBgMuted }}>
           <Text className="text-2xl" style={{ color: theme.text }}>Vad heter du?</Text>
           <Text className="pt-2 text-sm" style={{ color: theme.textMuted }}>
@@ -395,7 +424,7 @@ export default function PersonalityScreen() {
         </View>
         ) : null}
 
-        {claimedCount === 2 ? (
+        {currentFormStep === 'birthday' ? (
         <View className="rounded-2xl px-4 py-5" style={{ backgroundColor: theme.cardBgMuted }}>
           <Text className="text-2xl" style={{ color: theme.text }}>När är du född?</Text>
           <Text className="pt-2 text-sm" style={{ color: theme.textMuted }}>
@@ -451,7 +480,7 @@ export default function PersonalityScreen() {
         </View>
         ) : null}
 
-        {claimedCount === 3 ? (
+        {currentFormStep === 'location' ? (
         <View className="rounded-2xl px-4 py-5" style={{ backgroundColor: theme.cardBgMuted }}>
           <Text className="text-2xl" style={{ color: theme.text }}>Var befinner du dig?</Text>
           <Text className="pt-2 text-sm" style={{ color: theme.textMuted }}>
@@ -504,7 +533,7 @@ export default function PersonalityScreen() {
         </View>
         ) : null}
 
-        {claimedCount === 4 ? (
+        {currentFormStep === 'gender' ? (
             <View className="">
             <View
               className="rounded-2xl px-2 py-5"
@@ -543,7 +572,7 @@ export default function PersonalityScreen() {
             </View>
         ):null}
 
-        {claimedCount === 5 ? (
+        {currentFormStep === 'interests' ? (
            <View className="">
               <View
                 className="rounded-2xl px-2 py-5"
@@ -599,7 +628,7 @@ export default function PersonalityScreen() {
             </View>
         ):null}
 
-        {claimedCount === 6 ? (
+        {isSuccessStep ? (
           <View
             className="rounded-2xl px-4 py-8"
             style={{ backgroundColor: theme.cardBgMuted }}

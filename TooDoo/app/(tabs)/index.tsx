@@ -104,13 +104,19 @@ import {
   sortSearchResultsHot,
   sortSearchResultsNearYou,
 } from '@/lib/catalog-search';
-import { fetchSearchTips } from '@/lib/search-tips';
+import {
+  DEFAULT_SEARCH_TIPS,
+  fetchSearchTips,
+  getLocalSearchTips,
+  mergeSearchTips,
+} from '@/lib/search-tips';
 
 const ALL_CATEGORIES_ID = 'all';
 const OFFERS_CATEGORY_ID = 'offers';
 const SEARCH_DROPDOWN_CORNER_RADIUS = 28;
-const SEARCH_DROPDOWN_OPEN_MS = 400;
-const SEARCH_DROPDOWN_CLOSE_MS = 420;
+const SEARCH_DROPDOWN_OPEN_MS = 220;
+const SEARCH_DROPDOWN_CLOSE_MS = 240;
+const SEARCH_TIPS_DEBOUNCE_MS = 80;
 const SEARCH_BAR_HEIGHT = 48;
 const SEARCH_DROPDOWN_MAX_HEIGHT = 268;
 /** 0–1: where on the search bar the fade begins (0.5 = halfway down the bar). */
@@ -862,7 +868,7 @@ export default function HomeScreen() {
   const [searchQuery, setSearchQuery] = useState(initialSearch.query);
   const [searchResults, setSearchResults] = useState<CardItem[]>(initialSearch.results as CardItem[]);
   const [isSearchLoading, setIsSearchLoading] = useState(false);
-  const [searchTips, setSearchTips] = useState<string[]>([]);
+  const [searchTips, setSearchTips] = useState<string[]>(DEFAULT_SEARCH_TIPS);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [isSearchDropdownMounted, setIsSearchDropdownMounted] = useState(false);
   const [searchBarHeight, setSearchBarHeight] = useState(SEARCH_BAR_HEIGHT);
@@ -979,20 +985,62 @@ export default function HomeScreen() {
   useEffect(() => {
     let cancelled = false;
 
-    void (async () => {
-      const tips = await fetchSearchTips({
-        take: 8,
-        q: searchQuery.trim().length >= 1 ? searchQuery.trim() : undefined,
-        authFetch,
-        isLoggedIn,
-      });
-      if (!cancelled) {
+    void fetchSearchTips({
+      take: 8,
+      authFetch,
+      isLoggedIn,
+    }).then((tips) => {
+      if (!cancelled && tips.length > 0) {
         setSearchTips(tips);
       }
-    })();
+    });
 
     return () => {
       cancelled = true;
+    };
+  }, [authFetch, isLoggedIn]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const trimmed = searchQuery.trim();
+    const catalogNames = () =>
+      knownCardsRef.current.map((card) => card.title).filter(Boolean);
+
+    if (trimmed.length >= 1) {
+      const instantTips = mergeSearchTips(
+        getLocalSearchTips(trimmed, catalogNames(), 8),
+        getLocalSearchTips(trimmed, DEFAULT_SEARCH_TIPS, 8)
+      );
+      if (instantTips.length > 0) {
+        setSearchTips(instantTips);
+      }
+    }
+
+    const timer = setTimeout(() => {
+      void (async () => {
+        const tips = await fetchSearchTips({
+          take: 8,
+          q: trimmed.length >= 1 ? trimmed : undefined,
+          authFetch,
+          isLoggedIn,
+        });
+        if (cancelled) return;
+
+        if (trimmed.length >= 1) {
+          const localTips = getLocalSearchTips(trimmed, catalogNames(), 8);
+          setSearchTips(mergeSearchTips(tips, localTips));
+          return;
+        }
+
+        if (tips.length > 0) {
+          setSearchTips(tips);
+        }
+      })();
+    }, trimmed.length >= 1 ? SEARCH_TIPS_DEBOUNCE_MS : 0);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
     };
   }, [searchQuery, authFetch, isLoggedIn]);
 
@@ -1321,7 +1369,7 @@ export default function HomeScreen() {
             setIsSearchLoading(false);
           }
         });
-    }, hasCachedResults ? 0 : 300);
+    }, hasCachedResults ? 0 : 180);
 
     return () => {
       cancelled = true;

@@ -445,8 +445,50 @@ export default function CompanyDetailScreen() {
   const showOffersSection = carouselItems.length > 0;
 
   const navigateToLogin = useCallback(() => {
-    router.push('/(tabs)/Loggain');
-  }, [router]);
+    const detailReturnParams = Object.fromEntries(
+      Object.entries({
+        returnTo: Array.isArray(returnTo) ? returnTo[0] : returnTo,
+        id: businessIdFromIdParam,
+        claimBusinessId: claimBusinessIdText,
+        claimOrderId: claimOrderIdText,
+        title: Array.isArray(title) ? title[0] : title,
+        deal: Array.isArray(deal) ? deal[0] : deal,
+        imageUri: Array.isArray(imageUri) ? imageUri[0] : imageUri,
+        Adress: Array.isArray(Adress) ? Adress[0] : Adress,
+        latitude: Array.isArray(latitude) ? latitude[0] : latitude,
+        longitude: Array.isArray(longitude) ? longitude[0] : longitude,
+        Telefon: Array.isArray(Telefon) ? Telefon[0] : Telefon,
+        Website: Array.isArray(Website) ? Website[0] : Website,
+        mapResetNonce: resetNonceText,
+      }).filter((entry): entry is [string, string] => {
+        const value = entry[1];
+        return value != null && value !== '';
+      })
+    );
+
+    router.push({
+      pathname: '/(tabs)/Loggain',
+      params: {
+        returnTo: 'company-detail',
+        returnParams: JSON.stringify(detailReturnParams),
+      },
+    });
+  }, [
+    Adress,
+    businessIdFromIdParam,
+    claimBusinessIdText,
+    claimOrderIdText,
+    deal,
+    imageUri,
+    latitude,
+    longitude,
+    resetNonceText,
+    returnTo,
+    router,
+    Telefon,
+    title,
+    Website,
+  ]);
 
   const shareDetailOffer = useCallback(
     (offer: DetailOffer) => {
@@ -718,15 +760,17 @@ export default function CompanyDetailScreen() {
   const claimOfferRef = useRef(claimOffer);
   claimOfferRef.current = claimOffer;
 
-  useEffect(() => {
-    if (!isLoggedIn) return;
+  useFocusEffect(
+    useCallback(() => {
+      if (!isLoggedIn) return;
 
-    const pendingOffer = pendingClaimOfferRef.current;
-    if (!pendingOffer) return;
+      const pendingOffer = pendingClaimOfferRef.current;
+      if (!pendingOffer) return;
 
-    pendingClaimOfferRef.current = null;
-    void claimOfferRef.current(pendingOffer, { skipAuthPrompt: true });
-  }, [isLoggedIn]);
+      pendingClaimOfferRef.current = null;
+      void claimOfferRef.current(pendingOffer, { skipAuthPrompt: true });
+    }, [isLoggedIn])
+  );
 
   useEffect(() => {
     let cancelled = false;

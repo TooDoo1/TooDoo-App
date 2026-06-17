@@ -13,9 +13,10 @@ import {
 	type TextStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@/context/auth-context';
 import { apiUrl } from '@/lib/api';
+import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
 import { PasswordInput } from '@/components/ui/password-input';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { BrandColors } from '@/lib/brand-colors';
@@ -72,8 +73,12 @@ function BounceText({ text, className, textStyle, trigger }: BounceTextProps) {
 	);
 }
 
-export default function MinaDealsScreen() {
+export default function LoggainScreen() {
 	const router = useRouter();
+	const { returnTo, returnParams } = useLocalSearchParams<{
+		returnTo?: string;
+		returnParams?: string;
+	}>();
 	const { signIn } = useAuth();
 	const { mode } = useThemePreference();
 	const theme = uiTheme(mode);
@@ -192,6 +197,25 @@ export default function MinaDealsScreen() {
 
 			if (response.status === 200 && data.token) {
 				await signIn(data.token, data.refreshToken ?? null, data.user?.role ?? null);
+
+				const returnToValue = Array.isArray(returnTo) ? returnTo[0] : returnTo;
+				if (accountType === 'user' && returnToValue === 'company-detail') {
+					const paramsRaw = Array.isArray(returnParams) ? returnParams[0] : returnParams;
+					if (router.canGoBack()) {
+						router.back();
+						return;
+					}
+					if (paramsRaw) {
+						try {
+							const parsedParams = JSON.parse(paramsRaw) as Record<string, string>;
+							router.replace({ pathname: COMPANY_DETAIL_PATH, params: parsedParams });
+							return;
+						} catch {
+							// Fall through to default post-login navigation.
+						}
+					}
+				}
+
 				Alert.alert('Inloggad', 'Inloggning lyckades.');
 				router.push('/(tabs)/MinaDeals');
 				return;
