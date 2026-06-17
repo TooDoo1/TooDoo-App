@@ -25,7 +25,7 @@ export default function PersonalityScreen() {
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
   const accentColor = theme.danger;
-  const totalCount = 4;
+  const totalCount = 6;
   const [claimedCount, setClaimedCount] = useState(1);
   const [isSubmittingCreate, setIsSubmittingCreate] = useState(false);
   const [firstName, setFirstName] = useState('');
@@ -62,7 +62,7 @@ export default function PersonalityScreen() {
   }, [pendingRegistration?.email]);
 
   useEffect(() => {
-    if (claimedCount !== 1) return;
+    if (claimedCount !== 3) return;
 
     let cancelled = false;
 
@@ -207,7 +207,7 @@ export default function PersonalityScreen() {
         </>
       }
       footer={
-        claimedCount === 4 ? (
+        claimedCount === 6 ? (
           <Pressable
             className="rounded-2xl px-4 py-3"
             style={{ backgroundColor: accentColor }}
@@ -221,23 +221,23 @@ export default function PersonalityScreen() {
               className="rounded-2xl px-4 py-3"
               style={{ backgroundColor: accentColor }}
               onPress={async () => {
-                if (claimedCount === 2 && !selectedGender) {
-                  Alert.alert("Välj ett alternativ", "Välj Man, Kvinna, Ickebinär eller Vill ej ange innan du går vidare.");
-                  return;
-                }
                 if (claimedCount === 1 && (!firstName.trim() || !lastName.trim())) {
                   Alert.alert("Saknad information", "Fyll i förnamn och efternamn innan du går vidare.");
                   return;
                 }
-                if (claimedCount === 1 && !birthDate) {
+                if (claimedCount === 2 && !birthDate) {
                   Alert.alert("Saknad information", "Välj din födelsedag innan du går vidare.");
                   return;
                 }
-                if (claimedCount === 1 && !city.trim()) {
+                if (claimedCount === 3 && !city.trim()) {
                   Alert.alert("Saknad stad", "Ange vilken stad du befinner dig i innan du går vidare.");
                   return;
                 }
-                if (claimedCount === 3) {
+                if (claimedCount === 4 && !selectedGender) {
+                  Alert.alert("Välj ett alternativ", "Välj Man, Kvinna, Ickebinär eller Vill ej ange innan du går vidare.");
+                  return;
+                }
+                if (claimedCount === 5) {
                   if (!pendingRegistration) {
                     Alert.alert("Saknad registrering", "Fyll i registrering först innan du fortsätter.");
                     router.replace("/(tabs)/Registrering");
@@ -250,7 +250,7 @@ export default function PersonalityScreen() {
                     if (!registrationLocation) {
                       Alert.alert(
                         'Saknad stad',
-                        'Vi behöver din stad för att skapa konto. Gå tillbaka till steg 1 och ange stad, eller aktivera platsåtkomst.'
+                        'Vi behöver din stad för att skapa konto. Gå tillbaka till platssteget och ange stad, eller aktivera platsåtkomst.'
                       );
                       return;
                     }
@@ -314,7 +314,7 @@ export default function PersonalityScreen() {
                       }
 
                       clearPendingRegistration();
-                      setClaimedCount(4);
+                      setClaimedCount(6);
                       return;
                     }
 
@@ -365,10 +365,12 @@ export default function PersonalityScreen() {
         )
       }
     >
-        {claimedCount === 1? (
-
+        {claimedCount === 1 ? (
         <View className="rounded-2xl px-4 py-5" style={{ backgroundColor: theme.cardBgMuted }}>
-          <Text className="text-2xl" style={{ color: theme.text }}>Berätta om dig själv</Text>
+          <Text className="text-2xl" style={{ color: theme.text }}>Vad heter du?</Text>
+          <Text className="pt-2 text-sm" style={{ color: theme.textMuted }}>
+            Vi använder ditt namn i appen.
+          </Text>
 
           <Text className="pt-4 text-lg" style={{ color: theme.text }}>Förnamn:</Text>
           <TextInput
@@ -390,6 +392,16 @@ export default function PersonalityScreen() {
             className="mt-2 rounded-2xl border px-4 py-3"
             style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
           />
+        </View>
+        ) : null}
+
+        {claimedCount === 2 ? (
+        <View className="rounded-2xl px-4 py-5" style={{ backgroundColor: theme.cardBgMuted }}>
+          <Text className="text-2xl" style={{ color: theme.text }}>När är du född?</Text>
+          <Text className="pt-2 text-sm" style={{ color: theme.textMuted }}>
+            Vi använder det för att anpassa din upplevelse.
+          </Text>
+
           <Text className="pt-4 text-lg" style={{ color: theme.text }}>Födelsedag:</Text>
           <Pressable
             onPress={openBirthDatePicker}
@@ -436,9 +448,13 @@ export default function PersonalityScreen() {
               </Pressable>
             </View>
           ) : null}
+        </View>
+        ) : null}
 
-          <Text className="pt-4 text-lg" style={{ color: theme.text }}>Stad:</Text>
-          <Text className="pt-1 text-sm" style={{ color: theme.textMuted }}>
+        {claimedCount === 3 ? (
+        <View className="rounded-2xl px-4 py-5" style={{ backgroundColor: theme.cardBgMuted }}>
+          <Text className="text-2xl" style={{ color: theme.text }}>Var befinner du dig?</Text>
+          <Text className="pt-2 text-sm" style={{ color: theme.textMuted }}>
             Behövs för att visa erbjudanden nära dig.
           </Text>
           {isResolvingLocation && Platform.OS !== 'web' ? (
@@ -446,6 +462,7 @@ export default function PersonalityScreen() {
               Hämtar din plats...
             </Text>
           ) : null}
+          <Text className="pt-4 text-lg" style={{ color: theme.text }}>Stad:</Text>
           <TextInput
             value={city}
             onChangeText={setCity}
@@ -460,11 +477,34 @@ export default function PersonalityScreen() {
               fontSize: 16,
             }}
           />
-
+          {Platform.OS !== 'web' ? (
+            <Pressable
+              className="mt-3 rounded-2xl px-4 py-3"
+              style={{ backgroundColor: theme.primary }}
+              onPress={async () => {
+                setIsResolvingLocation(true);
+                try {
+                  const detected = await resolveUserCityFromDevice({ requestPermission: true });
+                  if (detected?.city) {
+                    setCity(detected.city);
+                  } else {
+                    Alert.alert('Kunde inte hitta stad', 'Ange din stad manuellt eller aktivera platsåtkomst.');
+                  }
+                } finally {
+                  setIsResolvingLocation(false);
+                }
+              }}
+              disabled={isResolvingLocation}
+            >
+              <Text className="text-center font-medium text-white">
+                {isResolvingLocation ? 'Hämtar plats...' : 'Använd min plats'}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
         ) : null}
 
-        {claimedCount === 2 ? (
+        {claimedCount === 4 ? (
             <View className="">
             <View
               className="rounded-2xl px-2 py-5"
@@ -503,7 +543,7 @@ export default function PersonalityScreen() {
             </View>
         ):null}
 
-        {claimedCount === 3 ? (
+        {claimedCount === 5 ? (
            <View className="">
               <View
                 className="rounded-2xl px-2 py-5"
@@ -559,7 +599,7 @@ export default function PersonalityScreen() {
             </View>
         ):null}
 
-        {claimedCount === 4 ? (
+        {claimedCount === 6 ? (
           <View
             className="rounded-2xl px-4 py-8"
             style={{ backgroundColor: theme.cardBgMuted }}

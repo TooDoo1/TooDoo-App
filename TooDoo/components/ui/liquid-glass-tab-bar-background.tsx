@@ -1,52 +1,26 @@
-import { Platform, StyleSheet, View } from 'react-native';
-import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
+import { StyleSheet, View } from 'react-native';
+
+import { LiquidGlassFrostedBase } from '@/components/ui/liquid-glass-frosted-base';
+import { LiquidGlassSpecularOverlay } from '@/components/ui/liquid-glass-specular-overlay';
 
 type Props = {
   isDark: boolean;
   borderRadius: number;
 };
 
+/** @deprecated Use LiquidGlassTabBarShell — kept for any legacy imports. */
 export function LiquidGlassTabBarBackground({ isDark, borderRadius }: Props) {
-  const blurIntensity = Platform.OS === 'android' ? 40 : 48;
-
   return (
-    <View style={[StyleSheet.absoluteFill, { borderRadius, overflow: 'hidden' }]}>
-      <BlurView
-        tint={isDark ? 'dark' : 'light'}
-        intensity={blurIntensity}
-        style={StyleSheet.absoluteFill}
-      />
-      <View
-        style={[
-          StyleSheet.absoluteFill,
-          {
-            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.02)' : 'rgba(255, 255, 255, 0.08)',
-          },
-        ]}
-      />
-      <LinearGradient
-        colors={
-          isDark
-            ? ['rgba(255,255,255,0.1)', 'rgba(255,255,255,0.02)', 'rgba(255,255,255,0)']
-            : ['rgba(255,255,255,0.22)', 'rgba(255,255,255,0.06)', 'rgba(255,255,255,0)']
-        }
-        locations={[0, 0.22, 1]}
-        start={{ x: 0.5, y: 0 }}
-        end={{ x: 0.5, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
-      <View
-        pointerEvents="none"
-        style={[
-          StyleSheet.absoluteFill,
-          {
-            borderRadius,
-            borderWidth: StyleSheet.hairlineWidth * 2,
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.14)' : 'rgba(255, 255, 255, 0.35)',
-          },
-        ]}
-      />
+    <View style={[styles.shell, { borderRadius }]}>
+      <LiquidGlassFrostedBase isDark={isDark} />
+      <LiquidGlassSpecularOverlay isDark={isDark} borderRadius={borderRadius} />
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  shell: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: 'hidden',
+  },
+});

@@ -1380,20 +1380,24 @@ export default function HomeScreen() {
 
   const heroBlockHeight = HERO_HEIGHT + heroTopInset;
   const searchPanelStickyLift = 12;
-  const heroCollapseScroll = 120;
+  // If this range is too small, the hero height collapses quickly and the
+  // user perceives the vertical scroll as "faster" near the carousel.
+  // Widening it keeps the collapse feeling smooth/consistent.
+  const heroCollapseScroll = 160;
+  const collapsedHeaderTopPadding = heroTopInset + 8 - searchPanelStickyLift;
   const heroHeight = scrollY.interpolate({
     inputRange: [0, heroCollapseScroll],
     outputRange: [heroBlockHeight, 0],
     extrapolate: 'clamp',
   });
   const headerTopPadding = scrollY.interpolate({
-    inputRange: [0, heroCollapseScroll - 8, heroCollapseScroll],
-    outputRange: [8, 8, heroTopInset + 8 - searchPanelStickyLift],
+    inputRange: [0, heroCollapseScroll],
+    outputRange: [8, collapsedHeaderTopPadding],
     extrapolate: 'clamp',
   });
   const webStickyTopPadding = scrollY.interpolate({
-    inputRange: [0, Math.max(heroBlockHeight - heroTopInset, 1), heroBlockHeight],
-    outputRange: [16, heroTopInset + 16, heroTopInset + 16 - searchPanelStickyLift],
+    inputRange: [0, heroBlockHeight],
+    outputRange: [16, heroTopInset + 16 - searchPanelStickyLift],
     extrapolate: 'clamp',
   });
   const searchDropdownExpanded = showSearchTipsDropdown || isSearchDropdownMounted;

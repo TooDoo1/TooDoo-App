@@ -10,7 +10,10 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { LiquidGlassTabBarBackground } from '@/components/ui/liquid-glass-tab-bar-background';
+import {
+  LiquidGlassTabBarShell,
+  useNativeTabBarLiquidGlass,
+} from '@/components/ui/liquid-glass-tab-bar-shell';
 import { brandInkRgba, brandNavyRgba } from '@/lib/brand-colors';
 import {
   getTabBarBottomOffset,
@@ -76,12 +79,14 @@ function RootFloatingTabBarOverlayContent({
   const { width: windowWidth } = useWindowDimensions();
   const routeHideProgress = useSharedValue(0);
   const isStandalone = Platform.OS === 'web' && isStandaloneWebApp();
+  const useNativeGlass = useNativeTabBarLiquidGlass();
   const bottomOffset = getTabBarBottomOffset(insets.bottom, Platform.OS);
   const barWidth = getTabBarWidth(windowWidth, Platform.OS);
   const barLeft = getTabBarLeft(windowWidth, barWidth);
   const shouldHideTabBar = TAB_BAR_HIDE_ROUTES.has(focusedRouteName);
   const hideDistance = TAB_BAR_HEIGHT + bottomOffset + 32;
   const backdropExtra = isStandalone ? TAB_BAR_BACKDROP_EXTRA_STANDALONE : TAB_BAR_BACKDROP_EXTRA;
+  const fadeStripBottom = bottomOffset + TAB_BAR_HEIGHT;
 
   useEffect(() => {
     const duration = Platform.OS === 'web' ? getStackMotionMs() : DETAIL_SCREEN_MOTION_MS;
@@ -91,17 +96,26 @@ function RootFloatingTabBarOverlayContent({
     });
   }, [shouldHideTabBar, routeHideProgress]);
 
-  const animatedShellStyle = useAnimatedStyle(() => {
-    const stackHide = stackHideProgress.value;
-    const routeHide = routeHideProgress.value;
-    const hideAmount = Math.max(routeHide, stackHide);
+  // Native Liquid Glass breaks when ancestors use transform — animate bottom instead.
+  const animatedBarPositionStyle = useAnimatedStyle(() => {
+    const hideAmount = Math.max(routeHideProgress.value, stackHideProgress.value);
+    const slide = hideDistance * hideAmount;
 
     return {
-      transform: [{ translateY: hideDistance * hideAmount }],
+      bottom: bottomOffset - slide,
     };
   });
 
-  const backdropHeight = TAB_BAR_HEIGHT + bottomOffset + backdropExtra;
+  const animatedFadePositionStyle = useAnimatedStyle(() => {
+    const hideAmount = Math.max(routeHideProgress.value, stackHideProgress.value);
+    const slide = hideDistance * hideAmount;
+
+    return {
+      bottom: fadeStripBottom - slide,
+    };
+  });
+
+  const tabContent = <FloatingTabBarContent {...tabBarProps} barWidth={barWidth} />;
 
   return (
     <View
@@ -111,47 +125,53 @@ function RootFloatingTabBarOverlayContent({
       <Animated.View
         style={[
           styles.backdrop,
-          { height: backdropHeight, pointerEvents: 'none' },
-          animatedShellStyle,
+          {
+            height: backdropExtra,
+            pointerEvents: 'none',
+          },
+          animatedFadePositionStyle,
         ]}
       >
         <LinearGradient
           colors={
             isDark
-              ? [brandNavyRgba(0), brandNavyRgba(0.72), brandNavyRgba(0.96)]
-              : [brandInkRgba(0), brandInkRgba(0.14), brandInkRgba(0.28)]
+              ? [brandNavyRgba(0), brandNavyRgba(0.55)]
+              : [brandInkRgba(0), brandInkRgba(0.1)]
           }
-          locations={[0, 0.45, 1]}
+          locations={[0, 1]}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}
           style={StyleSheet.absoluteFill}
         />
       </Animated.View>
+
       <Animated.View
         style={[
-          styles.shell,
+          styles.barAnchor,
           {
             left: barLeft,
             width: barWidth,
-            height: TAB_BAR_HEIGHT,
-            borderRadius: TAB_BAR_RADIUS,
-            bottom: bottomOffset,
-            ...(Platform.OS === 'web'
-              ? {
-                  boxShadow: isDark
-                    ? '0 10px 16px rgba(0, 0, 0, 0.28)'
-                    : '0 10px 16px rgba(0, 0, 0, 0.1)',
-                }
-              : {
-                  shadowOpacity: isDark ? 0.18 : 0.08,
-                }),
             pointerEvents: shouldHideTabBar ? 'none' : 'auto',
           },
-          animatedShellStyle,
+          animatedBarPositionStyle,
+          !useNativeGlass &&
+            (Platform.OS === 'web'
+              ? {
+                  boxShadow: isDark
+                    ? '0 12px 28px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255,255,255,0.12)'
+                    : '0 12px 28px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255,255,255,0.55)',
+                }
+              : styles.fallbackShadow),
         ]}
       >
-        <LiquidGlassTabBarBackground isDark={isDark} borderRadius={TAB_BAR_RADIUS} />
-        <FloatingTabBarContent {...tabBarProps} />
+        <LiquidGlassTabBarShell
+          isDark={isDark}
+          borderRadius={TAB_BAR_RADIUS}
+          width={barWidth}
+          height={TAB_BAR_HEIGHT}
+        >
+          {tabContent}
+        </LiquidGlassTabBarShell>
       </Animated.View>
     </View>
   );
@@ -174,14 +194,15 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 0,
   },
-  shell: {
+  barAnchor: {
     position: 'absolute',
-    overflow: 'hidden',
+  },
+  fallbackShadow: {
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 10 },
-    shadowRadius: 16,
-    elevation: 8,
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    elevation: 12,
   },
 });

@@ -31,6 +31,7 @@ import {
 import { getUserCoords } from '@/lib/geo';
 import { getHomeEndingSoonCache, getHomeHotOffersCache } from '@/lib/home-list-cache';
 import { openOfferDetail } from '@/lib/open-offer-detail';
+import { shareOfferFromCard } from '@/lib/share-offer';
 import { usePaginatedList, SEE_ALL_PAGE_SIZE } from '@/lib/paginated-list';
 import { schedulePrefetchImageUris, usePrefetchPageImages } from '@/lib/image-prefetch';
 import { IMAGE_DISPLAY_WIDTH } from '@/lib/image-url';
@@ -86,6 +87,25 @@ const HotOfferCard = memo(function HotOfferCard({
         />
       </View>
       <View className="absolute inset-0 bg-black/20" />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Dela erbjudande"
+        onPress={() => void shareOfferFromCard(card)}
+        hitSlop={8}
+        style={{
+          position: 'absolute',
+          top: 8,
+          left: 8,
+          width: 36,
+          height: 36,
+          borderRadius: 18,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: 'rgba(0,0,0,0.72)',
+        }}
+      >
+        <Ionicons name="share-outline" size={18} color="#ffffff" />
+      </Pressable>
       {discount ? (
         <View
           className="absolute right-2 top-2 rounded-md px-2 py-0.5"
@@ -153,12 +173,32 @@ const EndingSoonOfferCard = memo(function EndingSoonOfferCard({
         />
       </View>
       <View className="absolute inset-0 bg-black/25" />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Dela erbjudande"
+        onPress={() => void shareOfferFromCard(card)}
+        hitSlop={8}
+        style={{
+          position: 'absolute',
+          top: 8,
+          left: 8,
+          width: 36,
+          height: 36,
+          borderRadius: 18,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: 'rgba(0,0,0,0.72)',
+          zIndex: 2,
+        }}
+      >
+        <Ionicons name="share-outline" size={18} color="#ffffff" />
+      </Pressable>
       {date ? (
         <View
           style={{
             position: 'absolute',
             top: 8,
-            left: 8,
+            right: 8,
             paddingHorizontal: 8,
             paddingVertical: 4,
             borderRadius: 10,

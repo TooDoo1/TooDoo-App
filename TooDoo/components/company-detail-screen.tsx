@@ -26,6 +26,7 @@ import { normalizeImageUrl } from "@/lib/api";
 import { useThemePreference } from "@/context/theme-preference-context";
 import { uiTheme } from "@/lib/ui-theme";
 import { CardMedia } from "@/components/ui/card-media";
+import { BusinessOpeningHoursPanel } from "@/components/ui/business-opening-hours-panel";
 import { schedulePrefetchImageUris } from "@/lib/image-prefetch";
 import { IMAGE_DISPLAY_WIDTH } from "@/lib/image-url";
 import { CompanyDetailTabBarSync } from "@/components/company-detail-tab-bar-sync";
@@ -60,6 +61,7 @@ import {
   invalidateCompanyDetailCache,
   loadCompanyDetail,
 } from "@/lib/load-company-detail";
+import { shareOffer } from "@/lib/share-offer";
 
 const localImagesById: Record<string, ImageSourcePropType> = {
   "event-3": require("../assets/images/testbild.jpg"),
@@ -445,6 +447,23 @@ export default function CompanyDetailScreen() {
   const navigateToLogin = useCallback(() => {
     router.push('/(tabs)/Loggain');
   }, [router]);
+
+  const shareDetailOffer = useCallback(
+    (offer: DetailOffer) => {
+      if (!resolvedBusinessId || !offer.orderId) {
+        Alert.alert("Kunde inte dela", "Erbjudandet saknar information som behövs för att skapa en länk.");
+        return;
+      }
+
+      void shareOffer({
+        businessId: resolvedBusinessId,
+        orderId: String(offer.orderId),
+        businessName: displayTitle,
+        offerText: offer.text,
+      });
+    },
+    [displayTitle, resolvedBusinessId]
+  );
 
   const toggleEventInterest = async (event: BusinessEventItem) => {
     if (!isLoggedIn) {
@@ -955,11 +974,30 @@ export default function CompanyDetailScreen() {
         </Text>
       ) : null}
 
-      <View className="mt-4 overflow-hidden rounded-2xl p-4 m-2 flex-row items-center gap-3">
+      <View
+        style={{
+          marginTop: 16,
+          marginBottom: 12,
+          marginHorizontal: 8,
+          paddingHorizontal: 16,
+          paddingTop: 16,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: mapsUrl && effectiveWebsiteUrl ? 'space-between' : 'center',
+        }}
+      >
         {mapsUrl ? (
           <Pressable
-            className="flex-1 flex-row items-center justify-center rounded-full px-6 py-2.5"
-            style={{ backgroundColor: theme.isDark ? "#ffffff" : theme.cardBg }}
+            style={{
+              width: effectiveWebsiteUrl ? '47%' : '100%',
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 999,
+              paddingHorizontal: 24,
+              paddingVertical: 10,
+              backgroundColor: theme.isDark ? '#ffffff' : theme.cardBg,
+            }}
             onPress={() => Linking.openURL(mapsUrl)}
           >
             <Ionicons
@@ -979,8 +1017,16 @@ export default function CompanyDetailScreen() {
 
         {effectiveWebsiteUrl ? (
           <Pressable
-            className="flex-1 flex-row items-center justify-center rounded-full px-6 py-2.5"
-            style={{ backgroundColor: theme.isDark ? "#ffffff" : theme.cardBg }}
+            style={{
+              width: mapsUrl ? '47%' : '100%',
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 999,
+              paddingHorizontal: 24,
+              paddingVertical: 10,
+              backgroundColor: theme.isDark ? '#ffffff' : theme.cardBg,
+            }}
             onPress={() => Linking.openURL(effectiveWebsiteUrl)}
           >
             <Ionicons
@@ -999,8 +1045,10 @@ export default function CompanyDetailScreen() {
         ) : null}
       </View>
 
+      <BusinessOpeningHoursPanel openingHours={hydratedBusiness?.openingHours} mode={mode} />
+
       {showOffersSection ? (
-        <View className="mt-2">
+        <View style={{ marginTop: 32 }}>
           {carouselItems.length > 1 ? (
             <Text className="mb-2 px-6 text-sm" style={{ color: theme.textMuted }}>Svep sidledes för fler erbjudanden</Text>
           ) : null}
@@ -1048,6 +1096,26 @@ export default function CompanyDetailScreen() {
                             />
                           ) : null;
                         })()}
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Dela erbjudande"
+                          onPress={() => shareDetailOffer(offer)}
+                          hitSlop={8}
+                          style={{
+                            position: "absolute",
+                            top: 6,
+                            left: 6,
+                            width: 36,
+                            height: 36,
+                            borderRadius: 18,
+                            alignItems: "center",
+                            justifyContent: "center",
+                            backgroundColor: "rgba(0,0,0,0.72)",
+                            zIndex: 2,
+                          }}
+                        >
+                          <Ionicons name="share-outline" size={18} color="#ffffff" />
+                        </Pressable>
                         <LinearGradient
                           colors={[brandNavyRgba(0), brandNavyRgba(0.9)]}
                           start={{ x: 0, y: 0 }}

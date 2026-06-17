@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { Platform, Text, View } from 'react-native';
+import { Platform, View } from 'react-native';
 
 import { FloatingTabBar } from '@/components/floating-tab-bar';
 import { HapticTab } from '@/components/haptic-tab';
@@ -21,29 +21,6 @@ function tabBarIcon(
   return TabBarIcon;
 }
 
-function selectedWhiteLabel({
-  focused,
-  color,
-  children,
-}: {
-  focused: boolean;
-  color: string;
-  children: string;
-}) {
-  return (
-    <Text
-      style={{
-        color: focused ? '#FFFFFF' : color,
-        fontSize: 11,
-        fontWeight: '600',
-        lineHeight: 13,
-      }}
-    >
-      {children}
-    </Text>
-  );
-}
-
 function coloredTabOptions(
   title: string,
   iconName: React.ComponentProps<typeof IconSymbol>['name'],
@@ -53,7 +30,6 @@ function coloredTabOptions(
     title,
     tabBarActiveTintColor: '#FFFFFF',
     tabBarIcon: tabBarIcon(iconName, activeIconColor),
-    tabBarLabel: selectedWhiteLabel,
   };
 }
 

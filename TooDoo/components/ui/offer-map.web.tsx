@@ -4,7 +4,6 @@ import { ActivityIndicator, StyleSheet, View, useWindowDimensions } from 'react-
 import { buildGoogleMapsEmbedUrl } from './offer-map-url';
 import type { OfferMapProps } from './offer-map.types';
 import { useThemePreference } from '@/context/theme-preference-context';
-import { useDeferUntilVisible } from '@/hooks/use-defer-until-visible';
 import { uiTheme } from '@/lib/ui-theme';
 
 export type { OfferMapProps };
@@ -20,7 +19,6 @@ function OfferMapComponent({
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
   const mapHeight = Math.max(240, Math.min(windowWidth - 48, 360));
-  const { ref, shouldLoad } = useDeferUntilVisible();
 
   const embedSrc = useMemo(
     () =>
@@ -32,12 +30,8 @@ function OfferMapComponent({
   );
 
   return (
-    <View
-      ref={ref}
-      key={mapKey}
-      style={[styles.container, { height: mapHeight }]}
-    >
-      {shouldLoad && embedSrc ? (
+    <View key={mapKey} style={[styles.container, { height: mapHeight }]}>
+      {embedSrc ? (
         createElement('iframe', {
           title: title ?? 'Karta',
           src: embedSrc,

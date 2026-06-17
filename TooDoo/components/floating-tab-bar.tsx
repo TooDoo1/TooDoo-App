@@ -31,7 +31,7 @@ export function getTabBarLeft(windowWidth: number, barWidth: number) {
   return Math.max((windowWidth - barWidth) / 2, TAB_BAR_MARGIN_H);
 }
 
-export function getTabBarBottomOffset(insetsBottom: number, platform: string = 'ios') {
+export function getTabBarBottomOffset(insetsBottom: number, platform: string = Platform.OS) {
   if (platform === 'web') {
     // Standalone viewport already reaches the screen bottom — don't double safe-area offset.
     if (isStandaloneWebApp()) {
@@ -43,8 +43,12 @@ export function getTabBarBottomOffset(insetsBottom: number, platform: string = '
     return TAB_BAR_WEB_BOTTOM_INSET;
   }
 
+  if (platform === 'android') {
+    return Math.max(insetsBottom + 8, 12);
+  }
+
   const raw = insetsBottom + TAB_BAR_EXTRA_BOTTOM;
-  return Math.max(raw, 0);
+  return Math.max(raw, 8);
 }
 
 /** Real scroll padding — overlay tab bar is not in the tab navigator layout. */
