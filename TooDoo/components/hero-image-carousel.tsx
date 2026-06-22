@@ -19,7 +19,8 @@ export type { HeroSlide };
 
 const HERO_HEIGHT = 210;
 const HERO_AUTO_MS = 3000;
-const HERO_SCROLL_ANIM_MS = 450;
+const HERO_SCROLL_ANIM_MS = 520;
+const HERO_DECELERATION = Platform.OS === 'android' ? 0.992 : ('normal' as const);
 
 function buildLoopSlides(slides: HeroSlide[]): HeroSlide[] {
   if (slides.length <= 1) return slides;
@@ -99,7 +100,7 @@ function HeroImageCarouselInner({
   const slideCount = slides.length;
   const loopSlides = useMemo(() => buildLoopSlides(slides), [slides]);
   const loopStartIndex = slideCount > 1 ? 1 : 0;
-  const slideStride = screenWidth;
+  const slideStride = Math.max(screenWidth, 1);
 
   useEffect(() => {
     schedulePrefetchImageUris(slides.map((slide) => slide.source), slideCount);
@@ -186,7 +187,7 @@ function HeroImageCarouselInner({
     scrollRef.current?.scrollTo({ x: targetLoopIndex * slideStride, animated: true });
   };
 
-  if (slideCount === 0 || slideStride <= 0) return null;
+  if (slideCount === 0) return null;
 
   return (
     <View style={[styles.shell, { height: shellHeight, backgroundColor: panelBackgroundColor }]}>
@@ -197,11 +198,12 @@ function HeroImageCarouselInner({
         pagingEnabled
         removeClippedSubviews={Platform.OS !== 'web'}
         showsHorizontalScrollIndicator={false}
-        decelerationRate="fast"
+        decelerationRate={HERO_DECELERATION}
+        directionalLockEnabled={Platform.OS === 'ios'}
         snapToInterval={slideStride}
         snapToAlignment="start"
         disableIntervalMomentum
-        scrollEventThrottle={32}
+        scrollEventThrottle={16}
         style={{ height: shellHeight }}
         onScrollBeginDrag={() => {
           isInteractingRef.current = true;

@@ -1100,6 +1100,8 @@ export default function CompanyDetailScreen() {
           <ScrollView
             horizontal
             nestedScrollEnabled
+            directionalLockEnabled={Platform.OS === 'ios'}
+            decelerationRate={Platform.OS === 'android' ? 0.992 : 'normal'}
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 4 }}
           >

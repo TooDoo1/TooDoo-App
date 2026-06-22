@@ -29,6 +29,10 @@ export function LiquidGlassTabBarShell({
   children,
 }: Props) {
   if (useNativeTabBarLiquidGlass()) {
+    // Apple HIG: the `regular` variant is correct for tab bars / navigation chrome —
+    // it is fully adaptive and stays legible over any content. `isInteractive` makes
+    // the glass react to touches. Never apply opacity to this view or any ancestor
+    // (it breaks the native effect); the overlay animates `bottom`, not opacity.
     return (
       <GlassView
         style={[
@@ -41,7 +45,6 @@ export function LiquidGlassTabBarShell({
         ]}
         glassEffectStyle="regular"
         isInteractive
-        colorScheme={isDark ? 'dark' : 'light'}
       >
         {children}
       </GlassView>

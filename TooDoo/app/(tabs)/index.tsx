@@ -515,6 +515,9 @@ function ForYouOrderCarousel({
     <ScrollView
       horizontal
       removeClippedSubviews
+      nestedScrollEnabled
+      directionalLockEnabled={Platform.OS === 'ios'}
+      decelerationRate={Platform.OS === 'android' ? 0.992 : 'normal'}
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={{ paddingHorizontal: 2 }}
     >
@@ -1349,6 +1352,8 @@ export default function HomeScreen() {
         setIsSearchLoading(true);
       }
       void searchCatalog(trimmedSearchQuery, {
+        take: 16,
+        maxHydrate: 12,
         knownCards: knownCardsRef.current,
       })
         .then((results) => {
@@ -1428,10 +1433,8 @@ export default function HomeScreen() {
 
   const heroBlockHeight = HERO_HEIGHT + heroTopInset;
   const searchPanelStickyLift = 12;
-  // If this range is too small, the hero height collapses quickly and the
-  // user perceives the vertical scroll as "faster" near the carousel.
-  // Widening it keeps the collapse feeling smooth/consistent.
-  const heroCollapseScroll = 160;
+  // Keep collapse shorter than hero height — 1:1 mapping breaks ScrollView layout.
+  const heroCollapseScroll = 200;
   const collapsedHeaderTopPadding = heroTopInset + 8 - searchPanelStickyLift;
   const heroHeight = scrollY.interpolate({
     inputRange: [0, heroCollapseScroll],

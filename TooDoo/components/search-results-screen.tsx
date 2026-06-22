@@ -183,7 +183,7 @@ export function SearchResultsScreen() {
     void (async () => {
       setIsLoading(true);
       try {
-        const results = await searchCatalog(query, { take: 50 });
+        const results = await searchCatalog(query, { take: 40, maxHydrate: 40 });
         const withDistance = coords
           ? await fillMissingDistancesFromAddresses(results, coords, { maxGeocode: 50 })
           : results;

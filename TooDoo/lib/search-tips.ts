@@ -14,9 +14,12 @@ export type SearchSuggestion = {
 };
 
 type SuggestionsResponse = {
-  suggestions?: Array<Partial<SearchSuggestion> & { label?: string }>;
+  results?: Array<Partial<SearchSuggestion> & { label?: string }>;
   take?: number;
 };
+
+/** `GET /search/suggestions` caps `take` at 10. */
+const SUGGESTIONS_MAX_TAKE = 10;
 
 export const DEFAULT_SEARCH_TIPS = [
   'pizza',
@@ -46,7 +49,7 @@ function uniqueLabels(values: string[], take: number) {
   return result;
 }
 
-function mapSuggestionRows(rows: SuggestionsResponse['suggestions'], take: number) {
+function mapSuggestionRows(rows: SuggestionsResponse['results'], take: number) {
   if (!Array.isArray(rows)) {
     return [];
   }
@@ -86,21 +89,21 @@ export function mergeSearchTips(...groups: string[][]) {
 
 async function fetchBusinessSuggestions(q: string, take: number, city?: string) {
   const params = new URLSearchParams({
-    q: q.trim(),
-    take: String(take),
+    q: q.trim().slice(0, 100),
+    take: String(Math.min(take, SUGGESTIONS_MAX_TAKE)),
   });
 
   if (city?.trim()) {
     params.set('city', city.trim());
   }
 
-  const response = await fetch(apiUrl(`/business/search/suggestions?${params.toString()}`));
+  const response = await fetch(apiUrl(`/search/suggestions?${params.toString()}`));
   if (!response.ok) {
     return [];
   }
 
   const json = (await response.json().catch(() => ({}))) as SuggestionsResponse;
-  return mapSuggestionRows(json.suggestions, take);
+  return mapSuggestionRows(json.results, take);
 }
 
 async function fetchPersonalizedTips(

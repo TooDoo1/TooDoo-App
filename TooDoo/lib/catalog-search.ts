@@ -3,11 +3,18 @@ import { hydrateOfferCardImages } from '@/lib/business-image';
 import { haversineKm, isPlausibleSwedenCoordinate } from '@/lib/geo';
 import {
   formatBusinessAddress,
+  isActiveOffer,
   mapApiOrderToCardItem,
+  parseOrdersFromBusinessRecord,
   type OfferCardItem,
 } from '@/lib/home-offers';
 
 export type SearchResultsView = 'all' | 'near' | 'hot';
+
+/** Default cap on detail lookups per search to bound network cost while hydrating cards. */
+const SEARCH_HYDRATE_LIMIT = 20;
+const SEARCH_HYDRATE_LIMIT_MAX = 40;
+const SEARCH_HYDRATE_CONCURRENCY = 4;
 
 function getOfferClaimedCount(card: OfferCardItem) {
   const raw = Array.isArray(card.erbjudandeclaimade)
@@ -64,8 +71,59 @@ export function sortSearchResultsForView(
   return cards;
 }
 
-function mapBusinessSearchResult(business: any): OfferCardItem {
+/** Lightweight result from the unified `GET /search` + `GET /search/suggestions` endpoints. */
+type UnifiedSearchResult = {
+  type?: 'business' | 'order';
+  id?: string;
+  label?: string;
+  subtitle?: string;
+  city?: string;
+  category?: { id?: string; name?: string; icon?: string };
+  business?: { id?: string; name?: string };
+};
+
+type UnifiedSearchResponse = {
+  results?: UnifiedSearchResult[];
+  total?: number;
+  totalCapped?: boolean;
+};
+
+async function fetchUnifiedSearch(params: URLSearchParams): Promise<UnifiedSearchResult[]> {
+  const response = await fetch(apiUrl(`/search?${params.toString()}`));
+  if (!response.ok) {
+    return [];
+  }
+  const json = (await response.json().catch(() => ({}))) as UnifiedSearchResponse;
+  return Array.isArray(json.results) ? json.results : [];
+}
+
+function mapBusinessRecordToCard(business: any, orders: any[]): OfferCardItem {
   const businessId = String(business?.id ?? business?._id ?? 'business');
+  const activeOrders = orders.filter((order) => isActiveOffer(order));
+
+  if (activeOrders.length > 0) {
+    const base = mapApiOrderToCardItem({ ...activeOrders[0], business }, 0);
+    return {
+      ...base,
+      id: businessId,
+      orderIds: activeOrders.map((order, index) =>
+        String(order?.id ?? order?._id ?? `${businessId}-order-${index}`)
+      ),
+      erbjudande: activeOrders.map((order) => order?.title ?? 'Erbjudande'),
+      erbjudandepris: activeOrders.map((order) => String(order?.price ?? 0)),
+      erbjudandeoriginalpris: activeOrders.map((order) =>
+        order?.originalPrice !== undefined && order?.originalPrice !== null
+          ? String(order.originalPrice)
+          : ''
+      ),
+      erbjudandeclaimade: activeOrders.map((order) =>
+        String(order?.claimedRedemptions ?? order?.claimedCount ?? 0)
+      ),
+      erbjudandemängd: activeOrders.map((order) => String(order?.maxRedemptions ?? 0)),
+      erbjudandelängd: activeOrders.map((order) => order?.orderTimeTo ?? ''),
+    };
+  }
+
   const imageUri = normalizeImageUrl(
     business?.image?.publicUrl ??
       business?.image?.url ??
@@ -93,30 +151,57 @@ function mapBusinessSearchResult(business: any): OfferCardItem {
   };
 }
 
-type SearchResponse = {
-  results?: unknown[];
-  total?: number;
-};
+async function hydrateOrderCard(orderId: string): Promise<OfferCardItem | null> {
+  try {
+    const response = await fetch(apiUrl(`/orders/${encodeURIComponent(orderId)}`));
+    if (!response.ok) return null;
+    const json = await response.json().catch(() => ({}));
+    const order = (json as any)?.order ?? json;
+    if (!order || (!order.id && !order._id)) return null;
+    return mapApiOrderToCardItem(order, 0);
+  } catch {
+    return null;
+  }
+}
 
-async function fetchSearchResults(path: string, params: URLSearchParams): Promise<unknown[]> {
-  const response = await fetch(apiUrl(`${path}?${params.toString()}`));
-  if (!response.ok) {
-    return [];
+async function hydrateBusinessCard(businessId: string): Promise<OfferCardItem | null> {
+  try {
+    const response = await fetch(apiUrl(`/business/${encodeURIComponent(businessId)}`));
+    if (!response.ok) return null;
+    const json = await response.json().catch(() => ({}));
+    const business = (json as any)?.business ?? json;
+    if (!business || (!business.id && !business._id)) return null;
+    const orders = parseOrdersFromBusinessRecord({ ...business, id: businessId });
+    return mapBusinessRecordToCard(business, orders);
+  } catch {
+    return null;
+  }
+}
+
+type HydrationTask = { kind: 'order' | 'business'; id: string };
+
+async function hydrateTasks(tasks: HydrationTask[]): Promise<OfferCardItem[]> {
+  const ordered: (OfferCardItem | null)[] = new Array(tasks.length).fill(null);
+
+  for (let i = 0; i < tasks.length; i += SEARCH_HYDRATE_CONCURRENCY) {
+    const batch = tasks.slice(i, i + SEARCH_HYDRATE_CONCURRENCY);
+    const cards = await Promise.all(
+      batch.map((task) =>
+        task.kind === 'order' ? hydrateOrderCard(task.id) : hydrateBusinessCard(task.id)
+      )
+    );
+    cards.forEach((card, index) => {
+      ordered[i + index] = card;
+    });
   }
 
-  const json = (await response.json().catch(() => ({}))) as SearchResponse & {
-    orders?: unknown[];
-    businesses?: unknown[];
-  };
-
-  if (Array.isArray(json.results)) return json.results;
-  if (Array.isArray(json.orders)) return json.orders;
-  if (Array.isArray(json.businesses)) return json.businesses;
-  return [];
+  return ordered.filter((card): card is OfferCardItem => card !== null);
 }
 
 /**
- * Backend catalog search (orders + businesses). The API ranks matches server-side.
+ * Unified catalog search. Calls the backend `GET /search` (relevance-ranked across
+ * approved businesses + active orders), then hydrates each lightweight hit into a full
+ * offer card via the order/business detail endpoints. Results stay in relevance order.
  */
 export async function searchCatalog(
   query: string,
@@ -125,6 +210,8 @@ export async function searchCatalog(
     city?: string;
     take?: number;
     skip?: number;
+    /** Max detail lookups used to hydrate hits into full cards (defaults to 20). */
+    maxHydrate?: number;
     knownCards?: OfferCardItem[];
   } = {}
 ): Promise<OfferCardItem[]> {
@@ -133,9 +220,14 @@ export async function searchCatalog(
     return [];
   }
 
+  const hydrateLimit = Math.min(
+    options.maxHydrate ?? SEARCH_HYDRATE_LIMIT,
+    SEARCH_HYDRATE_LIMIT_MAX
+  );
+
   const params = new URLSearchParams({
-    q,
-    take: String(options.take ?? 30),
+    q: q.slice(0, 100),
+    take: String(Math.min(options.take ?? 24, 50)),
     skip: String(options.skip ?? 0),
   });
   if (options.categoryName) {
@@ -145,24 +237,48 @@ export async function searchCatalog(
     params.set('city', options.city);
   }
 
-  const [orderRows, businessRows] = await Promise.all([
-    fetchSearchResults('/orders/search', params),
-    fetchSearchResults('/business/search', params),
-  ]);
+  const results = await fetchUnifiedSearch(params);
 
-  const orderCards = orderRows.map((order, index) => mapApiOrderToCardItem(order, index));
-  const businessCards = businessRows.map((business) => mapBusinessSearchResult(business));
+  // Preserve relevance order, dedupe by business so one business yields one card.
+  const seenBusinessIds = new Set<string>();
+  const tasks: HydrationTask[] = [];
 
-  const businessesWithOrderHits = new Set(orderCards.map((card) => card.id));
-  const businessesOnly = businessCards.filter((card) => !businessesWithOrderHits.has(card.id));
+  for (const result of results) {
+    if (!result?.id) continue;
 
-  const merged = [...orderCards, ...businessesOnly];
+    if (result.type === 'order') {
+      const businessId = result.business?.id ? String(result.business.id) : undefined;
+      if (businessId) {
+        if (seenBusinessIds.has(businessId)) continue;
+        seenBusinessIds.add(businessId);
+      }
+      tasks.push({ kind: 'order', id: String(result.id) });
+    } else {
+      const businessId = String(result.id);
+      if (seenBusinessIds.has(businessId)) continue;
+      seenBusinessIds.add(businessId);
+      tasks.push({ kind: 'business', id: businessId });
+    }
+
+    if (tasks.length >= hydrateLimit) break;
+  }
+
+  const cards = await hydrateTasks(tasks);
+
+  // A high-ranking order and a separate business hit can resolve to the same business.
+  const deduped: OfferCardItem[] = [];
+  const seenCardIds = new Set<string>();
+  for (const card of cards) {
+    if (seenCardIds.has(card.id)) continue;
+    seenCardIds.add(card.id);
+    deduped.push(card);
+  }
 
   try {
-    return await hydrateOfferCardImages(merged, {
+    return await hydrateOfferCardImages(deduped, {
       knownCards: options.knownCards,
     });
   } catch {
-    return merged;
+    return deduped;
   }
 }

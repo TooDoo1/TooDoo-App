@@ -117,7 +117,7 @@ export function isActiveOffer(order: any, nowMs: number = Date.now()): boolean {
   return true;
 }
 
-function parseOrdersFromBusinessRecord(business: any): any[] {
+export function parseOrdersFromBusinessRecord(business: any): any[] {
   const nested =
     (Array.isArray(business?.activeOrders) && business.activeOrders) ||
     (Array.isArray(business?.orders) && business.orders) ||
