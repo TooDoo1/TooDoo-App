@@ -259,7 +259,7 @@ export function OnboardingOverlay({ onDone }: OnboardingOverlayProps) {
             >
               <Text style={[styles.accountLink, { color: theme.link }]}>Skapa konto</Text>
             </Pressable>
-            <Text style={[styles.accountPrompt, { color: theme.textFaint }]}>·</Text>
+            <Text style={[styles.accountPrompt, { color: theme.textFaint }]}>eller</Text>
             <Pressable
               accessibilityRole="button"
               onPress={() => finish('/(tabs)/Loggain')}
