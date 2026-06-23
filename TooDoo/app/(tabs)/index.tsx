@@ -1571,20 +1571,22 @@ export default function HomeScreen() {
   const renderHomeSearchHeader = () => (
   <View style={{ position: 'relative' }} pointerEvents="box-none">
       <View
-        style={{
-          position: 'relative',
-          marginLeft: navBarLeft,
-          width: navBarWidth,
-          zIndex: searchDropdownExpanded ? 100 : 0,
-          elevation: searchDropdownExpanded ? 100 : 0,
-        }}
+        style={[
+          styles.searchBarAnchor,
+          {
+            marginLeft: navBarLeft,
+            width: navBarWidth,
+            zIndex: searchDropdownExpanded ? 100 : 0,
+            elevation: searchDropdownExpanded ? 100 : 0,
+          },
+        ]}
       >
         {renderSearchTipsDropdown()}
 
         <View
-          className="flex-row w-full items-center rounded-full px-4"
           style={[
             filterSurfaceStyle,
+            styles.searchBarRow,
             {
               height: SEARCH_BAR_HEIGHT,
               position: 'relative',
@@ -1600,22 +1602,22 @@ export default function HomeScreen() {
             }
           }}
         >
-          <Ionicons name="search" size={18} color={FilterChipTheme.textMuted} style={{ marginRight: 8 }} />
+          <Ionicons name="search" size={18} color={FilterChipTheme.textMuted} style={styles.searchBarIcon} />
           <TextInput
+            nativeID="home-search-input"
             value={searchQuery}
             onChangeText={setSearchQuery}
             onFocus={openSearchDropdown}
             onBlur={closeSearchDropdown}
             placeholder="Sök restauranger, events, upplevelser"
             placeholderTextColor={FilterChipTheme.placeholder}
-            className="flex-1"
-            style={{
-              color: FilterChipTheme.text,
-              height: SEARCH_BAR_HEIGHT,
-              paddingVertical: 0,
-              fontSize: 16,
-              lineHeight: 20,
-            }}
+            style={[
+              styles.searchBarInput,
+              {
+                color: FilterChipTheme.text,
+                height: SEARCH_BAR_HEIGHT,
+              },
+            ]}
             returnKeyType="search"
           />
           <Pressable
@@ -1922,5 +1924,41 @@ const styles = StyleSheet.create({
   },
   scroll: {
     flex: 1,
+  },
+  searchBarAnchor: {
+    position: 'relative',
+    maxWidth: '100%',
+  },
+  searchBarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    width: '100%',
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    ...(Platform.OS === 'web'
+      ? {
+          // RN Web production builds can drop NativeWind width/flex on inputs.
+          minWidth: 0,
+        }
+      : null),
+  },
+  searchBarIcon: {
+    marginRight: 8,
+    flexShrink: 0,
+  },
+  searchBarInput: {
+    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    paddingVertical: 0,
+    fontSize: 16,
+    lineHeight: 20,
+    ...(Platform.OS === 'web'
+      ? {
+          width: 0,
+        }
+      : null),
   },
 });
