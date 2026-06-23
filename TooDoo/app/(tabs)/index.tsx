@@ -1468,6 +1468,8 @@ export default function HomeScreen() {
           top: 0,
           zIndex: searchDropdownExpanded ? 200 : 20,
           overflow: 'visible' as const,
+          width: '100%' as const,
+          alignSelf: 'stretch' as const,
         } as const)
       : ({
           zIndex: searchDropdownExpanded ? 200 : 10,
@@ -1569,13 +1571,17 @@ export default function HomeScreen() {
     ) : null;
 
   const renderHomeSearchHeader = () => (
-  <View style={{ position: 'relative' }} pointerEvents="box-none">
+  <View style={styles.searchHeaderRoot} pointerEvents="box-none">
       <View
         style={[
           styles.searchBarAnchor,
+          Platform.OS === 'web'
+            ? styles.searchBarAnchorWeb
+            : {
+                marginLeft: navBarLeft,
+                width: navBarWidth,
+              },
           {
-            marginLeft: navBarLeft,
-            width: navBarWidth,
             zIndex: searchDropdownExpanded ? 100 : 0,
             elevation: searchDropdownExpanded ? 100 : 0,
           },
@@ -1603,30 +1609,34 @@ export default function HomeScreen() {
           }}
         >
           <Ionicons name="search" size={18} color={FilterChipTheme.textMuted} style={styles.searchBarIcon} />
-          <TextInput
-            nativeID="home-search-input"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            onFocus={openSearchDropdown}
-            onBlur={closeSearchDropdown}
-            placeholder="Sök restauranger, events, upplevelser"
-            placeholderTextColor={FilterChipTheme.placeholder}
-            style={[
-              styles.searchBarInput,
-              {
-                color: FilterChipTheme.text,
-                height: SEARCH_BAR_HEIGHT,
-              },
-            ]}
-            returnKeyType="search"
-          />
+          <View style={styles.searchBarInputSlot}>
+            <TextInput
+              nativeID="home-search-input"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              onFocus={openSearchDropdown}
+              onBlur={closeSearchDropdown}
+              placeholder="Sök restauranger, events, upplevelser"
+              placeholderTextColor={FilterChipTheme.placeholder}
+              style={[
+                styles.searchBarInput,
+                {
+                  color: FilterChipTheme.text,
+                  height: SEARCH_BAR_HEIGHT,
+                },
+              ]}
+              returnKeyType="search"
+            />
+          </View>
           <Pressable
             onPress={() => {
               setSearchQuery('');
               clearHomeSearchCache();
             }}
-            className="ml-2 items-center justify-center rounded-full"
-            style={{ width: 32, height: 32, opacity: searchQuery.trim() ? 1 : 0 }}
+            style={[
+              styles.searchBarClearButton,
+              { opacity: searchQuery.trim() ? 1 : 0 },
+            ]}
             pointerEvents={searchQuery.trim() ? 'auto' : 'none'}
             disabled={!searchQuery.trim()}
             accessibilityElementsHidden={!searchQuery.trim()}
@@ -1925,40 +1935,55 @@ const styles = StyleSheet.create({
   scroll: {
     flex: 1,
   },
+  searchHeaderRoot: {
+    position: 'relative',
+    width: '100%',
+  },
   searchBarAnchor: {
     position: 'relative',
     maxWidth: '100%',
   },
+  searchBarAnchorWeb: {
+    width: '100%',
+    paddingHorizontal: 24,
+    marginLeft: 0,
+  },
   searchBarRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'stretch',
     width: '100%',
     borderRadius: 999,
     paddingHorizontal: 16,
-    ...(Platform.OS === 'web'
-      ? {
-          // RN Web production builds can drop NativeWind width/flex on inputs.
-          minWidth: 0,
-        }
-      : null),
   },
   searchBarIcon: {
     marginRight: 8,
     flexShrink: 0,
   },
-  searchBarInput: {
+  searchBarInputSlot: {
     flex: 1,
-    flexGrow: 1,
-    flexShrink: 1,
     minWidth: 0,
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+  },
+  searchBarInput: {
+    width: '100%',
     paddingVertical: 0,
     fontSize: 16,
     lineHeight: 20,
-    ...(Platform.OS === 'web'
-      ? {
-          width: 0,
-        }
-      : null),
+    borderWidth: 0,
+    ...Platform.select({
+      web: {
+        outlineStyle: 'none' as const,
+      },
+      default: {},
+    }),
+  },
+  searchBarClearButton: {
+    marginLeft: 8,
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 999,
   },
 });

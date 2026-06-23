@@ -107,11 +107,14 @@ body {
   outline: none !important;
 }
 
-/* Home search bar — RN Web static export can collapse flex inputs without explicit flex basis. */
+/* Home search bar — RN Web static export: let the input fill its flex slot. */
 #home-search-input {
-  flex: 1 1 0% !important;
+  width: 100% !important;
   min-width: 0 !important;
-  width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  border: none !important;
+  background: transparent !important;
 }
 
 /* iOS Safari auto-zooms when a focused field has font-size < 16px. */
