@@ -23,9 +23,14 @@ import { useStandalonePwa } from '@/lib/use-standalone-pwa';
 import { WebStackEdgeSwipeBack } from '@/components/web-stack-edge-swipe-back';
 import { WebHistoryBackSync } from '@/components/web-history-back-sync';
 import LightningIntroSplash, { SPLASH_EXIT_DURATION_MS } from '@/components/ui/lightning-intro-splash';
+import { LegalConsentOverlay } from '@/components/ui/legal-consent-overlay';
 import { OnboardingOverlay } from '@/components/ui/onboarding-overlay';
 import { WebStackSwipeProvider } from '@/context/web-stack-swipe-context';
 import { getHomeScreenSnapshot } from '@/lib/home-list-cache';
+import {
+	hasAcceptedLegalConsent,
+	markLegalConsentAccepted,
+} from '@/lib/legal-consent-storage';
 import { hasSeenOnboarding, markOnboardingSeen } from '@/lib/onboarding-storage';
 import { getSwipeableStackScreenOptions } from '@/lib/stack-navigation';
 import { uiTheme } from '@/lib/ui-theme';
@@ -79,19 +84,29 @@ function AppShell() {
 	const [introComplete, setIntroComplete] = useState(skipStartupSplash);
 	const [hasMaxElapsed, setHasMaxElapsed] = useState(skipStartupSplash);
 	const [isSplashMounted, setIsSplashMounted] = useState(!skipStartupSplash);
+	const [legalConsentStatus, setLegalConsentStatus] = useState<'pending' | 'needed' | 'accepted'>('pending');
 	const [onboardingStatus, setOnboardingStatus] = useState<'pending' | 'needed' | 'skipped'>('pending');
 
 	useEffect(() => {
 		let cancelled = false;
 		void (async () => {
-			const seen = await hasSeenOnboarding();
+			const [legalAccepted, onboardingSeen] = await Promise.all([
+				hasAcceptedLegalConsent(),
+				hasSeenOnboarding(),
+			]);
 			if (!cancelled) {
-				setOnboardingStatus(seen ? 'skipped' : 'needed');
+				setLegalConsentStatus(legalAccepted ? 'accepted' : 'needed');
+				setOnboardingStatus(onboardingSeen ? 'skipped' : 'needed');
 			}
 		})();
 		return () => {
 			cancelled = true;
 		};
+	}, []);
+
+	const handleLegalConsentAccept = useCallback(() => {
+		setLegalConsentStatus('accepted');
+		void markLegalConsentAccepted();
 	}, []);
 
 	const handleOnboardingDone = useCallback(() => {
@@ -136,9 +151,8 @@ function AppShell() {
 		if (!isExiting || !isSplashMounted) {
 			return;
 		}
-		// Wait for onboarding storage before revealing the app shell — avoids a
-		// one-frame flash of the home screen before the overlay mounts.
-		if (onboardingStatus === 'pending') {
+		// Wait for startup storage before revealing the app shell.
+		if (legalConsentStatus === 'pending' || onboardingStatus === 'pending') {
 			return;
 		}
 
@@ -148,7 +162,7 @@ function AppShell() {
 		}, SPLASH_EXIT_DURATION_MS);
 
 		return () => clearTimeout(unmountTimer);
-	}, [isExiting, isSplashMounted, onboardingStatus]);
+	}, [isExiting, isSplashMounted, legalConsentStatus, onboardingStatus]);
 
 	const appShellStyle =
 		Platform.OS === 'web' && isStandalonePwa
@@ -157,11 +171,16 @@ function AppShell() {
 				? { flex: 1, height: '100%', backgroundColor: theme.screenBg }
 				: { flex: 1, backgroundColor: theme.screenBg };
 
-	const onboardingResolved = onboardingStatus !== 'pending';
-	const hideAppShell = onboardingStatus !== 'skipped';
+	const startupResolved = legalConsentStatus !== 'pending' && onboardingStatus !== 'pending';
+	const hideAppShell = legalConsentStatus !== 'accepted' || onboardingStatus !== 'skipped';
+	const showLegalConsent =
+		legalConsentStatus === 'needed' &&
+		startupResolved &&
+		(isExiting || !isSplashMounted);
 	const showOnboarding =
+		legalConsentStatus === 'accepted' &&
 		onboardingStatus === 'needed' &&
-		onboardingResolved &&
+		startupResolved &&
 		(isExiting || !isSplashMounted);
 	const showTabBar = !hideAppShell && !isSplashMounted;
 
@@ -223,10 +242,13 @@ function AppShell() {
 								/>
 							</View>
 						) : null}
+						{showLegalConsent ? (
+							<LegalConsentOverlay onAccept={handleLegalConsentAccept} />
+						) : null}
 						{showOnboarding ? (
 							<OnboardingOverlay onDone={handleOnboardingDone} />
 						) : null}
-						{hideAppShell && onboardingStatus === 'pending' ? (
+						{hideAppShell && !startupResolved ? (
 							<View
 								pointerEvents="auto"
 								style={[
