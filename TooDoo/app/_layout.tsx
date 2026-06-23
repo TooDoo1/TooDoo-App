@@ -158,11 +158,12 @@ function AppShell() {
 				: { flex: 1, backgroundColor: theme.screenBg };
 
 	const onboardingResolved = onboardingStatus !== 'pending';
-	const showOnboarding = !isSplashMounted && onboardingStatus === 'needed';
-	const showTabBar = !isSplashMounted && onboardingStatus === 'skipped';
-	// When splash is skipped (cached home), block the shell until storage resolves.
-	const blockShellUntilOnboardingResolved =
-		!isSplashMounted && !onboardingResolved;
+	const hideAppShell = onboardingStatus !== 'skipped';
+	const showOnboarding =
+		onboardingStatus === 'needed' &&
+		onboardingResolved &&
+		(isExiting || !isSplashMounted);
+	const showTabBar = !hideAppShell && !isSplashMounted;
 
 	return (
 		<TabBarMotionProvider>
@@ -177,7 +178,12 @@ function AppShell() {
 						<TabBarStackMotionReset />
 						<WebStackEdgeSwipeBack />
 						<WebHistoryBackSync />
-						<View style={appShellStyle}>
+						<View
+							style={[
+								appShellStyle,
+								hideAppShell && styles.hiddenAppShell,
+							]}
+						>
 						<Stack
 							screenOptions={{
 								contentStyle: { flex: 1, backgroundColor: theme.screenBg },
@@ -202,21 +208,12 @@ function AppShell() {
 						</Stack>
 						</View>
 						{showTabBar ? <RootFloatingTabBarOverlay /> : null}
-						{showOnboarding ? <OnboardingOverlay onDone={handleOnboardingDone} /> : null}
-						{blockShellUntilOnboardingResolved ? (
-							<View
-								pointerEvents="auto"
-								style={[
-									StyleSheet.absoluteFill,
-									{ backgroundColor: theme.screenBg, zIndex: 400 },
-								]}
-							/>
-						) : null}
 						<StatusBar style={effectiveScheme === 'dark' ? 'light' : 'dark'} />
 						{isSplashMounted ? (
 							<View
 								style={[
 									StyleSheet.absoluteFill,
+									styles.splashLayer,
 									{ pointerEvents: isExiting ? 'none' : 'auto' },
 								]}
 							>
@@ -226,6 +223,19 @@ function AppShell() {
 								/>
 							</View>
 						) : null}
+						{showOnboarding ? (
+							<OnboardingOverlay onDone={handleOnboardingDone} />
+						) : null}
+						{hideAppShell && onboardingStatus === 'pending' ? (
+							<View
+								pointerEvents="auto"
+								style={[
+									StyleSheet.absoluteFill,
+									styles.startupGate,
+									{ backgroundColor: theme.screenBg },
+								]}
+							/>
+						) : null}
 					</ThemeProvider>
 				</GestureHandlerRootView>
 			</NativeStackMotionProvider>
@@ -233,6 +243,29 @@ function AppShell() {
 		</TabBarMotionProvider>
 	);
 }
+
+const styles = StyleSheet.create({
+	hiddenAppShell: Platform.select({
+		web: {
+			visibility: 'hidden',
+			position: 'absolute',
+			width: 0,
+			height: 0,
+			overflow: 'hidden',
+			pointerEvents: 'none',
+		},
+		default: {
+			opacity: 0,
+			pointerEvents: 'none',
+		},
+	}),
+	splashLayer: {
+		zIndex: 500,
+	},
+	startupGate: {
+		zIndex: 450,
+	},
+});
 
 export default function RootLayout() {
 	return (
