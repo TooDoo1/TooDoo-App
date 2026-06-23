@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type TouchEvent as ReactTouchEvent,
+} from 'react';
 import {
   ImageSourcePropType,
   Platform,
@@ -21,6 +28,7 @@ const HERO_HEIGHT = 210;
 const HERO_AUTO_MS = 3000;
 const HERO_SCROLL_ANIM_MS = 520;
 const HERO_DECELERATION = Platform.OS === 'android' ? 0.992 : ('normal' as const);
+const HERO_WEB_SWIPE_THRESHOLD = 40;
 
 function buildLoopSlides(slides: HeroSlide[]): HeroSlide[] {
   if (slides.length <= 1) return slides;
@@ -39,11 +47,13 @@ function HeroSlideImage({
   width,
   height,
   priority = 'normal',
+  fillWidth = false,
 }: {
   source: ImageSourcePropType;
   width: number;
   height: number;
   priority?: 'high' | 'normal' | 'low';
+  fillWidth?: boolean;
 }) {
   const uri = resolveHeroImageUri(source);
 
@@ -60,8 +70,8 @@ function HeroSlideImage({
           position: 'absolute',
           top: 0,
           left: 0,
-          width,
-          height,
+          width: fillWidth ? '100%' : width,
+          height: fillWidth ? '100%' : height,
           objectFit: 'cover',
           display: 'block',
         }}
@@ -81,6 +91,106 @@ function HeroSlideImage({
   );
 }
 
+function HeroSlideFrame({
+  slide,
+  shellHeight,
+  slideWidth,
+  fillWidth,
+  priority,
+}: {
+  slide: HeroSlide;
+  shellHeight: number;
+  slideWidth: number;
+  fillWidth: boolean;
+  priority: 'high' | 'normal' | 'low';
+}) {
+  return (
+    <>
+      <HeroSlideImage
+        source={slide.source}
+        width={slideWidth}
+        height={shellHeight}
+        fillWidth={fillWidth}
+        priority={priority}
+      />
+      <LinearGradient
+        colors={['rgba(0,0,0,0.2)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.7)']}
+        locations={[0, 0.45, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={styles.titleWrap}>
+        <Text style={styles.titleText} numberOfLines={2}>
+          {slide.title}
+        </Text>
+      </View>
+    </>
+  );
+}
+
+function WebHeroCarousel({
+  slides,
+  shellHeight,
+  activeDot,
+  onStep,
+}: {
+  slides: HeroSlide[];
+  shellHeight: number;
+  activeDot: number;
+  onStep: (direction: -1 | 1) => void;
+}) {
+  const touchStartXRef = useRef<number | null>(null);
+  const slideCount = slides.length;
+  const slideShare = slideCount > 0 ? 100 / slideCount : 100;
+
+  const handleTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
+    touchStartXRef.current = event.touches[0]?.clientX ?? null;
+  };
+
+  const handleTouchEnd = (event: ReactTouchEvent<HTMLDivElement>) => {
+    const startX = touchStartXRef.current;
+    touchStartXRef.current = null;
+    if (startX == null) return;
+
+    const endX = event.changedTouches[0]?.clientX ?? startX;
+    const delta = endX - startX;
+    if (Math.abs(delta) < HERO_WEB_SWIPE_THRESHOLD) return;
+    onStep(delta > 0 ? -1 : 1);
+  };
+
+  return (
+    <div
+      className="hero-carousel-web-track"
+      style={{ height: shellHeight }}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
+      <div
+        className="hero-carousel-web-slider"
+        style={{
+          width: `${slideCount * 100}%`,
+          transform: `translateX(-${activeDot * slideShare}%)`,
+        }}
+      >
+        {slides.map((slide, idx) => (
+          <div
+            key={`hero-web-${idx}-${slide.title}`}
+            className="hero-carousel-web-slide"
+            style={{ width: `${slideShare}%` }}
+          >
+            <HeroSlideFrame
+              slide={slide}
+              shellHeight={shellHeight}
+              slideWidth={0}
+              fillWidth
+              priority={idx === activeDot ? 'high' : 'low'}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function HeroImageCarouselInner({
   slides,
   panelBackgroundColor,
@@ -91,31 +201,48 @@ function HeroImageCarouselInner({
   topInset?: number;
 }) {
   const { width: windowWidth } = useWindowDimensions();
-  const [layoutWidth, setLayoutWidth] = useState(0);
+  const [layoutWidth, setLayoutWidth] = useState(() =>
+    Platform.OS === 'web' ? 0 : Math.max(windowWidth, 1)
+  );
   const shellHeight = HERO_HEIGHT + topInset;
   const scrollRef = useRef<ScrollView>(null);
   const currentLoopIndexRef = useRef(0);
   const isInteractingRef = useRef(false);
   const [activeDot, setActiveDot] = useState(0);
+  const useWebTrack = Platform.OS === 'web';
 
   const slideCount = slides.length;
   const loopSlides = useMemo(() => buildLoopSlides(slides), [slides]);
   const loopStartIndex = slideCount > 1 ? 1 : 0;
-  const slideStride = Math.max(layoutWidth || windowWidth, 1);
+  const carouselSlides = useWebTrack ? slides : loopSlides;
+  const slideStride = Math.max(layoutWidth, 1);
+  const isLayoutReady = useWebTrack || slideStride > 1;
+  const initialScrollIndex = useWebTrack ? 0 : loopStartIndex;
 
   useEffect(() => {
     schedulePrefetchImageUris(slides.map((slide) => slide.source), slideCount);
   }, [slides, slideCount]);
 
-  useEffect(() => {
-    if (slideStride <= 0 || slideCount === 0) return;
+  const scrollToIndex = useCallback(
+    (index: number, animated: boolean) => {
+      if (!isLayoutReady || slideCount === 0 || useWebTrack) return;
+      scrollRef.current?.scrollTo({ x: index * slideStride, animated });
+    },
+    [isLayoutReady, slideCount, slideStride, useWebTrack]
+  );
 
-    currentLoopIndexRef.current = loopStartIndex;
-    setActiveDot(0);
-    requestAnimationFrame(() => {
-      scrollRef.current?.scrollTo({ x: loopStartIndex * slideStride, animated: false });
+  useEffect(() => {
+    if (!isLayoutReady || slideCount === 0 || useWebTrack) return;
+
+    currentLoopIndexRef.current = initialScrollIndex;
+    setActiveDot(loopIndexToLogical(initialScrollIndex, slideCount));
+
+    const frame = requestAnimationFrame(() => {
+      scrollToIndex(initialScrollIndex, false);
     });
-  }, [loopStartIndex, slideCount, slideStride]);
+
+    return () => cancelAnimationFrame(frame);
+  }, [initialScrollIndex, isLayoutReady, scrollToIndex, slideCount, useWebTrack]);
 
   const snapCloneIfNeeded = useCallback(
     (loopIndex: number): number => {
@@ -151,41 +278,67 @@ function HeroImageCarouselInner({
   const handleScrollEnd = useCallback(
     (offsetX: number) => {
       isInteractingRef.current = false;
-      if (slideStride <= 0 || slideCount === 0) return;
+      if (!isLayoutReady || slideCount === 0 || useWebTrack) return;
 
       const loopIndex = Math.round(offsetX / slideStride);
       settleLoopIndex(loopIndex);
     },
-    [slideCount, slideStride, settleLoopIndex]
+    [isLayoutReady, slideCount, slideStride, settleLoopIndex, useWebTrack]
+  );
+
+  const stepLogicalIndex = useCallback(
+    (direction: -1 | 1) => {
+      if (slideCount === 0) return;
+      setActiveDot((current) => {
+        const nextIndex = (current + direction + slideCount) % slideCount;
+        currentLoopIndexRef.current = nextIndex;
+        return nextIndex;
+      });
+    },
+    [slideCount]
   );
 
   useEffect(() => {
-    if (slideCount <= 1 || slideStride <= 0) return;
+    if (slideCount <= 1) return;
 
     const timer = setInterval(() => {
       if (isInteractingRef.current) return;
 
+      if (useWebTrack) {
+        stepLogicalIndex(1);
+        return;
+      }
+
+      if (!isLayoutReady) return;
+
       const nextLoopIndex = currentLoopIndexRef.current + 1;
       currentLoopIndexRef.current = nextLoopIndex;
-      scrollRef.current?.scrollTo({ x: nextLoopIndex * slideStride, animated: true });
+      scrollToIndex(nextLoopIndex, true);
       setActiveDot(loopIndexToLogical(nextLoopIndex, slideCount));
 
-      // Programmatic scrolls don't always fire onMomentumScrollEnd (especially on web).
       setTimeout(() => {
         settleLoopIndex(currentLoopIndexRef.current);
       }, HERO_SCROLL_ANIM_MS);
     }, HERO_AUTO_MS);
 
     return () => clearInterval(timer);
-  }, [slideCount, slideStride, settleLoopIndex]);
+  }, [isLayoutReady, scrollToIndex, slideCount, settleLoopIndex, stepLogicalIndex, useWebTrack]);
 
   const scrollToLogicalIndex = (logicalIndex: number) => {
-    if (slideCount === 0 || slideStride <= 0) return;
+    if (slideCount === 0) return;
 
-    const targetLoopIndex = slideCount > 1 ? logicalIndex + 1 : 0;
-    currentLoopIndexRef.current = targetLoopIndex;
+    if (useWebTrack) {
+      currentLoopIndexRef.current = logicalIndex;
+      setActiveDot(logicalIndex);
+      return;
+    }
+
+    if (!isLayoutReady) return;
+
+    const targetIndex = slideCount > 1 ? logicalIndex + 1 : 0;
+    currentLoopIndexRef.current = targetIndex;
     setActiveDot(logicalIndex);
-    scrollRef.current?.scrollTo({ x: targetLoopIndex * slideStride, animated: true });
+    scrollToIndex(targetIndex, true);
   };
 
   if (slideCount === 0) return null;
@@ -195,56 +348,58 @@ function HeroImageCarouselInner({
       nativeID="hero-carousel-shell"
       style={[styles.shell, { height: shellHeight, backgroundColor: panelBackgroundColor }]}
       onLayout={(event) => {
-        const measuredWidth = event.nativeEvent.layout.width;
-        if (measuredWidth > 0) {
+        if (useWebTrack) return;
+        const measuredWidth = Math.round(event.nativeEvent.layout.width);
+        if (measuredWidth > 1) {
           setLayoutWidth((current) => (current === measuredWidth ? current : measuredWidth));
         }
       }}
     >
-      <ScrollView
-        ref={scrollRef}
-        horizontal
-        nestedScrollEnabled
-        pagingEnabled
-        removeClippedSubviews={Platform.OS !== 'web'}
-        showsHorizontalScrollIndicator={false}
-        decelerationRate={HERO_DECELERATION}
-        directionalLockEnabled={Platform.OS === 'ios'}
-        snapToInterval={slideStride}
-        snapToAlignment="start"
-        disableIntervalMomentum
-        scrollEventThrottle={16}
-        style={{ height: shellHeight, width: '100%' }}
-        onScrollBeginDrag={() => {
-          isInteractingRef.current = true;
-        }}
-        onScrollEndDrag={(event) => handleScrollEnd(event.nativeEvent.contentOffset.x)}
-        onMomentumScrollEnd={(event) => handleScrollEnd(event.nativeEvent.contentOffset.x)}
-      >
-        {loopSlides.map((slide, idx) => (
-          <View
-            key={`hero-${idx}-${slide.title}`}
-            style={{ width: slideStride, height: shellHeight, position: 'relative', overflow: 'hidden' }}
-          >
-            <HeroSlideImage
-              source={slide.source}
-              width={slideStride}
-              height={shellHeight}
-              priority={idx === loopStartIndex ? 'high' : 'low'}
-            />
-            <LinearGradient
-              colors={['rgba(0,0,0,0.2)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.7)']}
-              locations={[0, 0.45, 1]}
-              style={StyleSheet.absoluteFill}
-            />
-            <View style={styles.titleWrap}>
-              <Text style={styles.titleText} numberOfLines={2}>
-                {slide.title}
-              </Text>
+      {useWebTrack ? (
+        <WebHeroCarousel
+          slides={slides}
+          shellHeight={shellHeight}
+          activeDot={activeDot}
+          onStep={stepLogicalIndex}
+        />
+      ) : isLayoutReady ? (
+        <ScrollView
+          ref={scrollRef}
+          horizontal
+          nestedScrollEnabled
+          pagingEnabled
+          removeClippedSubviews
+          showsHorizontalScrollIndicator={false}
+          decelerationRate={HERO_DECELERATION}
+          directionalLockEnabled={Platform.OS === 'ios'}
+          snapToInterval={slideStride}
+          snapToAlignment="start"
+          disableIntervalMomentum
+          scrollEventThrottle={16}
+          style={[styles.scrollView, { height: shellHeight }]}
+          contentContainerStyle={styles.scrollContent}
+          onScrollBeginDrag={() => {
+            isInteractingRef.current = true;
+          }}
+          onScrollEndDrag={(event) => handleScrollEnd(event.nativeEvent.contentOffset.x)}
+          onMomentumScrollEnd={(event) => handleScrollEnd(event.nativeEvent.contentOffset.x)}
+        >
+          {carouselSlides.map((slide, idx) => (
+            <View
+              key={`hero-${idx}-${slide.title}`}
+              style={[styles.slide, { width: slideStride, height: shellHeight }]}
+            >
+              <HeroSlideFrame
+                slide={slide}
+                shellHeight={shellHeight}
+                slideWidth={slideStride}
+                fillWidth={false}
+                priority={idx === initialScrollIndex ? 'high' : 'low'}
+              />
             </View>
-          </View>
-        ))}
-      </ScrollView>
+          ))}
+        </ScrollView>
+      ) : null}
       <LinearGradient
         pointerEvents="none"
         colors={[`${panelBackgroundColor}00`, panelBackgroundColor]}
@@ -275,6 +430,20 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'stretch',
     overflow: 'hidden',
+  },
+  scrollView: {
+    width: '100%',
+    height: '100%',
+  },
+  scrollContent: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  slide: {
+    position: 'relative',
+    overflow: 'hidden',
+    flexShrink: 0,
+    flexGrow: 0,
   },
   titleWrap: {
     position: 'absolute',
