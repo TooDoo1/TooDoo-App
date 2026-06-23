@@ -90,7 +90,8 @@ function HeroImageCarouselInner({
   panelBackgroundColor: string;
   topInset?: number;
 }) {
-  const { width: screenWidth } = useWindowDimensions();
+  const { width: windowWidth } = useWindowDimensions();
+  const [layoutWidth, setLayoutWidth] = useState(0);
   const shellHeight = HERO_HEIGHT + topInset;
   const scrollRef = useRef<ScrollView>(null);
   const currentLoopIndexRef = useRef(0);
@@ -100,7 +101,7 @@ function HeroImageCarouselInner({
   const slideCount = slides.length;
   const loopSlides = useMemo(() => buildLoopSlides(slides), [slides]);
   const loopStartIndex = slideCount > 1 ? 1 : 0;
-  const slideStride = Math.max(screenWidth, 1);
+  const slideStride = Math.max(layoutWidth || windowWidth, 1);
 
   useEffect(() => {
     schedulePrefetchImageUris(slides.map((slide) => slide.source), slideCount);
@@ -190,7 +191,16 @@ function HeroImageCarouselInner({
   if (slideCount === 0) return null;
 
   return (
-    <View style={[styles.shell, { height: shellHeight, backgroundColor: panelBackgroundColor }]}>
+    <View
+      nativeID="hero-carousel-shell"
+      style={[styles.shell, { height: shellHeight, backgroundColor: panelBackgroundColor }]}
+      onLayout={(event) => {
+        const measuredWidth = event.nativeEvent.layout.width;
+        if (measuredWidth > 0) {
+          setLayoutWidth((current) => (current === measuredWidth ? current : measuredWidth));
+        }
+      }}
+    >
       <ScrollView
         ref={scrollRef}
         horizontal
@@ -204,7 +214,7 @@ function HeroImageCarouselInner({
         snapToAlignment="start"
         disableIntervalMomentum
         scrollEventThrottle={16}
-        style={{ height: shellHeight }}
+        style={{ height: shellHeight, width: '100%' }}
         onScrollBeginDrag={() => {
           isInteractingRef.current = true;
         }}
@@ -262,6 +272,8 @@ export { HERO_HEIGHT };
 
 const styles = StyleSheet.create({
   shell: {
+    width: '100%',
+    alignSelf: 'stretch',
     overflow: 'hidden',
   },
   titleWrap: {

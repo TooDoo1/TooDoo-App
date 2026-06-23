@@ -1730,7 +1730,7 @@ export default function HomeScreen() {
         >
         <View style={{ backgroundColor: homeHeaderPanelBg }}>
           {Platform.OS === 'web' ? (
-            <View style={{ height: heroBlockHeight, overflow: 'hidden' }}>
+            <View style={[styles.heroBlock, { height: heroBlockHeight }]}>
               <HeroImageCarousel
                 slides={heroSlides}
                 panelBackgroundColor={homeHeaderPanelBg}
@@ -1738,7 +1738,7 @@ export default function HomeScreen() {
               />
             </View>
           ) : (
-            <Animated.View style={{ height: heroHeight, overflow: 'hidden' }}>
+            <Animated.View style={[styles.heroBlock, { height: heroHeight }]}>
               <HeroImageCarousel
                 slides={heroSlides}
                 panelBackgroundColor={homeHeaderPanelBg}
@@ -1938,6 +1938,11 @@ const styles = StyleSheet.create({
   searchHeaderRoot: {
     position: 'relative',
     width: '100%',
+  },
+  heroBlock: {
+    width: '100%',
+    alignSelf: 'stretch',
+    overflow: 'hidden',
   },
   searchBarAnchor: {
     position: 'relative',

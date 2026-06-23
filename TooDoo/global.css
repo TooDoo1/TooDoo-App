@@ -117,6 +117,14 @@ body {
   background: transparent !important;
 }
 
+/* Hero carousel — RN Web can collapse horizontal paging to content width. */
+#hero-carousel-shell {
+  width: 100% !important;
+  max-width: 100% !important;
+  align-self: stretch !important;
+  box-sizing: border-box !important;
+}
+
 /* iOS Safari auto-zooms when a focused field has font-size < 16px. */
 input,
 textarea,
