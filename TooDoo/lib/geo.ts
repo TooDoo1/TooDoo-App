@@ -55,6 +55,9 @@ export function haversineKm(lat1: number, lng1: number, lat2: number, lng2: numb
 /** Format a distance in km for display badges. */
 export function formatDistanceKm(distanceKm?: number): string | null {
   if (typeof distanceKm !== 'number' || !Number.isFinite(distanceKm)) return null;
+  if (distanceKm < 1) {
+    return `${Math.max(0, Math.round(distanceKm * 1000))} m`;
+  }
   const text = distanceKm >= 10 ? distanceKm.toFixed(0) : distanceKm.toFixed(1);
   return `${text} km`;
 }
