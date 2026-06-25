@@ -47,7 +47,7 @@ import {
   parseClaimResponse,
 } from "@/lib/claim-api";
 import { getOrderPublishEndMs } from "@/lib/order-claim-window";
-import { geocodeAddressCached, getUserCoordsIfGranted, isPlausibleSwedenCoordinate } from "@/lib/geo";
+import { geocodeAddressCached, resolveMapOriginCoords, isPlausibleSwedenCoordinate } from "@/lib/geo";
 import {
   fetchBusinessEvents,
   formatEventDateRange,
@@ -741,7 +741,7 @@ export default function CompanyDetailScreen() {
       ? `https://www.google.com/maps/dir/?api=1&origin=${mapOriginCoords.latitude},${mapOriginCoords.longitude}&destination=${encodeURIComponent(addressText)}&travelmode=driving`
       : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressText)}`
     : undefined;
-  const mapResetKey = `${id ?? "no-id"}-${addressText ?? "no-address"}-${resetNonceText ?? "no-reset"}`;
+  const mapResetKey = `${id ?? "no-id"}-${addressText ?? "no-address"}-${resetNonceText ?? "no-reset"}-${mapOriginCoords ? `${mapOriginCoords.latitude},${mapOriginCoords.longitude}` : "no-origin"}`;
 
   const isFocused = useIsFocused();
 
@@ -847,23 +847,25 @@ export default function CompanyDetailScreen() {
     resetNonceText,
   ]);
 
-  useEffect(() => {
-    let cancelled = false;
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
 
-    const task = InteractionManager.runAfterInteractions(() => {
-      void (async () => {
-        const coords = await getUserCoordsIfGranted();
-        if (!cancelled && coords) {
-          setMapOriginCoords({ latitude: coords.lat, longitude: coords.lng });
-        }
-      })();
-    });
+      const task = InteractionManager.runAfterInteractions(() => {
+        void (async () => {
+          const coords = await resolveMapOriginCoords();
+          if (!cancelled && coords) {
+            setMapOriginCoords({ latitude: coords.lat, longitude: coords.lng });
+          }
+        })();
+      });
 
-    return () => {
-      cancelled = true;
-      task.cancel();
-    };
-  }, []);
+      return () => {
+        cancelled = true;
+        task.cancel();
+      };
+    }, [])
+  );
 
   const formatRemaining = (milliseconds: number) => {
     const totalSeconds = Math.max(Math.floor(milliseconds / 1000), 0);
@@ -1399,6 +1401,8 @@ export default function CompanyDetailScreen() {
               longitude={mapCoordinate?.longitude ?? fallbackCoordinate?.longitude ?? Number.NaN}
               title={displayTitle || "Erbjudande"}
               addressText={addressText}
+              originLatitude={mapOriginCoords?.latitude}
+              originLongitude={mapOriginCoords?.longitude}
             />
           </View>
         </View>

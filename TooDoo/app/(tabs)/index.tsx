@@ -543,14 +543,14 @@ function ForYouOrderCarousel({
               />
               <View className="absolute inset-0 bg-black/20" />
               <View className="absolute left-2 top-2">
-                <View
+              <View
                   className="rounded-full px-2 py-1"
-                  style={{ backgroundColor: badgeColor }}
-                >
-                  <Text className="text-[10px] font-semibold text-white">
-                    {getBadgeLabel ? getBadgeLabel(card) : badgeLabel}
-                  </Text>
-                </View>
+                style={{ backgroundColor: badgeColor }}
+              >
+                <Text className="text-[10px] font-semibold text-white">
+                  {getBadgeLabel ? getBadgeLabel(card) : badgeLabel}
+                </Text>
+              </View>
                 {showActivityDots ? (
                   <CompanyActivityDots
                     hasEvent={businessIdsWithEvents?.has(card.id) ?? false}
@@ -838,10 +838,10 @@ function SectionTitleRow({
         ) : null}
       </View>
       {onSeeAllPress ? (
-        <Pressable onPress={onSeeAllPress} className="flex-row items-center" style={{ marginTop: 2 }}>
-          <Text style={{ color: theme.textMuted, fontSize: 13 }}>Visa alla</Text>
-          <Ionicons name="chevron-forward" size={14} color={theme.textMuted} style={{ marginLeft: 2 }} />
-        </Pressable>
+      <Pressable onPress={onSeeAllPress} className="flex-row items-center" style={{ marginTop: 2 }}>
+        <Text style={{ color: theme.textMuted, fontSize: 13 }}>Visa alla</Text>
+        <Ionicons name="chevron-forward" size={14} color={theme.textMuted} style={{ marginLeft: 2 }} />
+      </Pressable>
       ) : null}
     </View>
   );
@@ -1134,7 +1134,7 @@ export default function HomeScreen() {
     const openOffset = barHeight * (1 - disappearRatio);
     const dropdownHeight = searchDropdownHeightSv.value;
 
-    return {
+          return {
       opacity: interpolate(progress, [0, 0.08, disappearRatio, 1], [0, 1, 1, 1], 'clamp'),
       transform: [
         {
@@ -1145,8 +1145,8 @@ export default function HomeScreen() {
           ),
         },
       ],
-    };
-  });
+          };
+        });
 
   useEffect(() => {
     let cancelled = false;
@@ -1182,9 +1182,9 @@ export default function HomeScreen() {
         const hotFromApi = data.hotOfferCards;
 
         setCategoryFilters(data.categoryFilters);
-        setDeals(dealsList);
-        setNearYouCards(nearYouFromApi);
-        setHotOfferCards(hotFromApi);
+          setDeals(dealsList);
+          setNearYouCards(nearYouFromApi);
+          setHotOfferCards(hotFromApi);
         setEventCards(events);
         setHomeEventsCache(events);
 
@@ -1221,18 +1221,18 @@ export default function HomeScreen() {
         setHomeEndingSoonCache(nearYouFromApi);
 
         schedulePrefetchImageUris(
-          [
-            ...dealsList.slice(0, 12).map((c) => c.image),
-            ...nearYouFromApi.slice(0, 6).map((c) => c.image),
-            ...hotFromApi.slice(0, 6).map((c) => c.image),
+            [
+              ...dealsList.slice(0, 12).map((c) => c.image),
+              ...nearYouFromApi.slice(0, 6).map((c) => c.image),
+              ...hotFromApi.slice(0, 6).map((c) => c.image),
             ...events.slice(0, 6).map((event) => event.image),
-          ],
-          24
-        );
+            ],
+            24
+          );
 
-        void (async () => {
+          void (async () => {
           const hydrated = await hydrateOfferCardImages(dealsList, { knownCards: dealsList });
-          if (cancelled) return;
+              if (cancelled) return;
           setDeals(hydrated);
           schedulePrefetchImageUris(hydrated.slice(0, 12).map((card) => card.image), 12);
         })();
@@ -1456,11 +1456,11 @@ export default function HomeScreen() {
 
   const searchPanelStyle = {
     backgroundColor: homeHeaderPanelBg,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    borderBottomWidth: 1,
+            borderBottomLeftRadius: 24,
+            borderBottomRightRadius: 24,
+            borderLeftWidth: 1,
+            borderRightWidth: 1,
+            borderBottomWidth: 1,
     borderColor: searchPanelBorderColor,
     ...(Platform.OS === 'web'
       ? ({
@@ -1522,7 +1522,7 @@ export default function HomeScreen() {
             },
           ]}
         >
-          <View
+                  <View
             className="px-4 py-2.5"
             style={{ borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: searchDropdownDividerColor }}
           >
@@ -1531,8 +1531,8 @@ export default function HomeScreen() {
               style={{ color: FilterChipTheme.textMuted }}
             >
               {searchQuery.trim() ? 'Förslag' : 'Söktips'}
-            </Text>
-          </View>
+                    </Text>
+                  </View>
           <ScrollView
             keyboardShouldPersistTaps="handled"
             nestedScrollEnabled
@@ -1572,7 +1572,7 @@ export default function HomeScreen() {
 
   const renderHomeSearchHeader = () => (
   <View style={styles.searchHeaderRoot} pointerEvents="box-none">
-      <View
+              <View
         style={[
           styles.searchBarAnchor,
           Platform.OS === 'web'
@@ -1610,13 +1610,13 @@ export default function HomeScreen() {
         >
           <Ionicons name="search" size={18} color={FilterChipTheme.textMuted} style={styles.searchBarIcon} />
           <View style={styles.searchBarInputSlot}>
-            <TextInput
+                <TextInput
               nativeID="home-search-input"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
               onFocus={openSearchDropdown}
               onBlur={closeSearchDropdown}
-              placeholder="Sök restauranger, events, upplevelser"
+                  placeholder="Sök restauranger, events, upplevelser"
               placeholderTextColor={FilterChipTheme.placeholder}
               style={[
                 styles.searchBarInput,
@@ -1625,8 +1625,8 @@ export default function HomeScreen() {
                   height: SEARCH_BAR_HEIGHT,
                 },
               ]}
-              returnKeyType="search"
-            />
+                  returnKeyType="search"
+                />
           </View>
           <Pressable
             onPress={() => {
@@ -1643,15 +1643,15 @@ export default function HomeScreen() {
             importantForAccessibility={searchQuery.trim() ? 'auto' : 'no-hide-descendants'}
           >
             <Ionicons name="close-circle" size={18} color={FilterChipTheme.textMuted} />
-          </Pressable>
-        </View>
-      </View>
+                </Pressable>
+              </View>
+            </View>
 
       <View className="mt-4" style={{ zIndex: 1, elevation: 1 }}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 24 }}>
-          <View className="flex-row gap-2">
-            {quickCategories.map((cat) => (
-              (() => {
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 24 }}>
+                <View className="flex-row gap-2">
+                  {quickCategories.map((cat) => (
+                    (() => {
                 const isOffersCategory = cat.id === OFFERS_CATEGORY_ID;
                 const isSelected = activeCategory === cat.id;
                 const baseAccent = isOffersCategory
@@ -1665,13 +1665,13 @@ export default function HomeScreen() {
                   : baseAccent;
                 const chipTextColor = getOnAccentTextColor(chipColor);
 
-                return (
-              <Pressable
-                key={cat.id}
-                onPress={() =>
-                  setActiveCategory((prev) => (prev === cat.id ? ALL_CATEGORIES_ID : cat.id))
-                }
-                className="flex-row items-center rounded-full px-3 py-2"
+                      return (
+                    <Pressable
+                      key={cat.id}
+                      onPress={() =>
+                        setActiveCategory((prev) => (prev === cat.id ? ALL_CATEGORIES_ID : cat.id))
+                      }
+                      className="flex-row items-center rounded-full px-3 py-2"
                 style={
                   isHighlighted
                     ? { backgroundColor: chipColor, borderColor: chipColor, borderWidth: 1 }
@@ -1687,15 +1687,15 @@ export default function HomeScreen() {
                   className="ml-2 text-xs"
                   style={{ color: isHighlighted ? chipTextColor : FilterChipTheme.textMuted }}
                 >
-                  {cat.label}
-                </Text>
-              </Pressable>
-                );
-              })()
-            ))}
-          </View>
-        </ScrollView>
-      </View>
+                        {cat.label}
+                      </Text>
+                    </Pressable>
+                      );
+                    })()
+                  ))}
+                </View>
+              </ScrollView>
+            </View>
   </View>
   );
 
@@ -1801,9 +1801,9 @@ export default function HomeScreen() {
                   {searchResults.length > 0 ? (
                     <>
                       <View className="mt-6">
-                        <SectionTitleRow
-                          title="Nära dig"
-                          icon="navigate"
+          <SectionTitleRow
+            title="Nära dig"
+            icon="navigate"
                           iconColor={OFFERS_CATEGORY_ACCENT}
                           onSeeAllPress={() => openSearchResultsView('near')}
                         />
@@ -1846,59 +1846,59 @@ export default function HomeScreen() {
                 icon="navigate"
                 iconColor={OFFERS_CATEGORY_ACCENT}
                 onSeeAllPress={() => router.push(NARA_DIG_PATH)}
-              />
-              {isLoadingData && filteredDeals.length === 0 ? (
-                <Text style={{ color: theme.textMuted }}>Laddar...</Text>
-              ) : (
-                <ForYouOrderCarousel
-                  cards={filteredDeals}
-                  onCardPress={handleCardPress}
-                  badgeLabel="Nära dig"
+          />
+          {isLoadingData && filteredDeals.length === 0 ? (
+            <Text style={{ color: theme.textMuted }}>Laddar...</Text>
+          ) : (
+            <ForYouOrderCarousel
+              cards={filteredDeals}
+              onCardPress={handleCardPress}
+              badgeLabel="Nära dig"
                   badgeColor={brandInkRgba(0.75)}
-                  getBadgeLabel={getNearbyBadge}
-                  showFavoriteButton
+              getBadgeLabel={getNearbyBadge}
+              showFavoriteButton
                   showActivityDots
                   businessIdsWithEvents={businessIdsWithEvents}
-                  emptyText="Inga erbjudanden nära dig just nu."
-                />
-              )}
+              emptyText="Inga erbjudanden nära dig just nu."
+            />
+          )}
 
               <View className="mt-6">
-                <SectionTitleRow
-                  title="Heta erbjudanden"
-                  icon="flame"
+          <SectionTitleRow
+            title="Heta erbjudanden"
+            icon="flame"
                   iconColor={OFFERS_CATEGORY_ACCENT}
-                  subtitle="Baserat på dina intressen"
+            subtitle="Baserat på dina intressen"
                   onSeeAllPress={() => router.push(HETA_ERBJUDANDEN_PATH)}
-                />
-                {isLoadingData && hotOfferCards.length === 0 ? (
-                  <Text style={{ color: theme.textMuted }}>Laddar...</Text>
-                ) : (
-                  <FeaturedDealsSplit
-                    cards={hotOfferCards}
-                    onCardPress={handleCardPress}
-                    emptyText="Inga heta erbjudanden just nu."
-                  />
-                )}
-              </View>
+          />
+          {isLoadingData && hotOfferCards.length === 0 ? (
+            <Text style={{ color: theme.textMuted }}>Laddar...</Text>
+          ) : (
+            <FeaturedDealsSplit
+              cards={hotOfferCards}
+              onCardPress={handleCardPress}
+              emptyText="Inga heta erbjudanden just nu."
+            />
+          )}
+        </View>
 
               <View className="mt-6">
-                <SectionTitleRow
-                  title="Slutar snart"
-                  icon="hourglass-outline"
-                  subtitle="Baserat på dina intressen"
+          <SectionTitleRow
+            title="Slutar snart"
+            icon="hourglass-outline"
+            subtitle="Baserat på dina intressen"
                   onSeeAllPress={() => router.push(SLUTAR_SNART_PATH)}
-                />
-                {isLoadingData && nearYouCards.length === 0 ? (
-                  <Text style={{ color: theme.textMuted }}>Laddar...</Text>
-                ) : (
-                  <EndingSoonPortraitRow
-                    cards={nearYouCards}
-                    onCardPress={handleCardPress}
-                    emptyText="Inga tidsbegränsade erbjudanden just nu."
-                  />
-                )}
-              </View>
+          />
+          {isLoadingData && nearYouCards.length === 0 ? (
+            <Text style={{ color: theme.textMuted }}>Laddar...</Text>
+          ) : (
+            <EndingSoonPortraitRow
+              cards={nearYouCards}
+              onCardPress={handleCardPress}
+              emptyText="Inga tidsbegränsade erbjudanden just nu."
+            />
+          )}
+        </View>
 
               <View className="mt-6">
                 <SectionTitleRow
@@ -1917,7 +1917,7 @@ export default function HomeScreen() {
                     emptyText="Inga evenemang just nu."
                   />
                 )}
-              </View>
+        </View>
             </>
           )}
         </View>

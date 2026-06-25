@@ -4,4 +4,6 @@ export type OfferMapProps = {
   longitude: number;
   title?: string;
   addressText: string;
+  originLatitude?: number;
+  originLongitude?: number;
 };

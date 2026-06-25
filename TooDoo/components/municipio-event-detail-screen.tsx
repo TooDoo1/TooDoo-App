@@ -1,3 +1,4 @@
+import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -22,7 +23,7 @@ import { OfferMap } from '@/components/ui/offer-map';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { navigateBackFromDetail } from '@/lib/detail-navigation';
 import { BrandColors, brandInkRgba, brandNavyRgba } from '@/lib/brand-colors';
-import { getUserCoordsIfGranted, isPlausibleSwedenCoordinate } from '@/lib/geo';
+import { resolveMapOriginCoords, isPlausibleSwedenCoordinate } from '@/lib/geo';
 import {
   fetchMunicipioEventByUrl,
   formatMunicipioEventDateRange,
@@ -121,23 +122,25 @@ export function MunicipioEventDetailScreen() {
     return undefined;
   }, [event?.latitude, event?.longitude]);
 
-  useEffect(() => {
-    let cancelled = false;
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
 
-    const task = InteractionManager.runAfterInteractions(() => {
-      void (async () => {
-        const coords = await getUserCoordsIfGranted();
-        if (!cancelled && coords) {
-          setMapOriginCoords({ latitude: coords.lat, longitude: coords.lng });
-        }
-      })();
-    });
+      const task = InteractionManager.runAfterInteractions(() => {
+        void (async () => {
+          const coords = await resolveMapOriginCoords();
+          if (!cancelled && coords) {
+            setMapOriginCoords({ latitude: coords.lat, longitude: coords.lng });
+          }
+        })();
+      });
 
-    return () => {
-      cancelled = true;
-      task.cancel();
-    };
-  }, []);
+      return () => {
+        cancelled = true;
+        task.cancel();
+      };
+    }, [])
+  );
 
   const when = useMemo(() => (event ? formatMunicipioEventDateRange(event) : null), [event]);
   const eventRemainingMs = event ? getEventRemainingMs(event, nowMs) : null;
@@ -150,7 +153,7 @@ export function MunicipioEventDetailScreen() {
       ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressText)}`
       : undefined;
 
-  const mapResetKey = `${url ?? 'no-url'}-${mapCoordinate?.latitude ?? 'no-lat'}-${mapCoordinate?.longitude ?? 'no-lng'}`;
+  const mapResetKey = `${url ?? 'no-url'}-${mapCoordinate?.latitude ?? 'no-lat'}-${mapCoordinate?.longitude ?? 'no-lng'}-${mapOriginCoords ? `${mapOriginCoords.latitude},${mapOriginCoords.longitude}` : 'no-origin'}`;
 
   const handleDetailBack = useCallback(() => {
     if (Platform.OS === 'web') {
@@ -398,6 +401,8 @@ export function MunicipioEventDetailScreen() {
                   longitude={mapCoordinate?.longitude ?? Number.NaN}
                   title={event.title}
                   addressText={addressText}
+                  originLatitude={mapOriginCoords?.latitude}
+                  originLongitude={mapOriginCoords?.longitude}
                 />
               </View>
             </View>

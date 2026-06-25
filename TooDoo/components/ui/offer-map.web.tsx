@@ -14,20 +14,22 @@ function OfferMapComponent({
   longitude,
   title,
   addressText,
+  originLatitude,
+  originLongitude,
 }: OfferMapProps) {
   const { width: windowWidth } = useWindowDimensions();
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
   const mapHeight = Math.max(240, Math.min(windowWidth - 48, 360));
 
-  const embedSrc = useMemo(
-    () =>
-      buildGoogleMapsEmbedUrl(
-        { latitude, longitude },
-        addressText
-      ),
-    [addressText, latitude, longitude]
-  );
+  const embedSrc = useMemo(() => {
+    const origin =
+      Number.isFinite(originLatitude) && Number.isFinite(originLongitude)
+        ? { latitude: originLatitude, longitude: originLongitude }
+        : null;
+
+    return buildGoogleMapsEmbedUrl({ latitude, longitude }, addressText, origin);
+  }, [addressText, latitude, longitude, originLatitude, originLongitude]);
 
   return (
     <View key={mapKey} style={[styles.container, { height: mapHeight }]}>

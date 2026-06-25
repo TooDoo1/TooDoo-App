@@ -15,17 +15,20 @@ function OfferMapComponent({
   longitude,
   title,
   addressText,
+  originLatitude,
+  originLongitude,
 }: OfferMapProps) {
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
 
   const embedHtml = useMemo(() => {
-    const embedSrc = buildGoogleMapsEmbedUrl(
-      { latitude, longitude },
-      addressText
-    );
+    const origin =
+      Number.isFinite(originLatitude) && Number.isFinite(originLongitude)
+        ? { latitude: originLatitude, longitude: originLongitude }
+        : null;
+    const embedSrc = buildGoogleMapsEmbedUrl({ latitude, longitude }, addressText, origin);
     return embedSrc ? buildGoogleMapsEmbedHtml(embedSrc) : null;
-  }, [addressText, latitude, longitude]);
+  }, [addressText, latitude, longitude, originLatitude, originLongitude]);
 
   if (!embedHtml) {
     return null;

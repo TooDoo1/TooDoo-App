@@ -214,7 +214,29 @@ export async function reverseGeocodeCity(coords: Coords): Promise<string | null>
   }
 }
 
-async function readCoordsFromBrowser(): Promise<Coords | null> {
+type BrowserGeolocationPermission = 'granted' | 'denied' | 'prompt' | 'unknown';
+
+async function queryBrowserGeolocationPermission(): Promise<BrowserGeolocationPermission> {
+  if (typeof navigator === 'undefined' || !navigator.permissions?.query) {
+    return 'unknown';
+  }
+
+  try {
+    const status = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
+    if (status.state === 'granted' || status.state === 'denied' || status.state === 'prompt') {
+      return status.state;
+    }
+  } catch {
+    // Safari / older browsers may not support querying geolocation.
+  }
+
+  return 'unknown';
+}
+
+async function readCoordsFromBrowser(options?: {
+  timeout?: number;
+  maximumAge?: number;
+}): Promise<Coords | null> {
   if (typeof navigator === 'undefined' || !navigator.geolocation) return null;
 
   return new Promise((resolve) => {
@@ -223,7 +245,11 @@ async function readCoordsFromBrowser(): Promise<Coords | null> {
         resolve({ lat: position.coords.latitude, lng: position.coords.longitude });
       },
       () => resolve(null),
-      { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+      {
+        enableHighAccuracy: false,
+        timeout: options?.timeout ?? 10000,
+        maximumAge: options?.maximumAge ?? 60000,
+      }
     );
   });
 }
@@ -238,22 +264,15 @@ async function readCoordsFromDevice(): Promise<Coords | null> {
   return null;
 }
 
-async function hasBrowserGeolocationPermission(): Promise<boolean> {
-  if (typeof navigator === 'undefined' || !navigator.permissions?.query) {
-    return false;
-  }
-
-  try {
-    const status = await navigator.permissions.query({ name: 'geolocation' });
-    return status.state === 'granted';
-  } catch {
-    return false;
-  }
-}
-
 /** True when foreground location permission was already granted. */
 export async function hasForegroundLocationPermission(): Promise<boolean> {
-  if (Platform.OS === 'web') return hasBrowserGeolocationPermission();
+  if (Platform.OS === 'web') {
+    const permission = await queryBrowserGeolocationPermission();
+    if (permission === 'granted') return true;
+    if (permission === 'denied') return false;
+    const cached = await readCoordsFromBrowser({ timeout: 1500, maximumAge: 600_000 });
+    return cached != null;
+  }
   try {
     const { status } = await Location.getForegroundPermissionsAsync();
     return status === 'granted';
@@ -265,8 +284,14 @@ export async function hasForegroundLocationPermission(): Promise<boolean> {
 /** Read coordinates only when permission is already granted (no permission prompt). */
 export async function getUserCoordsIfGranted(): Promise<Coords | null> {
   if (Platform.OS === 'web') {
-    if (!(await hasBrowserGeolocationPermission())) return null;
-    return readCoordsFromBrowser();
+    const permission = await queryBrowserGeolocationPermission();
+    if (permission === 'denied') return null;
+    if (permission === 'granted') {
+      return readCoordsFromBrowser();
+    }
+
+    // Safari often lacks the Permissions API — try a cached position from an earlier grant.
+    return readCoordsFromBrowser({ timeout: 2500, maximumAge: 600_000 });
   }
   try {
     if (!(await hasForegroundLocationPermission())) return null;
@@ -274,6 +299,20 @@ export async function getUserCoordsIfGranted(): Promise<Coords | null> {
   } catch {
     return null;
   }
+}
+
+/** Resolve the user's position for map directions (reuse grant or ask once on web). */
+export async function resolveMapOriginCoords(): Promise<Coords | null> {
+  const grantedCoords = await getUserCoordsIfGranted();
+  if (grantedCoords) return grantedCoords;
+
+  if (Platform.OS === 'web') {
+    const permission = await queryBrowserGeolocationPermission();
+    if (permission === 'denied') return null;
+    return getUserCoords();
+  }
+
+  return null;
 }
 
 /** Request foreground location permission and resolve the user's coordinates (or null). */
