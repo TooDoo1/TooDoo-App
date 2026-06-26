@@ -1,8 +1,7 @@
-import { useFocusEffect } from '@react-navigation/native';
+import { useIsFocused } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  InteractionManager,
   Linking,
   Platform,
   Pressable,
@@ -122,25 +121,25 @@ export function MunicipioEventDetailScreen() {
     return undefined;
   }, [event?.latitude, event?.longitude]);
 
-  useFocusEffect(
-    useCallback(() => {
-      let cancelled = false;
+  const isFocused = useIsFocused();
 
-      const task = InteractionManager.runAfterInteractions(() => {
-        void (async () => {
-          const coords = await resolveMapOriginCoords();
-          if (!cancelled && coords) {
-            setMapOriginCoords({ latitude: coords.lat, longitude: coords.lng });
-          }
-        })();
-      });
+  useEffect(() => {
+    if (!isFocused) return;
 
-      return () => {
-        cancelled = true;
-        task.cancel();
-      };
-    }, [])
-  );
+    let cancelled = false;
+    setMapOriginCoords(null);
+
+    void (async () => {
+      const coords = await resolveMapOriginCoords();
+      if (!cancelled && coords) {
+        setMapOriginCoords({ latitude: coords.lat, longitude: coords.lng });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isFocused, url, addressText]);
 
   const when = useMemo(() => (event ? formatMunicipioEventDateRange(event) : null), [event]);
   const eventRemainingMs = event ? getEventRemainingMs(event, nowMs) : null;

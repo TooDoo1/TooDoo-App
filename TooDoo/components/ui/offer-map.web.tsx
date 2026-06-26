@@ -35,6 +35,7 @@ function OfferMapComponent({
     <View key={mapKey} style={[styles.container, { height: mapHeight }]}>
       {embedSrc ? (
         createElement('iframe', {
+          key: mapKey,
           title: title ?? 'Karta',
           src: embedSrc,
           loading: 'lazy',

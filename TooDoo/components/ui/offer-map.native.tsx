@@ -35,8 +35,9 @@ function OfferMapComponent({
   }
 
   return (
-    <View key={mapKey} style={styles.shell}>
+    <View style={styles.shell}>
       <WebView
+        key={mapKey}
         source={{ html: embedHtml, baseUrl: 'https://maps.google.com' }}
         style={styles.map}
         scrollEnabled={false}

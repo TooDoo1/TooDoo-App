@@ -847,25 +847,23 @@ export default function CompanyDetailScreen() {
     resetNonceText,
   ]);
 
-  useFocusEffect(
-    useCallback(() => {
-      let cancelled = false;
+  useEffect(() => {
+    if (!isFocused) return;
 
-      const task = InteractionManager.runAfterInteractions(() => {
-        void (async () => {
-          const coords = await resolveMapOriginCoords();
-          if (!cancelled && coords) {
-            setMapOriginCoords({ latitude: coords.lat, longitude: coords.lng });
-          }
-        })();
-      });
+    let cancelled = false;
+    setMapOriginCoords(null);
 
-      return () => {
-        cancelled = true;
-        task.cancel();
-      };
-    }, [])
-  );
+    void (async () => {
+      const coords = await resolveMapOriginCoords();
+      if (!cancelled && coords) {
+        setMapOriginCoords({ latitude: coords.lat, longitude: coords.lng });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isFocused, resetNonceText, addressText]);
 
   const formatRemaining = (milliseconds: number) => {
     const totalSeconds = Math.max(Math.floor(milliseconds / 1000), 0);
