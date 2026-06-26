@@ -48,11 +48,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CardMedia } from '@/components/ui/card-media';
 import { CompanyActivityDots } from '@/components/ui/company-activity-dots';
 import {
-  applyHaversineDistances,
   fillMissingDistancesFromAddresses,
   formatDistanceKm,
   getUserCoords,
-  haversineKm,
 } from '@/lib/geo';
 import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
 import { IMAGE_DISPLAY_WIDTH } from '@/lib/image-url';
@@ -155,10 +153,6 @@ function sortDealsByDistance(deals: CardItem[]): CardItem[] {
     if (da !== db) return da - db;
     return Number(b.deal) - Number(a.deal);
   });
-}
-
-function sortDealsByCoords(deals: CardItem[], coords: { lat: number; lng: number }): CardItem[] {
-  return sortDealsByDistance(applyHaversineDistances(deals, coords));
 }
 
 type FilterCategory = {
@@ -947,19 +941,11 @@ export default function HomeScreen() {
   );
 
   useEffect(() => {
-    if (!coords) return;
-    setDeals((prev) => {
-      if (prev.length === 0) return prev;
-      return sortDealsByCoords(prev, coords);
-    });
-  }, [coords]);
-
-  useEffect(() => {
     if (!coords || deals.length === 0) return;
 
     let cancelled = false;
     void (async () => {
-      const enriched = await fillMissingDistancesFromAddresses(deals, coords, { maxGeocode: 10 });
+      const enriched = await fillMissingDistancesFromAddresses(deals, coords, { maxGeocode: 24 });
       if (!cancelled) {
         setDeals(sortDealsByDistance(enriched));
       }

@@ -132,16 +132,12 @@ export type DistanceCard = {
   distanceKm?: number;
 };
 
-/** Attach km distance when a card already has plausible coordinates. */
+/** Attach km distance from stored coordinates when geocoding is unavailable. */
 export function applyHaversineDistances<T extends DistanceCard>(
   cards: T[],
   userCoords: Coords
 ): T[] {
   return cards.map((card) => {
-    if (typeof card.distanceKm === 'number' && Number.isFinite(card.distanceKm)) {
-      return card;
-    }
-
     const lat = card.latitude;
     const lng = card.longitude;
     if (
@@ -159,28 +155,20 @@ export function applyHaversineDistances<T extends DistanceCard>(
   });
 }
 
-/** Geocode card addresses when coordinates are missing, then attach km distance. */
+/** Resolve distances from geocoded addresses, falling back to stored coordinates. */
 export async function fillMissingDistancesFromAddresses<T extends DistanceCard>(
   cards: T[],
   userCoords: Coords,
   options?: { maxGeocode?: number }
 ): Promise<T[]> {
-  const withHaversine = applyHaversineDistances(cards, userCoords);
-  const needGeocode = withHaversine.filter(
-    (card) =>
-      typeof card.distanceKm !== 'number' &&
-      card.Adress &&
-      card.Adress !== 'Adress saknas'
-  );
-
-  if (needGeocode.length === 0) {
-    return withHaversine;
-  }
-
   const maxGeocode = options?.maxGeocode ?? 24;
   const distanceById = new Map<string, number>();
 
-  for (const card of needGeocode.slice(0, maxGeocode)) {
+  const geocodeCandidates = cards
+    .filter((card) => card.Adress && card.Adress !== 'Adress saknas')
+    .slice(0, maxGeocode);
+
+  for (const card of geocodeCandidates) {
     const geo = await geocodeAddressCached(card.Adress);
     if (geo) {
       distanceById.set(
@@ -190,13 +178,11 @@ export async function fillMissingDistancesFromAddresses<T extends DistanceCard>(
     }
   }
 
-  if (distanceById.size === 0) {
-    return withHaversine;
-  }
+  const withCoordFallback = applyHaversineDistances(cards, userCoords);
 
-  return withHaversine.map((card) => {
-    const dist = distanceById.get(card.id);
-    return typeof dist === 'number' ? { ...card, distanceKm: dist } : card;
+  return withCoordFallback.map((card) => {
+    const geocoded = distanceById.get(card.id);
+    return typeof geocoded === 'number' ? { ...card, distanceKm: geocoded } : card;
   });
 }
 

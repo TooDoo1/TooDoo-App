@@ -5,7 +5,6 @@ import { apiUrl, normalizeImageUrl } from '@/lib/api';
 import { businessImageCacheKey, extractOrderImageUrl } from '@/lib/business-image';
 import { fetchApprovedBusinessesCatalog, fetchCategoriesCatalog } from '@/lib/catalog-cache';
 import { getCategoryAccentForItem } from '@/lib/category-colors';
-import { haversineKm } from '@/lib/geo';
 import { isWithinOrderPublishWindow } from '@/lib/order-claim-window';
 
 export type OfferCardItem = {
@@ -556,32 +555,9 @@ function sortHomeDeals(
   cards: OfferCardItem[],
   coords?: { lat: number; lng: number } | null
 ): OfferCardItem[] {
-  const withDistance = cards.map((card) => {
-    if (
-      coords &&
-      typeof card.latitude === 'number' &&
-      typeof card.longitude === 'number' &&
-      Number.isFinite(card.latitude) &&
-      Number.isFinite(card.longitude)
-    ) {
-      return {
-        ...card,
-        distanceKm: haversineKm(coords.lat, coords.lng, card.latitude, card.longitude),
-      };
-    }
-    return card;
-  });
-
-  if (coords) {
-    return [...withDistance].sort((a, b) => {
-      const da = typeof a.distanceKm === 'number' ? a.distanceKm : Number.POSITIVE_INFINITY;
-      const db = typeof b.distanceKm === 'number' ? b.distanceKm : Number.POSITIVE_INFINITY;
-      if (da !== db) return da - db;
-      return Number(b.deal) - Number(a.deal);
-    });
-  }
-
-  return [...withDistance].sort((a, b) => Number(b.deal) - Number(a.deal));
+  void coords;
+  // Distance badges are resolved client-side from geocoded addresses.
+  return [...cards].sort((a, b) => Number(b.deal) - Number(a.deal));
 }
 
 /** Optimized home bootstrap — shared catalog cache, batched fan-out, parallel for-you APIs. */

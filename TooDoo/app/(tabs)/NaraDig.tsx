@@ -335,10 +335,6 @@ export default function NaraDigScreen() {
             longitude: lng,
           };
 
-          if (coords && typeof lat === 'number' && typeof lng === 'number') {
-            company.distanceKm = haversineKm(coords.lat, coords.lng, lat, lng);
-          }
-
           return company;
         });
 
@@ -375,7 +371,7 @@ export default function NaraDigScreen() {
 
     let cancelled = false;
     const needGeocode = companies
-      .filter((c) => typeof c.distanceKm !== 'number' && c.address && c.address !== 'Adress saknas')
+      .filter((c) => c.address && c.address !== 'Adress saknas')
       .slice(0, GEOCODE_MAX);
 
     if (needGeocode.length === 0) return;
