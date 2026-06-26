@@ -19,6 +19,7 @@ import { ScreenBackButton } from '@/components/ui/screen-back-button';
 import { ListItemSeparator } from '@/components/ui/list-item-separator';
 import { PaginatedListFooter } from '@/components/ui/paginated-list-footer';
 import { CardMedia } from '@/components/ui/card-media';
+import { hydrateOfferCardImages } from '@/lib/business-image';
 import { useAuth } from '@/context/auth-context';
 import { useThemePreference } from '@/context/theme-preference-context';
 import {
@@ -285,10 +286,11 @@ export function OfferListScreen({
       }
       try {
         const list = await fetchOfferListCards(mode, { token, coords });
+        const hydrated = await hydrateOfferCardImages(list, { knownCards: list });
         if (!cancelled) {
-          setCards(list);
+          setCards(hydrated);
           schedulePrefetchImageUris(
-            list.slice(0, 12).map((card) => card.image),
+            hydrated.slice(0, 12).map((card) => card.image),
             16
           );
         }

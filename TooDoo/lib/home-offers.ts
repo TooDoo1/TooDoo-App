@@ -2,7 +2,7 @@ import type { ImageSourcePropType } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { apiUrl, normalizeImageUrl } from '@/lib/api';
-import { businessImageCacheKey } from '@/lib/business-image';
+import { businessImageCacheKey, extractOrderImageUrl } from '@/lib/business-image';
 import { fetchApprovedBusinessesCatalog, fetchCategoriesCatalog } from '@/lib/catalog-cache';
 import { getCategoryAccentForItem } from '@/lib/category-colors';
 import { haversineKm } from '@/lib/geo';
@@ -30,6 +30,8 @@ export type OfferCardItem = {
   erbjudandemängd?: number | string[];
   erbjudandelängd?: string | string[];
   distanceKm?: number;
+  /** Per-offer image URIs used when expanding one business card into many offers. */
+  orderImageUris?: string[];
 };
 
 type ApiBusiness = {
@@ -179,16 +181,7 @@ export function mapApiOrderToCardItem(order: any, index: number): OfferCardItem 
   const orderId = String(order?.id ?? order?._id ?? `order-${index}`);
   const businessId = resolveBusinessIdFromOrder(order);
 
-  const imageCandidate =
-    order?.image?.publicUrl ??
-    order?.image?.url ??
-    order?.imageUrl ??
-    order?.imageAsset?.publicUrl ??
-    order?.imageAsset?.url ??
-    business?.image?.publicUrl ??
-    business?.imageUrl;
-
-  const normalizedImageUri = normalizeImageUrl(imageCandidate);
+  const normalizedImageUri = extractOrderImageUrl(order);
 
   return {
     id: businessId ?? orderId,
@@ -256,9 +249,13 @@ function expandBusinessCardToOfferCards(card: OfferCardItem): OfferCardItem[] {
   if (offers.length === 0 && orderIds.length === 0) return [];
 
   const count = Math.max(offers.length, orderIds.length);
+  const orderImageUris = card.orderImageUris ?? [];
   return Array.from({ length: count }, (_, i) => ({
     ...card,
     deal: true,
+    image: orderImageUris[i]
+      ? { uri: orderImageUris[i] }
+      : card.image,
     orderIds: orderIds[i] ? [String(orderIds[i])] : orderIds.slice(i, i + 1).map(String),
     erbjudande: [offers[i] ?? offers[0] ?? 'Erbjudande'],
     erbjudandepris: pickAt(card.erbjudandepris as string[] | undefined, i)
@@ -363,17 +360,23 @@ function buildBusinessCards(
     );
     const offerAmount = visibleOrders.map((order) => String(order.maxRedemptions ?? 0));
     const offerEnd = visibleOrders.map((order) => order.orderTimeTo ?? '');
+    const orderImageUris = visibleOrders.map(
+      (order) => extractOrderImageUrl(order) ?? ''
+    );
+    const firstOrderImage = orderImageUris.find((uri) => uri.length > 0);
 
     const cachedUrl = options?.cachedImageUrlById?.get(String(businessId));
-    const normalizedImageUri = normalizeImageUrl(
-      business.imageUrl ??
-        (business as any)?.image?.publicUrl ??
-        (business as any)?.image?.url ??
-        cachedUrl ??
-        firstVisibleOrder?.imageUrl ??
-        firstVisibleOrder?.image?.publicUrl ??
-        firstVisibleOrder?.image?.url
-    );
+    const normalizedImageUri =
+      firstOrderImage ??
+      normalizeImageUrl(
+        firstVisibleOrder ? extractOrderImageUrl(firstVisibleOrder) : undefined
+      ) ??
+      normalizeImageUrl(
+        business.imageUrl ??
+          (business as any)?.image?.publicUrl ??
+          (business as any)?.image?.url ??
+          cachedUrl
+      );
 
     const resolvedCategoryId =
       typeof business.categoryId === 'string' || typeof business.categoryId === 'number'
@@ -407,6 +410,7 @@ function buildBusinessCards(
       erbjudandeclaimade: offerClaimed,
       erbjudandemängd: offerAmount,
       erbjudandelängd: offerEnd,
+      orderImageUris,
     };
   });
 }

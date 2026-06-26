@@ -1231,10 +1231,26 @@ export default function HomeScreen() {
           );
 
           void (async () => {
-          const hydrated = await hydrateOfferCardImages(dealsList, { knownCards: dealsList });
+          const knownCards = [...dealsList, ...hotFromApi, ...nearYouFromApi];
+          const [hydratedDeals, hydratedHot, hydratedNear] = await Promise.all([
+            hydrateOfferCardImages(dealsList, { knownCards }),
+            hydrateOfferCardImages(hotFromApi, { knownCards }),
+            hydrateOfferCardImages(nearYouFromApi, { knownCards }),
+          ]);
               if (cancelled) return;
-          setDeals(hydrated);
-          schedulePrefetchImageUris(hydrated.slice(0, 12).map((card) => card.image), 12);
+          setDeals(hydratedDeals);
+          setHotOfferCards(hydratedHot);
+          setNearYouCards(hydratedNear);
+          setHomeHotOffersCache(hydratedHot);
+          setHomeEndingSoonCache(hydratedNear);
+          schedulePrefetchImageUris(
+            [
+              ...hydratedDeals.slice(0, 12).map((card) => card.image),
+              ...hydratedNear.slice(0, 6).map((card) => card.image),
+              ...hydratedHot.slice(0, 6).map((card) => card.image),
+            ],
+            24
+          );
         })();
       } catch {
         if (!cancelled) {
