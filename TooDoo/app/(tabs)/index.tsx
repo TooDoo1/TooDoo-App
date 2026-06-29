@@ -1301,7 +1301,14 @@ export default function HomeScreen() {
 
   const quickCategories = useMemo(() => {
     const pool = categoryOptions.filter((cat) => cat.id !== ALL_CATEGORIES_ID);
-    return pool.map((cat) => ({ ...cat, icon: getCategoryIconName(cat.label) }));
+    const familjIndex = pool.findIndex((cat) =>
+      cat.label.trim().toLowerCase().includes('familj')
+    );
+    const ordered =
+      familjIndex > 0
+        ? [pool[familjIndex], ...pool.filter((_, index) => index !== familjIndex)]
+        : pool;
+    return ordered.map((cat) => ({ ...cat, icon: getCategoryIconName(cat.label) }));
   }, [categoryOptions]);
 
   useEffect(() => {
