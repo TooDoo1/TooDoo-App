@@ -1301,12 +1301,18 @@ export default function HomeScreen() {
 
   const quickCategories = useMemo(() => {
     const pool = categoryOptions.filter((cat) => cat.id !== ALL_CATEGORIES_ID);
-    const familjIndex = pool.findIndex((cat) =>
-      cat.label.trim().toLowerCase().includes('familj')
+    const familjIndex = pool.findIndex(
+      (cat) =>
+        cat.id !== OFFERS_CATEGORY_ID &&
+        cat.label.trim().toLowerCase().includes('familj')
     );
     const ordered =
-      familjIndex > 0
-        ? [pool[familjIndex], ...pool.filter((_, index) => index !== familjIndex)]
+      familjIndex > 1
+        ? [
+            pool[0],
+            pool[familjIndex],
+            ...pool.filter((_, index) => index !== 0 && index !== familjIndex),
+          ]
         : pool;
     return ordered.map((cat) => ({ ...cat, icon: getCategoryIconName(cat.label) }));
   }, [categoryOptions]);
