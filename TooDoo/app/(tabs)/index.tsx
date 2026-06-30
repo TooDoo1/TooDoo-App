@@ -146,6 +146,14 @@ type CardItem = {
   distanceKm?: number;
 };
 
+function filterCardsByActiveCategory(cards: CardItem[], activeCategory: string): CardItem[] {
+  if (activeCategory === ALL_CATEGORIES_ID || activeCategory === OFFERS_CATEGORY_ID) {
+    return cards;
+  }
+
+  return cards.filter((card) => card.categoryId === activeCategory);
+}
+
 function sortDealsByDistance(deals: CardItem[]): CardItem[] {
   return [...deals].sort((a, b) => {
     const da = typeof a.distanceKm === 'number' ? a.distanceKm : Number.POSITIVE_INFINITY;
@@ -1264,13 +1272,20 @@ export default function HomeScreen() {
     };
   }, [markDataReady, refreshNonce, token, coords?.lat, coords?.lng]);
 
-  const filteredDeals = useMemo(() => {
-    if (activeCategory === ALL_CATEGORIES_ID || activeCategory === OFFERS_CATEGORY_ID) {
-      return deals;
-    }
+  const filteredDeals = useMemo(
+    () => filterCardsByActiveCategory(deals, activeCategory),
+    [activeCategory, deals]
+  );
 
-    return deals.filter((card) => card.categoryId === activeCategory);
-  }, [activeCategory, deals]);
+  const filteredHotOfferCards = useMemo(
+    () => filterCardsByActiveCategory(hotOfferCards, activeCategory),
+    [activeCategory, hotOfferCards]
+  );
+
+  const filteredEndingSoonCards = useMemo(
+    () => filterCardsByActiveCategory(nearYouCards, activeCategory),
+    [activeCategory, nearYouCards]
+  );
 
   const businessIdsWithEvents = useMemo(
     () =>
@@ -1890,7 +1905,7 @@ export default function HomeScreen() {
             <Text style={{ color: theme.textMuted }}>Laddar...</Text>
           ) : (
             <FeaturedDealsSplit
-              cards={hotOfferCards}
+              cards={filteredHotOfferCards}
               onCardPress={handleCardPress}
               emptyText="Inga heta erbjudanden just nu."
             />
@@ -1908,7 +1923,7 @@ export default function HomeScreen() {
             <Text style={{ color: theme.textMuted }}>Laddar...</Text>
           ) : (
             <EndingSoonPortraitRow
-              cards={nearYouCards}
+              cards={filteredEndingSoonCards}
               onCardPress={handleCardPress}
               emptyText="Inga tidsbegränsade erbjudanden just nu."
             />
