@@ -4,11 +4,11 @@ export default function HetaErbjudandenScreen() {
   return (
     <OfferListScreen
       mode="hot"
-      title="Heta erbjudanden"
+      title="Populärt just nu"
       icon="flame"
       iconColor="#ff3b30"
       subtitle="Baserat på dina intressen"
-      emptyText="Inga heta erbjudanden just nu."
+      emptyText="Inga populära erbjudanden just nu."
     />
   );
 }

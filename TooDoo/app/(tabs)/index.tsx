@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
+  Easing,
   ImageSourcePropType,
   InteractionManager,
   Platform,
@@ -64,7 +65,6 @@ import {
   HETA_ERBJUDANDEN_PATH,
   NARA_DIG_PATH,
   SEARCH_RESULTS_PATH,
-  SLUTAR_SNART_PATH,
 } from '@/lib/stack-navigation';
 import { FAVORITE_HEART_COLOR } from '@/lib/tab-colors';
 import {
@@ -609,16 +609,6 @@ function ForYouOrderCarousel({
   );
 }
 
-function getEndingDateParts(card: CardItem): { day: string; month: string } | null {
-  const raw = Array.isArray(card.erbjudandelängd) ? card.erbjudandelängd[0] : card.erbjudandelängd;
-  if (!raw) return null;
-  const date = new Date(raw);
-  if (!Number.isFinite(date.getTime())) return null;
-  const day = String(date.getDate());
-  const month = date.toLocaleDateString('sv-SE', { month: 'short' }).toUpperCase().replace(/\./g, '');
-  return { day, month };
-}
-
 function FeaturedDealCard({
   card,
   onPress,
@@ -725,7 +715,86 @@ function FeaturedDealsSplit({
   );
 }
 
-function EndingSoonPortraitRow({
+const POPULAR_VISIBLE = 3;
+const POPULAR_ROTATE_MS = 6000;
+const POPULAR_MOVE_MS = 750;
+
+type Rect = { x: number; y: number; w: number; h: number };
+
+// A deal card that fills its (animated) parent instead of using a fixed height,
+// so it can be smoothly resized as it moves between slots.
+function FillCard({
+  card,
+  onPress,
+  titleSize = 'sm',
+}: {
+  card: CardItem;
+  onPress?: (card: CardItem) => void;
+  titleSize?: 'sm' | 'lg';
+}) {
+  const discount = computeDiscountLabel(card);
+  const discountColor = getDiscountBadgeColor(card);
+  const offerLabel = Array.isArray(card.erbjudande) ? card.erbjudande[0] : card.erbjudande;
+  return (
+    <Pressable
+      onPress={() => onPress?.(card)}
+      className="overflow-hidden rounded-2xl"
+      style={[
+        { position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, backgroundColor: '#000' },
+        Platform.OS === 'web' ? ({ outlineWidth: 0 } as const) : null,
+      ]}
+    >
+      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+        <CardMedia
+          source={card.image}
+          svgFit="fill"
+          priority="high"
+          displayWidth={IMAGE_DISPLAY_WIDTH.cardWide}
+        />
+      </View>
+      <LinearGradient
+        colors={['rgba(0,0,0,0.00)', 'rgba(0,0,0,0.85)']}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          paddingHorizontal: 12,
+          paddingBottom: 12,
+          paddingTop: 28,
+        }}
+      >
+        <Text
+          className={titleSize === 'lg' ? 'text-xl font-semibold text-white' : 'text-sm font-semibold text-white'}
+          numberOfLines={titleSize === 'lg' ? 2 : 1}
+        >
+          {offerLabel || card.title}
+        </Text>
+        {discount ? (
+          <View className="mt-2 self-start rounded-md px-2 py-0.5" style={{ backgroundColor: discountColor }}>
+            <Text className="text-[11px] font-semibold text-white">{discount}</Text>
+          </View>
+        ) : null}
+      </LinearGradient>
+    </Pressable>
+  );
+}
+
+type AnimRect = { x: Animated.Value; y: Animated.Value; w: Animated.Value; h: Animated.Value };
+type LiveCard = { card: CardItem; titleSize: 'sm' | 'lg' };
+
+// Same split layout as FeaturedDealsSplit, but rotates through the full list one
+// card at a time, like a queue. On each tick the cards physically move (no fade):
+// the big card slides out to the left, the top-right small glides into the big
+// slot and grows to fill it, the bottom-right rises into the top-right slot, and
+// a single new card slides up into the bottom-right slot.
+//
+// Cards are kept mounted and keyed by id across ticks (each owns a persistent
+// animated rect), and the upcoming card is pre-mounted just below the viewport,
+// so nothing remounts or re-decodes its image mid-animation -> no start hitch.
+function AnimatedFeaturedDeals({
   cards,
   onCardPress,
   emptyText,
@@ -736,73 +805,206 @@ function EndingSoonPortraitRow({
 }) {
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
-  const items = cards.slice(0, 3);
 
-  if (items.length === 0) {
+  const largeHeight = 220;
+  const smallHeight = (largeHeight - 12) / 2;
+  const columnGap = 12;
+
+  const [containerW, setContainerW] = useState(0);
+  const [start, setStart] = useState(0);
+  const [live, setLive] = useState<LiveCard[]>([]);
+
+  // Persistent animated rect per card id (survives across ticks; no remount).
+  const rectsRef = useRef(new Map<string, AnimRect>());
+  const prevStartRef = useRef<number | null>(null);
+  const prevCardsRef = useRef<CardItem[] | null>(null);
+  const animRef = useRef<Animated.CompositeAnimation | null>(null);
+
+  // Geometry of the three slots (and the off-screen enter/exit rects).
+  const geo = useMemo(() => {
+    if (containerW <= 0) return null;
+    const rem = containerW - columnGap;
+    const bigW = (rem * 1.15) / 2.15;
+    const rightW = rem - bigW;
+    const rightX = bigW + columnGap;
+    const bottomY = smallHeight + columnGap;
+    const bigRect: Rect = { x: 0, y: 0, w: bigW, h: largeHeight };
+    const topRect: Rect = { x: rightX, y: 0, w: rightW, h: smallHeight };
+    const bottomRect: Rect = { x: rightX, y: bottomY, w: rightW, h: smallHeight };
+    const leftOut: Rect = { x: -(bigW + columnGap), y: 0, w: bigW, h: largeHeight };
+    const belowIn: Rect = { x: rightX, y: bottomY + smallHeight + columnGap, w: rightW, h: smallHeight };
+    return { bigRect, topRect, bottomRect, leftOut, belowIn };
+  }, [containerW, largeHeight, smallHeight]);
+
+  useEffect(() => {
+    if (cards.length <= POPULAR_VISIBLE) {
+      setStart(0);
+      return;
+    }
+    // Advance by ONE so the window slides like a queue.
+    const id = setInterval(() => {
+      setStart((prev) => (prev + 1) % cards.length);
+    }, POPULAR_ROTATE_MS);
+    return () => clearInterval(id);
+  }, [cards.length]);
+
+  useEffect(() => {
+    if (!geo) return;
+    const len = cards.length;
+    if (len === 0) {
+      setLive([]);
+      return;
+    }
+
+    const ensureRect = (id: string, at: Rect): AnimRect => {
+      let r = rectsRef.current.get(id);
+      if (!r) {
+        r = {
+          x: new Animated.Value(at.x),
+          y: new Animated.Value(at.y),
+          w: new Animated.Value(at.w),
+          h: new Animated.Value(at.h),
+        };
+        rectsRef.current.set(id, r);
+      }
+      return r;
+    };
+    const setRect = (id: string, at: Rect) => {
+      const r = ensureRect(id, at);
+      r.x.setValue(at.x);
+      r.y.setValue(at.y);
+      r.w.setValue(at.w);
+      r.h.setValue(at.h);
+    };
+    const cardAt = (i: number) => cards[((i % len) + len) % len];
+
+    // Static (no animation): place the visible window + one pre-mounted card.
+    const snap = () => {
+      animRef.current?.stop();
+      animRef.current = null;
+      const rects = [geo.bigRect, geo.topRect, geo.bottomRect];
+      const list: LiveCard[] = [];
+      const used = new Set<string>();
+      for (let i = 0; i < Math.min(POPULAR_VISIBLE, len); i += 1) {
+        const c = cardAt(start + i);
+        if (!c || used.has(c.id)) continue;
+        used.add(c.id);
+        setRect(c.id, rects[i]);
+        list.push({ card: c, titleSize: i === 0 ? 'lg' : 'sm' });
+      }
+      // Pre-mount the next card off-screen so its image is ready to slide in.
+      if (len > POPULAR_VISIBLE) {
+        const nextCard = cardAt(start + POPULAR_VISIBLE);
+        if (nextCard && !used.has(nextCard.id)) {
+          used.add(nextCard.id);
+          setRect(nextCard.id, geo.belowIn);
+          list.push({ card: nextCard, titleSize: 'sm' });
+        }
+      }
+      for (const key of Array.from(rectsRef.current.keys())) {
+        if (!used.has(key)) rectsRef.current.delete(key);
+      }
+      setLive(list);
+    };
+
+    const canAnimate =
+      prevCardsRef.current === cards &&
+      prevStartRef.current !== null &&
+      len > POPULAR_VISIBLE &&
+      (prevStartRef.current + 1) % len === start &&
+      // Every card we need already has a rect (i.e. was previously mounted).
+      [0, 1, 2, 3].every((i) => rectsRef.current.has(cardAt(prevStartRef.current! + i)?.id ?? ''));
+
+    if (!canAnimate) {
+      snap();
+    } else {
+      const oldStart = prevStartRef.current!;
+      const leaving = cardAt(oldStart);
+      const newBig = cardAt(start); // was top-right
+      const newTop = cardAt(start + 1); // was bottom-right
+      const newBottom = cardAt(start + 2); // was pre-mounted off-screen
+      const newNext = cardAt(start + POPULAR_VISIBLE); // fresh pre-mount
+
+      const list: LiveCard[] = [];
+      const used = new Set<string>();
+      const add = (c: CardItem | undefined, titleSize: 'sm' | 'lg') => {
+        if (!c || used.has(c.id)) return;
+        used.add(c.id);
+        list.push({ card: c, titleSize });
+      };
+      add(leaving, 'lg');
+      add(newBig, 'lg');
+      add(newTop, 'sm');
+      add(newBottom, 'sm');
+      add(newNext, 'sm');
+      setLive(list);
+
+      const anims: Animated.CompositeAnimation[] = [];
+      const moveTo = (c: CardItem | undefined, to: Rect) => {
+        if (!c) return;
+        const r = ensureRect(c.id, to);
+        anims.push(
+          Animated.timing(r.x, { toValue: to.x, duration: POPULAR_MOVE_MS, easing: Easing.inOut(Easing.cubic), useNativeDriver: false }),
+          Animated.timing(r.y, { toValue: to.y, duration: POPULAR_MOVE_MS, easing: Easing.inOut(Easing.cubic), useNativeDriver: false }),
+          Animated.timing(r.w, { toValue: to.w, duration: POPULAR_MOVE_MS, easing: Easing.inOut(Easing.cubic), useNativeDriver: false }),
+          Animated.timing(r.h, { toValue: to.h, duration: POPULAR_MOVE_MS, easing: Easing.inOut(Easing.cubic), useNativeDriver: false })
+        );
+      };
+      moveTo(leaving, geo.leftOut);
+      moveTo(newBig, geo.bigRect);
+      moveTo(newTop, geo.topRect);
+      moveTo(newBottom, geo.bottomRect);
+
+      // Fresh pre-mount sits off-screen ready for the next tick (only if it is a
+      // genuinely distinct card, so we never teleport a visible one off-screen).
+      const movingIds = new Set(
+        [leaving, newBig, newTop, newBottom].filter(Boolean).map((c) => (c as CardItem).id)
+      );
+      if (newNext && !movingIds.has(newNext.id)) {
+        setRect(newNext.id, geo.belowIn);
+      }
+
+      animRef.current?.stop();
+      const composite = Animated.parallel(anims);
+      animRef.current = composite;
+      composite.start(({ finished }) => {
+        if (!finished) return;
+        // Drop the card that left the viewport.
+        const keep = [newBig, newTop, newBottom, newNext].filter(Boolean) as CardItem[];
+        const keepIds = new Set(keep.map((c) => c.id));
+        for (const key of Array.from(rectsRef.current.keys())) {
+          if (!keepIds.has(key)) rectsRef.current.delete(key);
+        }
+        setLive(
+          keep.map((c, i) => ({ card: c, titleSize: (i === 0 ? 'lg' : 'sm') as 'sm' | 'lg' }))
+        );
+      });
+    }
+
+    prevStartRef.current = start;
+    prevCardsRef.current = cards;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [start, geo, cards]);
+
+  if (cards.length === 0) {
     return <Text style={{ color: theme.textMuted }}>{emptyText}</Text>;
   }
 
   return (
-    <View className="flex-row gap-3">
-      {items.map((card, idx) => {
-        const date = getEndingDateParts(card);
+    <View
+      onLayout={(e) => setContainerW(e.nativeEvent.layout.width)}
+      style={{ height: largeHeight, overflow: 'hidden' }}
+    >
+      {live.map(({ card, titleSize }) => {
+        const r = rectsRef.current.get(card.id);
+        if (!r) return null;
         return (
-          <Pressable
-            key={`${card.orderIds?.[0] ?? card.id}-${idx}`}
-            onPress={() => onCardPress?.(card)}
-            className="overflow-hidden rounded-2xl"
-            style={{ flex: 1, height: 180, backgroundColor: '#000' }}
+          <Animated.View
+            key={card.id}
+            style={{ position: 'absolute', left: r.x, top: r.y, width: r.w, height: r.h }}
           >
-            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
-              <CardMedia
-                source={card.image}
-                svgFit="fill"
-                priority={idx < 4 ? 'high' : 'normal'}
-                displayWidth={IMAGE_DISPLAY_WIDTH.card}
-              />
-            </View>
-            <View className="absolute inset-0 bg-black/25" />
-            {date ? (
-              <View
-                style={{
-                  position: 'absolute',
-                  top: 8,
-                  left: 8,
-                  paddingHorizontal: 8,
-                  paddingVertical: 4,
-                  borderRadius: 10,
-                  backgroundColor: 'rgba(255,255,255,0.92)',
-                  alignItems: 'center',
-                  minWidth: 36,
-                }}
-              >
-                <Text style={{ fontSize: 14, fontWeight: '700', color: BrandColors.dark.secondary, lineHeight: 16 }}>
-                  {date.day}
-                </Text>
-                <Text style={{ fontSize: 9, fontWeight: '700', color: BrandColors.dark.secondary, lineHeight: 11 }}>
-                  {date.month}
-                </Text>
-              </View>
-            ) : null}
-            <LinearGradient
-              colors={['rgba(0,0,0,0.00)', 'rgba(0,0,0,0.85)']}
-              start={{ x: 0.5, y: 0 }}
-              end={{ x: 0.5, y: 1 }}
-              style={{
-                position: 'absolute',
-                left: 0,
-                right: 0,
-                bottom: 0,
-                paddingHorizontal: 10,
-                paddingBottom: 10,
-                paddingTop: 24,
-              }}
-            >
-              <Text className="text-sm font-semibold text-white" numberOfLines={2}>
-                {card.title}
-              </Text>
-            </LinearGradient>
-          </Pressable>
+            <FillCard card={card} onPress={onCardPress} titleSize={titleSize} />
+          </Animated.View>
         );
       })}
     </View>
@@ -1282,11 +1484,6 @@ export default function HomeScreen() {
     [activeCategory, hotOfferCards]
   );
 
-  const filteredEndingSoonCards = useMemo(
-    () => filterCardsByActiveCategory(nearYouCards, activeCategory),
-    [activeCategory, nearYouCards]
-  );
-
   const businessIdsWithEvents = useMemo(
     () =>
       new Set(
@@ -1316,21 +1513,36 @@ export default function HomeScreen() {
 
   const quickCategories = useMemo(() => {
     const pool = categoryOptions.filter((cat) => cat.id !== ALL_CATEGORIES_ID);
-    const familjIndex = pool.findIndex(
-      (cat) =>
-        cat.id !== OFFERS_CATEGORY_ID &&
-        cat.label.trim().toLowerCase().includes('familj')
-    );
-    const ordered =
-      familjIndex > 1
-        ? [
-            pool[0],
-            pool[familjIndex],
-            ...pool.filter((_, index) => index !== 0 && index !== familjIndex),
-          ]
-        : pool;
+    const offers = pool.find((cat) => cat.id === OFFERS_CATEGORY_ID);
+    const familj = pool.find((cat) => {
+      if (cat.id === OFFERS_CATEGORY_ID) return false;
+      const label = cat.label.trim().toLowerCase();
+      return label.includes('familj') || label.includes('family') || label.includes('barn');
+    });
+    const rest = pool.filter((cat) => cat.id !== OFFERS_CATEGORY_ID && cat !== familj);
+    const allChip: FilterCategory = { id: ALL_CATEGORIES_ID, label: 'Alla' };
+    const ordered = [
+      ...(offers ? [offers] : []),
+      allChip,
+      ...(familj ? [familj] : []),
+      ...rest,
+    ];
     return ordered.map((cat) => ({ ...cat, icon: getCategoryIconName(cat.label) }));
   }, [categoryOptions]);
+
+  const isSpecificCategorySelected =
+    activeCategory !== ALL_CATEGORIES_ID && activeCategory !== OFFERS_CATEGORY_ID;
+
+  const selectedCategory = useMemo(
+    () => quickCategories.find((cat) => cat.id === activeCategory) ?? null,
+    [quickCategories, activeCategory]
+  );
+
+  // Reshuffles each time a different category is selected (or when data reloads).
+  const selectedCategoryCards = useMemo(
+    () => (isSpecificCategorySelected ? applyCarouselMode(filteredDeals, 'random', 10) : []),
+    [isSpecificCategorySelected, activeCategory, filteredDeals]
+  );
 
   useEffect(() => {
     if (!categoryOptions.some((category) => category.id === activeCategory)) {
@@ -1852,7 +2064,7 @@ export default function HomeScreen() {
 
                       <View className="mt-6">
                         <SectionTitleRow
-                          title="Heta erbjudanden"
+                          title="Populärt just nu"
                           icon="flame"
                           iconColor={OFFERS_CATEGORY_ACCENT}
                           subtitle="Baserat på din sökning"
@@ -1861,7 +2073,7 @@ export default function HomeScreen() {
                         <FeaturedDealsSplit
                           cards={searchedHot}
                           onCardPress={handleCardPress}
-                          emptyText={`Inga heta erbjudanden för "${trimmedSearchQuery}".`}
+                          emptyText={`Inga populära erbjudanden för "${trimmedSearchQuery}".`}
                         />
                       </View>
                     </>
@@ -1871,6 +2083,30 @@ export default function HomeScreen() {
             </>
           ) : (
             <>
+              {isSpecificCategorySelected && selectedCategory ? (
+                <View className="mb-6">
+                  <SectionTitleRow
+                    title={selectedCategory.label}
+                    icon={selectedCategory.icon}
+                    iconColor={getCategoryAccentColor(selectedCategory.label)}
+                    subtitle="Slumpad ordning"
+                  />
+                  {isLoadingData && selectedCategoryCards.length === 0 ? (
+                    <Text style={{ color: theme.textMuted }}>Laddar...</Text>
+                  ) : (
+                    <ForYouOrderCarousel
+                      cards={selectedCategoryCards}
+                      onCardPress={handleCardPress}
+                      badgeLabel={selectedCategory.label}
+                      badgeColor={getCategoryAccentColor(selectedCategory.label)}
+                      showFavoriteButton
+                      showActivityDots
+                      businessIdsWithEvents={businessIdsWithEvents}
+                      emptyText={`Inga träffar i ${selectedCategory.label} just nu.`}
+                    />
+                  )}
+                </View>
+              ) : null}
               <SectionTitleRow
                 title="Nära dig"
                 icon="navigate"
@@ -1895,7 +2131,7 @@ export default function HomeScreen() {
 
               <View className="mt-6">
           <SectionTitleRow
-            title="Heta erbjudanden"
+            title="Populärt just nu"
             icon="flame"
                   iconColor={OFFERS_CATEGORY_ACCENT}
             subtitle="Baserat på dina intressen"
@@ -1904,28 +2140,10 @@ export default function HomeScreen() {
           {isLoadingData && hotOfferCards.length === 0 ? (
             <Text style={{ color: theme.textMuted }}>Laddar...</Text>
           ) : (
-            <FeaturedDealsSplit
+            <AnimatedFeaturedDeals
               cards={filteredHotOfferCards}
               onCardPress={handleCardPress}
-              emptyText="Inga heta erbjudanden just nu."
-            />
-          )}
-        </View>
-
-              <View className="mt-6">
-          <SectionTitleRow
-            title="Slutar snart"
-            icon="hourglass-outline"
-            subtitle="Baserat på dina intressen"
-                  onSeeAllPress={() => router.push(SLUTAR_SNART_PATH)}
-          />
-          {isLoadingData && nearYouCards.length === 0 ? (
-            <Text style={{ color: theme.textMuted }}>Laddar...</Text>
-          ) : (
-            <EndingSoonPortraitRow
-              cards={filteredEndingSoonCards}
-              onCardPress={handleCardPress}
-              emptyText="Inga tidsbegränsade erbjudanden just nu."
+              emptyText="Inga populära erbjudanden just nu."
             />
           )}
         </View>
