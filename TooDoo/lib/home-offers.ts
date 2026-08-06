@@ -531,10 +531,11 @@ export async function fetchOfferListCards(
   const catalogCardsFlat = buildCatalogOfferCardsFlat(allOrdersRaw, approvedBusinesses);
 
   if (mode === 'hot') {
+    // "Populärt just nu" only ever shows the top 10 fetched popular businesses.
     if (popularBusinesses.length > 0) {
-      return buildBusinessCards(popularBusinesses, ordersByBusinessId).slice(0, limit);
+      return buildBusinessCards(popularBusinesses, ordersByBusinessId).slice(0, 10);
     }
-    return businessCards.slice(0, limit);
+    return businessCards.slice(0, 10);
   }
 
   return resolveCarouselCards(catalogCardsFlat, businessOfferCards, mode, limit);

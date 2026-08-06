@@ -40,6 +40,7 @@ import { useRealtimeSubscription } from '@/hooks/use-realtime-subscription';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { HeroImageCarousel, HERO_HEIGHT } from '@/components/hero-image-carousel';
+import { HeroMicButton } from '@/components/hero-mic-button';
 import { heroSlides } from '@/lib/hero-slides';
 import { useHeroTopInset } from '@/lib/use-hero-top-inset';
 import { useThemePreference } from '@/context/theme-preference-context';
@@ -116,6 +117,7 @@ const SEARCH_DROPDOWN_OPEN_MS = 220;
 const SEARCH_DROPDOWN_CLOSE_MS = 240;
 const SEARCH_TIPS_DEBOUNCE_MS = 80;
 const SEARCH_BAR_HEIGHT = 48;
+const SEARCH_PANEL_BOTTOM_RADIUS = 12;
 const SEARCH_DROPDOWN_MAX_HEIGHT = 268;
 /** 0–1: where on the search bar the fade begins (0.5 = halfway down the bar). */
 const SEARCH_DROPDOWN_DISAPPEAR_RATIO = 0.5;
@@ -1089,6 +1091,10 @@ export default function HomeScreen() {
   const scrollBottomPadding = getFloatingTabBarScrollPadding(insets.bottom);
   const heroTopInset = useHeroTopInset();
   const scrollY = useRef(new Animated.Value(getHomeScrollOffset())).current;
+  // Eased 0->1 progress for the inline mic (driven by a scroll threshold, not
+  // raw scroll position, so the reveal is smooth regardless of scroll speed).
+  const inlineMicAnim = useRef(new Animated.Value(0)).current;
+  const inlineMicShownRef = useRef(false);
   const scrollRef = useRef<ScrollView>(null);
   const scrollOffsetRef = useRef(getHomeScrollOffset());
   const searchQueryRef = useRef(searchQuery);
@@ -1108,7 +1114,70 @@ export default function HomeScreen() {
   const homePageBg = theme.cardBg;
   const homeHeaderPanelBg = theme.screenBg;
   const filterSurfaceStyle = FilterChipTheme.surface;
-  const searchPanelBorderColor = theme.isDark ? 'rgba(255,255,255,0.10)' : brandInkRgba(0.10);
+  const searchPanelBorderColor = theme.isDark ? 'rgba(255,255,255,0.17)' : brandInkRgba(0.13);
+
+  // Rotating AI-style suggestions used as the search placeholder when empty,
+  // revealed with a typewriter effect (type out -> hold -> erase -> next).
+  const searchSuggestions = useMemo(
+    () => [
+      'Hitta något kul att göra i helgen',
+      'Sök restauranger, events, upplevelser',
+      'Vad är du sugen på ikväll?',
+      'Upptäck nya ställen nära dig',
+    ],
+    []
+  );
+  const [typedPlaceholder, setTypedPlaceholder] = useState('');
+  useEffect(() => {
+    let suggestionIdx = 0;
+    let charIdx = 0;
+    let deleting = false;
+    let timeout: ReturnType<typeof setTimeout>;
+
+    const tick = () => {
+      const full = searchSuggestions[suggestionIdx] ?? '';
+      if (!deleting) {
+        charIdx += 1;
+        setTypedPlaceholder(full.slice(0, charIdx));
+        if (charIdx >= full.length) {
+          deleting = true;
+          timeout = setTimeout(tick, 1800); // hold when fully typed
+          return;
+        }
+        timeout = setTimeout(tick, 45); // typing speed
+      } else {
+        charIdx -= 1;
+        setTypedPlaceholder(full.slice(0, Math.max(charIdx, 0)));
+        if (charIdx <= 0) {
+          deleting = false;
+          suggestionIdx = (suggestionIdx + 1) % searchSuggestions.length;
+          timeout = setTimeout(tick, 350); // pause before next
+          return;
+        }
+        timeout = setTimeout(tick, 25); // erasing speed
+      }
+    };
+
+    timeout = setTimeout(tick, 400);
+    return () => clearTimeout(timeout);
+  }, [searchSuggestions]);
+
+  // Reveal/hide the inline mic with a smooth eased animation when crossing a
+  // scroll threshold. Hysteresis (140 in / 90 out) prevents flicker.
+  useEffect(() => {
+    const id = scrollY.addListener(({ value }) => {
+      const shouldShow = inlineMicShownRef.current ? value > 90 : value > 140;
+      if (shouldShow === inlineMicShownRef.current) return;
+      inlineMicShownRef.current = shouldShow;
+      Animated.timing(inlineMicAnim, {
+        toValue: shouldShow ? 1 : 0,
+        duration: 320,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }).start();
+    });
+    return () => scrollY.removeListener(id);
+  }, [scrollY, inlineMicAnim]);
 
   const handleRefresh = useCallback(() => {
     invalidateCatalogCache();
@@ -1673,7 +1742,9 @@ export default function HomeScreen() {
     [router, searchResults, trimmedSearchQuery]
   );
 
-  const heroBlockHeight = HERO_HEIGHT + heroTopInset;
+  // Voice-search hero needs room for headline + orb + copy.
+  const heroContentHeight = isLoggedIn ? 320 : HERO_HEIGHT;
+  const heroBlockHeight = heroContentHeight + heroTopInset;
   const searchPanelStickyLift = 12;
   // Keep collapse shorter than hero height — 1:1 mapping breaks ScrollView layout.
   const heroCollapseScroll = 200;
@@ -1685,25 +1756,35 @@ export default function HomeScreen() {
   });
   const headerTopPadding = scrollY.interpolate({
     inputRange: [0, heroCollapseScroll],
-    outputRange: [8, collapsedHeaderTopPadding],
+    outputRange: [4, collapsedHeaderTopPadding],
     extrapolate: 'clamp',
   });
   const webStickyTopPadding = scrollY.interpolate({
     inputRange: [0, heroBlockHeight],
-    outputRange: [16, heroTopInset + 16 - searchPanelStickyLift],
+    outputRange: [10, heroTopInset + 10 - searchPanelStickyLift],
     extrapolate: 'clamp',
   });
+  // Mic drops in from the top beside the search bar, driven by the eased anim.
+  const inlineMicWidth = inlineMicAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, SEARCH_BAR_HEIGHT],
+  });
+  const inlineMicMarginLeft = inlineMicAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 10],
+  });
+  const inlineMicTranslateY = inlineMicAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-SEARCH_BAR_HEIGHT, 0],
+  });
+  const inlineMicOpacity = inlineMicAnim;
   const searchDropdownExpanded = showSearchTipsDropdown || isSearchDropdownMounted;
   const searchDropdownDividerColor = 'rgba(0, 0, 0, 0.08)';
 
   const searchPanelStyle = {
     backgroundColor: homeHeaderPanelBg,
-            borderBottomLeftRadius: 24,
-            borderBottomRightRadius: 24,
-            borderLeftWidth: 1,
-            borderRightWidth: 1,
-            borderBottomWidth: 1,
-    borderColor: searchPanelBorderColor,
+    borderBottomLeftRadius: SEARCH_PANEL_BOTTOM_RADIUS,
+    borderBottomRightRadius: SEARCH_PANEL_BOTTOM_RADIUS,
     ...(Platform.OS === 'web'
       ? ({
           position: 'sticky' as const,
@@ -1829,6 +1910,8 @@ export default function HomeScreen() {
           },
         ]}
       >
+        <View style={styles.searchBarWithMicRow}>
+        <View style={styles.searchBarDropdownHost}>
         {renderSearchTipsDropdown()}
 
         <View
@@ -1837,6 +1920,7 @@ export default function HomeScreen() {
             styles.searchBarRow,
             {
               height: SEARCH_BAR_HEIGHT,
+              width: '100%',
               position: 'relative',
               zIndex: 2,
               elevation: 2,
@@ -1850,7 +1934,7 @@ export default function HomeScreen() {
             }
           }}
         >
-          <Ionicons name="search" size={18} color={FilterChipTheme.textMuted} style={styles.searchBarIcon} />
+          <Ionicons name="sparkles" size={18} color="#7c5cf6" style={styles.searchBarIcon} />
           <View style={styles.searchBarInputSlot}>
                 <TextInput
               nativeID="home-search-input"
@@ -1858,7 +1942,7 @@ export default function HomeScreen() {
                   onChangeText={setSearchQuery}
               onFocus={openSearchDropdown}
               onBlur={closeSearchDropdown}
-                  placeholder="Sök restauranger, events, upplevelser"
+                  placeholder={`${typedPlaceholder}|`}
               placeholderTextColor={FilterChipTheme.placeholder}
               style={[
                 styles.searchBarInput,
@@ -1887,9 +1971,46 @@ export default function HomeScreen() {
             <Ionicons name="close-circle" size={18} color={FilterChipTheme.textMuted} />
                 </Pressable>
               </View>
+        </View>
+
+          {isLoggedIn ? (
+            <Animated.View
+              style={{
+                width: inlineMicWidth,
+                marginLeft: inlineMicMarginLeft,
+                height: SEARCH_BAR_HEIGHT,
+                overflow: 'hidden',
+                alignItems: 'center',
+              }}
+            >
+              <Animated.View
+                style={{
+                  opacity: inlineMicOpacity,
+                  transform: [{ translateY: inlineMicTranslateY }],
+                }}
+              >
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Sök med rösten"
+                  hitSlop={8}
+                  style={styles.inlineMicButtonWrap}
+                >
+                  <LinearGradient
+                    colors={[theme.linkSoft, theme.link]}
+                    start={{ x: 0.5, y: 0 }}
+                    end={{ x: 0.5, y: 1 }}
+                    style={styles.inlineMicBox}
+                  >
+                    <Ionicons name="mic" size={20} color="#ffffff" />
+                  </LinearGradient>
+                </Pressable>
+              </Animated.View>
+            </Animated.View>
+          ) : null}
+            </View>
             </View>
 
-      <View className="mt-4" style={{ zIndex: 1, elevation: 1 }}>
+      <View className="mt-2" style={{ zIndex: 1, elevation: 1 }}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 24 }}>
                 <View className="flex-row gap-2">
                   {quickCategories.map((cat) => (
@@ -1938,6 +2059,11 @@ export default function HomeScreen() {
                 </View>
               </ScrollView>
             </View>
+
+      <View
+        pointerEvents="none"
+        style={[styles.searchPanelBottomEdge, { borderColor: searchPanelBorderColor }]}
+      />
   </View>
   );
 
@@ -1973,19 +2099,35 @@ export default function HomeScreen() {
         <View style={{ backgroundColor: homeHeaderPanelBg }}>
           {Platform.OS === 'web' ? (
             <View style={[styles.heroBlock, { height: heroBlockHeight }]}>
-              <HeroImageCarousel
-                slides={heroSlides}
-                panelBackgroundColor={homeHeaderPanelBg}
-                topInset={heroTopInset}
-              />
+              {isLoggedIn ? (
+                <HeroMicButton
+                  height={heroBlockHeight}
+                  backgroundColor={homeHeaderPanelBg}
+                  topInset={heroTopInset}
+                />
+              ) : (
+                <HeroImageCarousel
+                  slides={heroSlides}
+                  panelBackgroundColor={homeHeaderPanelBg}
+                  topInset={heroTopInset}
+                />
+              )}
             </View>
           ) : (
             <Animated.View style={[styles.heroBlock, { height: heroHeight }]}>
-              <HeroImageCarousel
-                slides={heroSlides}
-                panelBackgroundColor={homeHeaderPanelBg}
-                topInset={heroTopInset}
-              />
+              {isLoggedIn ? (
+                <HeroMicButton
+                  height={heroBlockHeight}
+                  backgroundColor={homeHeaderPanelBg}
+                  topInset={heroTopInset}
+                />
+              ) : (
+                <HeroImageCarousel
+                  slides={heroSlides}
+                  panelBackgroundColor={homeHeaderPanelBg}
+                  topInset={heroTopInset}
+                />
+              )}
             </Animated.View>
           )}
         </View>
@@ -1996,7 +2138,7 @@ export default function HomeScreen() {
               pointerEvents="box-none"
               style={{
                 paddingTop: webStickyTopPadding,
-                paddingBottom: 10,
+                paddingBottom: 0,
                 backgroundColor: homeHeaderPanelBg,
               }}
             >
@@ -2007,7 +2149,7 @@ export default function HomeScreen() {
               pointerEvents="box-none"
               style={{
                 paddingTop: headerTopPadding,
-                paddingBottom: 10,
+                paddingBottom: 0,
                 backgroundColor: homeHeaderPanelBg,
               }}
             >
@@ -2016,7 +2158,7 @@ export default function HomeScreen() {
           )}
         </View>
 
-        <View className="mt-6 px-6">
+        <View className="mt-4 px-6">
           {isSearchActive || isSearchTooShort ? (
             <>
               <SectionTitleRow
@@ -2192,6 +2334,14 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     overflow: 'hidden',
   },
+  searchPanelBottomEdge: {
+    marginTop: 3,
+    height: SEARCH_PANEL_BOTTOM_RADIUS,
+    borderWidth: 1,
+    borderTopWidth: 0,
+    borderBottomLeftRadius: SEARCH_PANEL_BOTTOM_RADIUS,
+    borderBottomRightRadius: SEARCH_PANEL_BOTTOM_RADIUS,
+  },
   searchBarAnchor: {
     position: 'relative',
     maxWidth: '100%',
@@ -2205,12 +2355,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     width: '100%',
-    borderRadius: 999,
+    borderRadius: 14,
     paddingHorizontal: 16,
   },
   searchBarIcon: {
     marginRight: 8,
     flexShrink: 0,
+  },
+  searchBarWithMicRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+  },
+  searchBarDropdownHost: {
+    flex: 1,
+    position: 'relative',
+    zIndex: 2,
+    elevation: 2,
+    overflow: 'visible',
+  },
+  inlineMicButtonWrap: {
+    flexShrink: 0,
+  },
+  inlineMicBox: {
+    width: SEARCH_BAR_HEIGHT,
+    height: SEARCH_BAR_HEIGHT,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   searchBarInputSlot: {
     flex: 1,
