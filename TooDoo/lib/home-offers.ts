@@ -12,6 +12,8 @@ export type OfferCardItem = {
   title: string;
   image: ImageSourcePropType;
   categoryId?: string;
+  /** All assigned category ids (primary + secondary). Used for multi-tag filtering. */
+  categoryIds?: string[];
   categoryName?: string;
   deal?: boolean;
   orderIds?: string[];
@@ -45,6 +47,8 @@ type ApiBusiness = {
   imageUrl?: string;
   categoryId?: string;
   categoryName?: string;
+  categories?: Array<{ id?: string; _id?: string; name?: string } | string>;
+  categoryIds?: string[];
   status?: string;
   latitude?: number;
   longitude?: number;
@@ -65,6 +69,54 @@ export function resolveBusinessIdFromOrder(order: any): string | undefined {
         business?.id ??
         business?._id;
   return id ? String(id) : undefined;
+}
+
+/** Collect primary + secondary category ids from a business API record. */
+export function resolveBusinessCategoryIds(business: any): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+
+  const push = (raw: unknown) => {
+    if (raw == null) return;
+    if (typeof raw === 'string' || typeof raw === 'number') {
+      const id = String(raw).trim();
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      ids.push(id);
+      return;
+    }
+    if (typeof raw === 'object') {
+      const obj = raw as { id?: unknown; _id?: unknown };
+      const nested = obj.id ?? obj._id;
+      if (nested == null) return;
+      const normalized = String(nested).trim();
+      if (!normalized || seen.has(normalized)) return;
+      seen.add(normalized);
+      ids.push(normalized);
+    }
+  };
+
+  if (Array.isArray(business?.categoryIds)) {
+    business.categoryIds.forEach(push);
+  }
+  if (Array.isArray(business?.categories)) {
+    business.categories.forEach(push);
+  }
+  push(business?.categoryId);
+  push(business?.category);
+
+  return ids;
+}
+
+export function cardMatchesCategory(
+  card: Pick<OfferCardItem, 'categoryId' | 'categoryIds'>,
+  categoryId: string
+): boolean {
+  if (!categoryId) return true;
+  if (Array.isArray(card.categoryIds) && card.categoryIds.length > 0) {
+    return card.categoryIds.includes(categoryId);
+  }
+  return card.categoryId === categoryId;
 }
 
 export function isPlaceholderNavigationId(id?: string) {
@@ -179,6 +231,7 @@ export function mapApiOrderToCardItem(order: any, index: number): OfferCardItem 
   const business = order?.business ?? {};
   const orderId = String(order?.id ?? order?._id ?? `order-${index}`);
   const businessId = resolveBusinessIdFromOrder(order);
+  const categoryIds = resolveBusinessCategoryIds(business);
 
   const normalizedImageUri = extractOrderImageUrl(order);
 
@@ -188,7 +241,8 @@ export function mapApiOrderToCardItem(order: any, index: number): OfferCardItem 
     image: {
       uri: normalizedImageUri ?? `https://picsum.photos/seed/${encodeURIComponent(orderId)}/300/200`,
     },
-    categoryId: business?.categoryId ?? business?.category?.id,
+    categoryId: categoryIds[0] ?? business?.categoryId ?? business?.category?.id,
+    categoryIds,
     categoryName: business?.categoryName ?? business?.category?.name,
     deal: true,
     orderIds: [orderId],
@@ -227,8 +281,19 @@ function buildCatalogOfferCardsFlat(ordersRaw: any[], approvedBusinesses: ApiBus
       typeof order?.businessId === 'string'
         ? order.businessId
         : order?.businessId?.id ?? order?.businessId?._id;
+    const catalogBusiness = businessId ? businessById.get(String(businessId)) : undefined;
+    const nestedBusiness = order?.business;
+    // Prefer nested order fields, but keep multi-category tags from the catalog when the
+    // order payload only includes the primary categoryId.
     const business =
-      order?.business ?? (businessId ? businessById.get(String(businessId)) : undefined);
+      nestedBusiness || catalogBusiness
+        ? {
+            ...(catalogBusiness ?? {}),
+            ...(nestedBusiness ?? {}),
+            categories: nestedBusiness?.categories ?? catalogBusiness?.categories,
+            categoryIds: nestedBusiness?.categoryIds ?? catalogBusiness?.categoryIds,
+          }
+        : undefined;
 
     if (!business?.name && !business?.id && !order?.title) return;
 
@@ -377,10 +442,12 @@ function buildBusinessCards(
           cachedUrl
       );
 
+    const resolvedCategoryIds = resolveBusinessCategoryIds(business);
     const resolvedCategoryId =
-      typeof business.categoryId === 'string' || typeof business.categoryId === 'number'
+      resolvedCategoryIds[0] ??
+      (typeof business.categoryId === 'string' || typeof business.categoryId === 'number'
         ? String(business.categoryId)
-        : undefined;
+        : undefined);
 
     return {
       id: String(businessId),
@@ -391,6 +458,7 @@ function buildBusinessCards(
           `https://picsum.photos/seed/${encodeURIComponent(String(businessId))}/300/200`,
       },
       categoryId: resolvedCategoryId,
+      categoryIds: resolvedCategoryIds,
       categoryName:
         business.categoryName ??
         (resolvedCategoryId ? options?.categoryNameById?.get(resolvedCategoryId) : undefined),
@@ -531,10 +599,11 @@ export async function fetchOfferListCards(
   const catalogCardsFlat = buildCatalogOfferCardsFlat(allOrdersRaw, approvedBusinesses);
 
   if (mode === 'hot') {
+    // "Populärt just nu" only ever shows the top 10 fetched popular businesses.
     if (popularBusinesses.length > 0) {
-      return buildBusinessCards(popularBusinesses, ordersByBusinessId).slice(0, limit);
+      return buildBusinessCards(popularBusinesses, ordersByBusinessId).slice(0, 10);
     }
-    return businessCards.slice(0, limit);
+    return businessCards.slice(0, 10);
   }
 
   return resolveCarouselCards(catalogCardsFlat, businessOfferCards, mode, limit);
@@ -605,6 +674,8 @@ function parsePopularBusinesses(json: unknown): ApiBusiness[] {
       longitude: raw.longitude,
       categoryId: raw.categoryId ?? raw.category?.id,
       categoryName: raw.categoryName ?? raw.category?.name,
+      categories: Array.isArray(raw.categories) ? raw.categories : undefined,
+      categoryIds: Array.isArray(raw.categoryIds) ? raw.categoryIds.map(String) : undefined,
       imageUrl:
         raw.imageUrl ??
         raw.image?.publicUrl ??

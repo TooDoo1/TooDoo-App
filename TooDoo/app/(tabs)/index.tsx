@@ -40,6 +40,7 @@ import { useRealtimeSubscription } from '@/hooks/use-realtime-subscription';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { HeroImageCarousel, HERO_HEIGHT } from '@/components/hero-image-carousel';
+import { HeroMicButton } from '@/components/hero-mic-button';
 import { heroSlides } from '@/lib/hero-slides';
 import { useHeroTopInset } from '@/lib/use-hero-top-inset';
 import { useThemePreference } from '@/context/theme-preference-context';
@@ -75,9 +76,11 @@ import {
   OFFERS_CATEGORY_ACCENT,
 } from '@/lib/category-colors';
 import {
+  cardMatchesCategory,
   computeDiscountLabel,
   fetchHomeScreenData,
   getDiscountBadgeColor,
+  resolveBusinessCategoryIds,
   resolveBusinessIdFromOrder,
   type OfferCardItem,
 } from '@/lib/home-offers';
@@ -99,9 +102,17 @@ import {
 import { blurActiveElementOnWeb } from '@/lib/web-focus';
 import {
   searchCatalog,
+  searchNatural,
   sortSearchResultsHot,
   sortSearchResultsNearYou,
 } from '@/lib/catalog-search';
+import {
+  getSpeechSupportInfo,
+  startSpeechToText,
+  type SpeechToTextSession,
+} from '@/lib/speech-to-text';
+import { playMicCue } from '@/lib/mic-cues';
+import { showAlert } from '@/lib/show-alert';
 import {
   DEFAULT_SEARCH_TIPS,
   fetchSearchTips,
@@ -116,6 +127,7 @@ const SEARCH_DROPDOWN_OPEN_MS = 220;
 const SEARCH_DROPDOWN_CLOSE_MS = 240;
 const SEARCH_TIPS_DEBOUNCE_MS = 80;
 const SEARCH_BAR_HEIGHT = 48;
+const SEARCH_PANEL_BOTTOM_RADIUS = 12;
 const SEARCH_DROPDOWN_MAX_HEIGHT = 268;
 /** 0–1: where on the search bar the fade begins (0.5 = halfway down the bar). */
 const SEARCH_DROPDOWN_DISAPPEAR_RATIO = 0.5;
@@ -127,6 +139,7 @@ type CardItem = {
   title: string;
   image: ImageSourcePropType;
   categoryId?: string;
+  categoryIds?: string[];
   categoryName?: string;
   deal?: boolean;
   orderIds?: string[];
@@ -151,7 +164,7 @@ function filterCardsByActiveCategory(cards: CardItem[], activeCategory: string):
     return cards;
   }
 
-  return cards.filter((card) => card.categoryId === activeCategory);
+  return cards.filter((card) => cardMatchesCategory(card, activeCategory));
 }
 
 function sortDealsByDistance(deals: CardItem[]): CardItem[] {
@@ -183,6 +196,8 @@ type ApiBusiness = {
   imageUrl?: string;
   categoryId?: string;
   categoryName?: string;
+  categories?: Array<{ id?: string; _id?: string; name?: string } | string>;
+  categoryIds?: string[];
   status?: string;
   latitude?: number;
   longitude?: number;
@@ -424,8 +439,17 @@ function buildCatalogOfferCardsFlat(ordersRaw: any[], approvedBusinesses: ApiBus
       typeof order?.businessId === 'string'
         ? order.businessId
         : order?.businessId?.id ?? order?.businessId?._id;
+    const catalogBusiness = businessId ? businessById.get(String(businessId)) : undefined;
+    const nestedBusiness = order?.business;
     const business =
-      order?.business ?? (businessId ? businessById.get(String(businessId)) : undefined);
+      nestedBusiness || catalogBusiness
+        ? {
+            ...(catalogBusiness ?? {}),
+            ...(nestedBusiness ?? {}),
+            categories: nestedBusiness?.categories ?? catalogBusiness?.categories,
+            categoryIds: nestedBusiness?.categoryIds ?? catalogBusiness?.categoryIds,
+          }
+        : undefined;
 
     if (!business?.name && !business?.id && !order?.title) return;
 
@@ -439,6 +463,7 @@ function mapApiOrderToCardItem(order: any, index: number): CardItem {
   const business = order?.business ?? {};
   const orderId = String(order?.id ?? order?._id ?? `order-${index}`);
   const businessId = resolveBusinessIdFromOrder(order);
+  const categoryIds = resolveBusinessCategoryIds(business);
 
   const imageCandidate =
     order?.image?.publicUrl ??
@@ -457,7 +482,8 @@ function mapApiOrderToCardItem(order: any, index: number): CardItem {
     image: {
       uri: normalizedImageUri ?? `https://picsum.photos/seed/${encodeURIComponent(orderId)}/300/200`,
     },
-    categoryId: business?.categoryId ?? business?.category?.id,
+    categoryId: categoryIds[0] ?? business?.categoryId ?? business?.category?.id,
+    categoryIds,
     categoryName: business?.categoryName ?? business?.category?.name,
     deal: true,
     orderIds: [orderId],
@@ -1075,6 +1101,8 @@ export default function HomeScreen() {
   const [searchQuery, setSearchQuery] = useState(initialSearch.query);
   const [searchResults, setSearchResults] = useState<CardItem[]>(initialSearch.results as CardItem[]);
   const [isSearchLoading, setIsSearchLoading] = useState(false);
+  const [voiceListening, setVoiceListening] = useState(false);
+  const [voiceStatusMessage, setVoiceStatusMessage] = useState<string | null>(null);
   const [searchTips, setSearchTips] = useState<string[]>(DEFAULT_SEARCH_TIPS);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [isSearchDropdownMounted, setIsSearchDropdownMounted] = useState(false);
@@ -1089,11 +1117,21 @@ export default function HomeScreen() {
   const scrollBottomPadding = getFloatingTabBarScrollPadding(insets.bottom);
   const heroTopInset = useHeroTopInset();
   const scrollY = useRef(new Animated.Value(getHomeScrollOffset())).current;
+  // Eased 0->1 progress for the inline mic (driven by a scroll threshold, not
+  // raw scroll position, so the reveal is smooth regardless of scroll speed).
+  const inlineMicAnim = useRef(new Animated.Value(0)).current;
+  const inlineMicShownRef = useRef(false);
   const scrollRef = useRef<ScrollView>(null);
   const scrollOffsetRef = useRef(getHomeScrollOffset());
   const searchQueryRef = useRef(searchQuery);
   const searchResultsRef = useRef(searchResults);
   const knownCardsRef = useRef<CardItem[]>([]);
+  const voiceSessionRef = useRef<SpeechToTextSession | null>(null);
+  const voiceActiveRef = useRef(false);
+  const voiceQueryRef = useRef<string | null>(null);
+  /** Stable business-id order from the last natural/AI response — do not reshuffle. */
+  const voiceResultOrderRef = useRef<string[] | null>(null);
+  const userCityRef = useRef<string | null>(null);
   const searchBlurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchDropdownProgress = useSharedValue(0);
   const searchBarHeightSv = useSharedValue(SEARCH_BAR_HEIGHT);
@@ -1108,7 +1146,70 @@ export default function HomeScreen() {
   const homePageBg = theme.cardBg;
   const homeHeaderPanelBg = theme.screenBg;
   const filterSurfaceStyle = FilterChipTheme.surface;
-  const searchPanelBorderColor = theme.isDark ? 'rgba(255,255,255,0.10)' : brandInkRgba(0.10);
+  const searchPanelBorderColor = theme.isDark ? 'rgba(255,255,255,0.17)' : brandInkRgba(0.13);
+
+  // Rotating AI-style suggestions used as the search placeholder when empty,
+  // revealed with a typewriter effect (type out -> hold -> erase -> next).
+  const searchSuggestions = useMemo(
+    () => [
+      'Hitta något kul att göra i helgen',
+      'Sök restauranger, events, upplevelser',
+      'Vad är du sugen på ikväll?',
+      'Upptäck nya ställen nära dig',
+    ],
+    []
+  );
+  const [typedPlaceholder, setTypedPlaceholder] = useState('');
+  useEffect(() => {
+    let suggestionIdx = 0;
+    let charIdx = 0;
+    let deleting = false;
+    let timeout: ReturnType<typeof setTimeout>;
+
+    const tick = () => {
+      const full = searchSuggestions[suggestionIdx] ?? '';
+      if (!deleting) {
+        charIdx += 1;
+        setTypedPlaceholder(full.slice(0, charIdx));
+        if (charIdx >= full.length) {
+          deleting = true;
+          timeout = setTimeout(tick, 1800); // hold when fully typed
+          return;
+        }
+        timeout = setTimeout(tick, 45); // typing speed
+      } else {
+        charIdx -= 1;
+        setTypedPlaceholder(full.slice(0, Math.max(charIdx, 0)));
+        if (charIdx <= 0) {
+          deleting = false;
+          suggestionIdx = (suggestionIdx + 1) % searchSuggestions.length;
+          timeout = setTimeout(tick, 350); // pause before next
+          return;
+        }
+        timeout = setTimeout(tick, 25); // erasing speed
+      }
+    };
+
+    timeout = setTimeout(tick, 400);
+    return () => clearTimeout(timeout);
+  }, [searchSuggestions]);
+
+  // Reveal/hide the inline mic with a smooth eased animation when crossing a
+  // scroll threshold. Hysteresis (140 in / 90 out) prevents flicker.
+  useEffect(() => {
+    const id = scrollY.addListener(({ value }) => {
+      const shouldShow = inlineMicShownRef.current ? value > 90 : value > 140;
+      if (shouldShow === inlineMicShownRef.current) return;
+      inlineMicShownRef.current = shouldShow;
+      Animated.timing(inlineMicAnim, {
+        toValue: shouldShow ? 1 : 0,
+        duration: 320,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }).start();
+    });
+    return () => scrollY.removeListener(id);
+  }, [scrollY, inlineMicAnim]);
 
   const handleRefresh = useCallback(() => {
     invalidateCatalogCache();
@@ -1269,13 +1370,243 @@ export default function HomeScreen() {
     }, SEARCH_DROPDOWN_CLOSE_MS);
   }, []);
 
+  const clearVoiceSearchOwnership = useCallback(() => {
+    voiceQueryRef.current = null;
+    voiceResultOrderRef.current = null;
+  }, []);
+
+  const lockVoiceResultOrder = useCallback((cards: CardItem[]) => {
+    voiceResultOrderRef.current = cards.map((card) => card.id);
+  }, []);
+
+  const applyVoiceResultOrder = useCallback((cards: CardItem[]) => {
+    const order = voiceResultOrderRef.current;
+    if (!order || order.length === 0) return cards;
+    const rank = new Map(order.map((id, index) => [id, index]));
+    return [...cards].sort((a, b) => {
+      const ra = rank.get(a.id);
+      const rb = rank.get(b.id);
+      if (ra === undefined && rb === undefined) return 0;
+      if (ra === undefined) return 1;
+      if (rb === undefined) return -1;
+      return ra - rb;
+    });
+  }, []);
+
   const handleSearchTipPress = useCallback((tip: string) => {
     if (searchBlurTimerRef.current) {
       clearTimeout(searchBlurTimerRef.current);
       searchBlurTimerRef.current = null;
     }
+    clearVoiceSearchOwnership();
     setSearchQuery(tip);
     setIsSearchFocused(true);
+  }, [clearVoiceSearchOwnership]);
+
+  const stopVoiceSession = useCallback(() => {
+    const wasListening = voiceActiveRef.current || voiceSessionRef.current != null;
+    voiceActiveRef.current = false;
+    voiceSessionRef.current?.stop();
+    voiceSessionRef.current = null;
+    setVoiceListening(false);
+    // Delay so the cue isn't swallowed while the browser still holds the mic.
+    if (wasListening) {
+      playMicCue('off', { delayMs: 120 });
+    }
+  }, []);
+
+  const runVoiceSearch = useCallback(
+    async (transcript: string) => {
+      // Keep the transcript intact for the backend (only trim ends / enforce max length).
+      const q = transcript.trim().slice(0, 500);
+      if (q.length < 2) {
+        showAlert('Ingen röst', 'Jag hörde inget tydligt. Försök igen.');
+        return;
+      }
+
+      voiceQueryRef.current = q;
+      setSearchQuery(q);
+      setIsSearchFocused(false);
+      setIsSearchLoading(true);
+      setVoiceStatusMessage(null);
+
+      try {
+        let city = userCityRef.current ?? undefined;
+        if (!city) {
+          try {
+            const meRes = await authFetch('/user/me');
+            if (meRes.ok) {
+              const me = (await meRes.json().catch(() => ({}))) as { location?: string };
+              const loc = typeof me.location === 'string' ? me.location.trim() : '';
+              if (loc) {
+                userCityRef.current = loc;
+                city = loc;
+              }
+            }
+          } catch {
+            // City is optional for /search/natural.
+          }
+        }
+
+        const results = await searchNatural(q, authFetch, {
+          source: 'voice',
+          city,
+          take: 16,
+          maxHydrate: 12,
+          knownCards: knownCardsRef.current as OfferCardItem[],
+        });
+        // 200 with results=[] is a valid empty state — do not treat as error.
+        // Do not require response source === "ai-hybrid".
+        const next = results as CardItem[];
+        lockVoiceResultOrder(next);
+        setSearchResults(next);
+        setHomeSearchCache(q, next as OfferCardItem[]);
+      } catch (error) {
+        const status = (error as Error & { status?: number })?.status;
+        clearVoiceSearchOwnership();
+        if (status === 401) {
+          showAlert('Inloggning krävs', 'Logga in igen för att använda röstsökning.');
+        } else {
+          showAlert('Sökfel', 'Kunde inte söka med rösten. Försök igen.');
+        }
+      } finally {
+        setIsSearchLoading(false);
+      }
+    },
+    [authFetch, clearVoiceSearchOwnership, lockVoiceResultOrder]
+  );
+
+  const handleVoiceSearch = useCallback(() => {
+    if (!isLoggedIn) {
+      showAlert('Logga in', 'Du behöver vara inloggad för att söka med rösten.');
+      return;
+    }
+
+    if (voiceListening) {
+      stopVoiceSession();
+      return;
+    }
+
+    const support = getSpeechSupportInfo();
+    if (!support.supported) {
+      const message =
+        support.reason ??
+        'Röstigenkänning stöds inte här. Prova Google Chrome eller Microsoft Edge.';
+      setVoiceStatusMessage(message);
+      showAlert('Röstsökning', message);
+      return;
+    }
+
+    setVoiceStatusMessage(null);
+    voiceActiveRef.current = true;
+    setVoiceListening(true);
+    playMicCue('on');
+
+    const session = startSpeechToText({
+      lang: 'sv-SE',
+      continuous: true,
+      silenceTimeoutMs: 1000,
+      onPartial: (text) => {
+        if (text.trim()) {
+          setSearchQuery(text.trim());
+        }
+      },
+    });
+    voiceSessionRef.current = session;
+
+    void session.done
+      .then((transcript) => {
+        const wasActive = voiceActiveRef.current;
+        voiceSessionRef.current = null;
+        voiceActiveRef.current = false;
+        // Claim this query before flipping listening off, so the keyword
+        // search effect cannot race and overwrite natural results (same hits,
+        // different order).
+        const claimed = transcript.trim().slice(0, 500);
+        if (claimed.length >= 2) {
+          voiceQueryRef.current = claimed;
+        }
+        if (wasActive) {
+          playMicCue('off', { delayMs: 120 });
+        }
+        setVoiceListening(false);
+        return runVoiceSearch(transcript);
+      })
+      .catch((error: Error) => {
+        const wasActive = voiceActiveRef.current;
+        voiceSessionRef.current = null;
+        voiceActiveRef.current = false;
+        if (wasActive) {
+          playMicCue('off', { delayMs: 120 });
+        }
+        setVoiceListening(false);
+        const code = error?.message ?? '';
+        if (code === 'not-allowed' || code === 'service-not-allowed') {
+          const message =
+            'Tillåt mikrofonåtkomst i webbläsaren (låsikonen till vänster om adressfältet) och försök igen.';
+          setVoiceStatusMessage(message);
+          showAlert('Mikrofon blockerad', message);
+          return;
+        }
+        if (code === 'SPEECH_UNSUPPORTED') {
+          const message =
+            'Röstigenkänning stöds inte här. Prova Google Chrome eller Microsoft Edge.';
+          setVoiceStatusMessage(message);
+          showAlert('Röstsökning', message);
+          return;
+        }
+        if (code === 'network') {
+          const message =
+            'Röstigenkänning i Chrome behöver internet (Google Speech). Kontrollera nätverket.';
+          setVoiceStatusMessage(message);
+          showAlert('Ingen anslutning', message);
+          return;
+        }
+        if (code !== 'aborted' && code !== 'no-speech') {
+          const message = `Kunde inte lyssna (${code || 'okänt fel'}). Försök igen i Chrome.`;
+          setVoiceStatusMessage(message);
+          showAlert('Röstfel', message);
+        }
+      });
+  }, [isLoggedIn, voiceListening, stopVoiceSession, runVoiceSearch]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !isLoggedIn) return;
+    const support = getSpeechSupportInfo();
+    if (!support.supported && support.reason) {
+      setVoiceStatusMessage(support.reason);
+    }
+  }, [isLoggedIn]);
+
+  useEffect(() => {
+    if (!isLoggedIn) {
+      userCityRef.current = null;
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const meRes = await authFetch('/user/me');
+        if (!meRes.ok || cancelled) return;
+        const me = (await meRes.json().catch(() => ({}))) as { location?: string };
+        const loc = typeof me.location === 'string' ? me.location.trim() : '';
+        if (!cancelled && loc) {
+          userCityRef.current = loc;
+        }
+      } catch {
+        // optional
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authFetch, isLoggedIn]);
+
+  useEffect(() => {
+    return () => {
+      voiceSessionRef.current?.stop();
+      voiceSessionRef.current = null;
+    };
   }, []);
 
   const showSearchTipsDropdown = isSearchFocused && searchTips.length > 0;
@@ -1574,6 +1905,7 @@ export default function HomeScreen() {
     if (!trimmedSearchQuery) {
       setSearchResults([]);
       setIsSearchLoading(false);
+      clearVoiceSearchOwnership();
       return;
     }
 
@@ -1581,6 +1913,17 @@ export default function HomeScreen() {
       setSearchResults([]);
       setIsSearchLoading(false);
       setHomeSearchCache(searchQuery, []);
+      return;
+    }
+
+    // Voice/AI natural search already filled results for this query — don't overwrite.
+    if (voiceQueryRef.current === trimmedSearchQuery) {
+      setIsSearchLoading(false);
+      return;
+    }
+
+    // Still capturing speech — wait for the natural search pass.
+    if (voiceListening) {
       return;
     }
 
@@ -1599,20 +1942,21 @@ export default function HomeScreen() {
         knownCards: knownCardsRef.current,
       })
         .then((results) => {
-          if (!cancelled) {
-            const next = results as CardItem[];
-            setSearchResults(next);
-            setHomeSearchCache(trimmedSearchQuery, next as OfferCardItem[]);
-          }
+          if (cancelled) return;
+          // Voice/natural search owns this query — keep its relevance order.
+          if (voiceQueryRef.current === trimmedSearchQuery) return;
+          const next = results as CardItem[];
+          setSearchResults(next);
+          setHomeSearchCache(trimmedSearchQuery, next as OfferCardItem[]);
         })
         .catch(() => {
-          if (!cancelled) {
-            setSearchResults([]);
-            setHomeSearchCache(trimmedSearchQuery, []);
-          }
+          if (cancelled) return;
+          if (voiceQueryRef.current === trimmedSearchQuery) return;
+          setSearchResults([]);
+          setHomeSearchCache(trimmedSearchQuery, []);
         })
         .finally(() => {
-          if (!cancelled) {
+          if (!cancelled && voiceQueryRef.current !== trimmedSearchQuery) {
             setIsSearchLoading(false);
           }
         });
@@ -1622,26 +1966,38 @@ export default function HomeScreen() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [isSearchActive, searchQuery, trimmedSearchQuery]);
+  }, [isSearchActive, searchQuery, trimmedSearchQuery, voiceListening, clearVoiceSearchOwnership]);
 
   useEffect(() => {
     if (!coords || !isSearchActive || searchResults.length === 0) return;
 
     let cancelled = false;
+    const snapshot = searchResults;
+    const queryAtStart = trimmedSearchQuery;
     void (async () => {
-      const enriched = await fillMissingDistancesFromAddresses(searchResults, coords, {
+      const enriched = await fillMissingDistancesFromAddresses(snapshot, coords, {
         maxGeocode: 20,
       });
-      if (!cancelled) {
-        setSearchResults(enriched);
-        setHomeSearchCache(trimmedSearchQuery, enriched as OfferCardItem[]);
-      }
+      if (cancelled) return;
+      // Don't clobber a newer search (or voice ranking) with stale enrichment.
+      if (voiceQueryRef.current && voiceQueryRef.current !== queryAtStart) return;
+      if (trimmedSearchQuery !== queryAtStart) return;
+      // Distance badges only — keep AI/natural relevance order intact.
+      const next = applyVoiceResultOrder(enriched);
+      setSearchResults(next);
+      setHomeSearchCache(queryAtStart, next as OfferCardItem[]);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [coords, isSearchActive, trimmedSearchQuery, searchResults.length]);
+  }, [
+    coords,
+    isSearchActive,
+    trimmedSearchQuery,
+    searchResults.length,
+    applyVoiceResultOrder,
+  ]);
 
   const searchedNearYou = useMemo(
     () => sortSearchResultsNearYou(searchResults, coords),
@@ -1673,7 +2029,9 @@ export default function HomeScreen() {
     [router, searchResults, trimmedSearchQuery]
   );
 
-  const heroBlockHeight = HERO_HEIGHT + heroTopInset;
+  // Voice-search hero needs room for headline + orb + copy.
+  const heroContentHeight = isLoggedIn ? 268 : HERO_HEIGHT;
+  const heroBlockHeight = heroContentHeight + heroTopInset;
   const searchPanelStickyLift = 12;
   // Keep collapse shorter than hero height — 1:1 mapping breaks ScrollView layout.
   const heroCollapseScroll = 200;
@@ -1685,25 +2043,35 @@ export default function HomeScreen() {
   });
   const headerTopPadding = scrollY.interpolate({
     inputRange: [0, heroCollapseScroll],
-    outputRange: [8, collapsedHeaderTopPadding],
+    outputRange: [4, collapsedHeaderTopPadding],
     extrapolate: 'clamp',
   });
   const webStickyTopPadding = scrollY.interpolate({
     inputRange: [0, heroBlockHeight],
-    outputRange: [16, heroTopInset + 16 - searchPanelStickyLift],
+    outputRange: [10, heroTopInset + 10 - searchPanelStickyLift],
     extrapolate: 'clamp',
   });
+  // Mic drops in from the top beside the search bar, driven by the eased anim.
+  const inlineMicWidth = inlineMicAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, SEARCH_BAR_HEIGHT],
+  });
+  const inlineMicMarginLeft = inlineMicAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 10],
+  });
+  const inlineMicTranslateY = inlineMicAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-SEARCH_BAR_HEIGHT, 0],
+  });
+  const inlineMicOpacity = inlineMicAnim;
   const searchDropdownExpanded = showSearchTipsDropdown || isSearchDropdownMounted;
   const searchDropdownDividerColor = 'rgba(0, 0, 0, 0.08)';
 
   const searchPanelStyle = {
     backgroundColor: homeHeaderPanelBg,
-            borderBottomLeftRadius: 24,
-            borderBottomRightRadius: 24,
-            borderLeftWidth: 1,
-            borderRightWidth: 1,
-            borderBottomWidth: 1,
-    borderColor: searchPanelBorderColor,
+    borderBottomLeftRadius: SEARCH_PANEL_BOTTOM_RADIUS,
+    borderBottomRightRadius: SEARCH_PANEL_BOTTOM_RADIUS,
     ...(Platform.OS === 'web'
       ? ({
           position: 'sticky' as const,
@@ -1829,6 +2197,8 @@ export default function HomeScreen() {
           },
         ]}
       >
+        <View style={styles.searchBarWithMicRow}>
+        <View style={styles.searchBarDropdownHost}>
         {renderSearchTipsDropdown()}
 
         <View
@@ -1837,6 +2207,7 @@ export default function HomeScreen() {
             styles.searchBarRow,
             {
               height: SEARCH_BAR_HEIGHT,
+              width: '100%',
               position: 'relative',
               zIndex: 2,
               elevation: 2,
@@ -1850,15 +2221,18 @@ export default function HomeScreen() {
             }
           }}
         >
-          <Ionicons name="search" size={18} color={FilterChipTheme.textMuted} style={styles.searchBarIcon} />
+          <Ionicons name="sparkles" size={18} color="#7c5cf6" style={styles.searchBarIcon} />
           <View style={styles.searchBarInputSlot}>
                 <TextInput
               nativeID="home-search-input"
                   value={searchQuery}
-                  onChangeText={setSearchQuery}
+                  onChangeText={(text) => {
+                    clearVoiceSearchOwnership();
+                    setSearchQuery(text);
+                  }}
               onFocus={openSearchDropdown}
               onBlur={closeSearchDropdown}
-                  placeholder="Sök restauranger, events, upplevelser"
+                  placeholder={`${typedPlaceholder}|`}
               placeholderTextColor={FilterChipTheme.placeholder}
               style={[
                 styles.searchBarInput,
@@ -1872,6 +2246,8 @@ export default function HomeScreen() {
           </View>
           <Pressable
             onPress={() => {
+              clearVoiceSearchOwnership();
+              stopVoiceSession();
               setSearchQuery('');
               clearHomeSearchCache();
             }}
@@ -1887,9 +2263,51 @@ export default function HomeScreen() {
             <Ionicons name="close-circle" size={18} color={FilterChipTheme.textMuted} />
                 </Pressable>
               </View>
+        </View>
+
+          {isLoggedIn ? (
+            <Animated.View
+              style={{
+                width: inlineMicWidth,
+                marginLeft: inlineMicMarginLeft,
+                height: SEARCH_BAR_HEIGHT,
+                overflow: 'hidden',
+                alignItems: 'center',
+              }}
+            >
+              <Animated.View
+                style={{
+                  opacity: inlineMicOpacity,
+                  transform: [{ translateY: inlineMicTranslateY }],
+                }}
+              >
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Sök med rösten"
+                  hitSlop={8}
+                  onPress={handleVoiceSearch}
+                  style={styles.inlineMicButtonWrap}
+                >
+                  <LinearGradient
+                    colors={
+                      voiceListening
+                        ? (['#ef4444', '#dc2626'] as [string, string])
+                        : ([theme.linkSoft, theme.link] as [string, string])
+                    }
+                    start={{ x: 0.5, y: 0 }}
+                    end={{ x: 0.5, y: 1 }}
+                    style={styles.inlineMicBox}
+                  >
+                    <Ionicons name="mic" size={20} color="#ffffff" />
+                  </LinearGradient>
+                </Pressable>
+              </Animated.View>
+            </Animated.View>
+          ) : null}
+            </View>
             </View>
 
-      <View className="mt-4" style={{ zIndex: 1, elevation: 1 }}>
+      <View className="mt-2" style={{ zIndex: 1, elevation: 1 }}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 24 }}>
                 <View className="flex-row gap-2">
                   {quickCategories.map((cat) => (
@@ -1938,6 +2356,11 @@ export default function HomeScreen() {
                 </View>
               </ScrollView>
             </View>
+
+      <View
+        pointerEvents="none"
+        style={[styles.searchPanelBottomEdge, { borderColor: searchPanelBorderColor }]}
+      />
   </View>
   );
 
@@ -1973,19 +2396,41 @@ export default function HomeScreen() {
         <View style={{ backgroundColor: homeHeaderPanelBg }}>
           {Platform.OS === 'web' ? (
             <View style={[styles.heroBlock, { height: heroBlockHeight }]}>
-              <HeroImageCarousel
-                slides={heroSlides}
-                panelBackgroundColor={homeHeaderPanelBg}
-                topInset={heroTopInset}
-              />
+              {isLoggedIn ? (
+                <HeroMicButton
+                  height={heroBlockHeight}
+                  backgroundColor={homeHeaderPanelBg}
+                  topInset={heroTopInset}
+                  listening={voiceListening}
+                  statusMessage={voiceStatusMessage}
+                  onPress={handleVoiceSearch}
+                />
+              ) : (
+                <HeroImageCarousel
+                  slides={heroSlides}
+                  panelBackgroundColor={homeHeaderPanelBg}
+                  topInset={heroTopInset}
+                />
+              )}
             </View>
           ) : (
             <Animated.View style={[styles.heroBlock, { height: heroHeight }]}>
-              <HeroImageCarousel
-                slides={heroSlides}
-                panelBackgroundColor={homeHeaderPanelBg}
-                topInset={heroTopInset}
-              />
+              {isLoggedIn ? (
+                <HeroMicButton
+                  height={heroBlockHeight}
+                  backgroundColor={homeHeaderPanelBg}
+                  topInset={heroTopInset}
+                  listening={voiceListening}
+                  statusMessage={voiceStatusMessage}
+                  onPress={handleVoiceSearch}
+                />
+              ) : (
+                <HeroImageCarousel
+                  slides={heroSlides}
+                  panelBackgroundColor={homeHeaderPanelBg}
+                  topInset={heroTopInset}
+                />
+              )}
             </Animated.View>
           )}
         </View>
@@ -1996,7 +2441,7 @@ export default function HomeScreen() {
               pointerEvents="box-none"
               style={{
                 paddingTop: webStickyTopPadding,
-                paddingBottom: 10,
+                paddingBottom: 0,
                 backgroundColor: homeHeaderPanelBg,
               }}
             >
@@ -2007,7 +2452,7 @@ export default function HomeScreen() {
               pointerEvents="box-none"
               style={{
                 paddingTop: headerTopPadding,
-                paddingBottom: 10,
+                paddingBottom: 0,
                 backgroundColor: homeHeaderPanelBg,
               }}
             >
@@ -2016,7 +2461,7 @@ export default function HomeScreen() {
           )}
         </View>
 
-        <View className="mt-6 px-6">
+        <View className="mt-4 px-6">
           {isSearchActive || isSearchTooShort ? (
             <>
               <SectionTitleRow
@@ -2192,6 +2637,14 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     overflow: 'hidden',
   },
+  searchPanelBottomEdge: {
+    marginTop: 3,
+    height: SEARCH_PANEL_BOTTOM_RADIUS,
+    borderWidth: 1,
+    borderTopWidth: 0,
+    borderBottomLeftRadius: SEARCH_PANEL_BOTTOM_RADIUS,
+    borderBottomRightRadius: SEARCH_PANEL_BOTTOM_RADIUS,
+  },
   searchBarAnchor: {
     position: 'relative',
     maxWidth: '100%',
@@ -2205,12 +2658,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     width: '100%',
-    borderRadius: 999,
+    borderRadius: 14,
     paddingHorizontal: 16,
   },
   searchBarIcon: {
     marginRight: 8,
     flexShrink: 0,
+  },
+  searchBarWithMicRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+  },
+  searchBarDropdownHost: {
+    flex: 1,
+    position: 'relative',
+    zIndex: 2,
+    elevation: 2,
+    overflow: 'visible',
+  },
+  inlineMicButtonWrap: {
+    flexShrink: 0,
+  },
+  inlineMicBox: {
+    width: SEARCH_BAR_HEIGHT,
+    height: SEARCH_BAR_HEIGHT,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   searchBarInputSlot: {
     flex: 1,

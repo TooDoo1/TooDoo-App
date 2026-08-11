@@ -6,6 +6,7 @@ import {
   isActiveOffer,
   mapApiOrderToCardItem,
   parseOrdersFromBusinessRecord,
+  resolveBusinessCategoryIds,
   type OfferCardItem,
 } from '@/lib/home-offers';
 
@@ -86,6 +87,8 @@ type UnifiedSearchResponse = {
   results?: UnifiedSearchResult[];
   total?: number;
   totalCapped?: boolean;
+  /** Backend may return "keyword" or "ai-hybrid" — clients must not filter on this. */
+  source?: string;
 };
 
 async function fetchUnifiedSearch(params: URLSearchParams): Promise<UnifiedSearchResult[]> {
@@ -100,12 +103,15 @@ async function fetchUnifiedSearch(params: URLSearchParams): Promise<UnifiedSearc
 function mapBusinessRecordToCard(business: any, orders: any[]): OfferCardItem {
   const businessId = String(business?.id ?? business?._id ?? 'business');
   const activeOrders = orders.filter((order) => isActiveOffer(order));
+  const categoryIds = resolveBusinessCategoryIds(business);
 
   if (activeOrders.length > 0) {
     const base = mapApiOrderToCardItem({ ...activeOrders[0], business }, 0);
     return {
       ...base,
       id: businessId,
+      categoryId: categoryIds[0] ?? base.categoryId,
+      categoryIds,
       orderIds: activeOrders.map((order, index) =>
         String(order?.id ?? order?._id ?? `${businessId}-order-${index}`)
       ),
@@ -137,7 +143,8 @@ function mapBusinessRecordToCard(business: any, orders: any[]): OfferCardItem {
     image: {
       uri: imageUri ?? `https://picsum.photos/seed/${encodeURIComponent(businessId)}/300/200`,
     },
-    categoryId: business?.categoryId ?? business?.category?.id,
+    categoryId: categoryIds[0] ?? business?.categoryId ?? business?.category?.id,
+    categoryIds,
     categoryName: business?.categoryName ?? business?.category?.name,
     deal: false,
     orderIds: [],
@@ -180,7 +187,7 @@ async function hydrateBusinessCard(businessId: string): Promise<OfferCardItem | 
 
 type HydrationTask = { kind: 'order' | 'business'; id: string };
 
-async function hydrateTasks(tasks: HydrationTask[]): Promise<OfferCardItem[]> {
+async function hydrateTasks(tasks: HydrationTask[]): Promise<(OfferCardItem | null)[]> {
   const ordered: (OfferCardItem | null)[] = new Array(tasks.length).fill(null);
 
   for (let i = 0; i < tasks.length; i += SEARCH_HYDRATE_CONCURRENCY) {
@@ -195,7 +202,8 @@ async function hydrateTasks(tasks: HydrationTask[]): Promise<OfferCardItem[]> {
     });
   }
 
-  return ordered.filter((card): card is OfferCardItem => card !== null);
+  // Keep null slots so callers can align cards with the original API rank.
+  return ordered;
 }
 
 /**
@@ -269,6 +277,113 @@ export async function searchCatalog(
   const deduped: OfferCardItem[] = [];
   const seenCardIds = new Set<string>();
   for (const card of cards) {
+    if (!card) continue;
+    if (seenCardIds.has(card.id)) continue;
+    seenCardIds.add(card.id);
+    deduped.push(card);
+  }
+
+  try {
+    return await hydrateOfferCardImages(deduped, {
+      knownCards: options.knownCards,
+    });
+  } catch {
+    return deduped;
+  }
+}
+
+type AuthFetch = (path: string, init?: RequestInit) => Promise<Response>;
+
+/**
+ * AI hybrid / natural search via `POST /search/natural`.
+ * Voice entry must send `source: "voice"` with a Bearer token (use authFetch).
+ * Response `source` may be `"keyword"` or `"ai-hybrid"` — treat any 200 `results` as success.
+ */
+export async function searchNatural(
+  query: string,
+  authFetch: AuthFetch,
+  options: {
+    city?: string;
+    categoryName?: string;
+    source?: 'voice' | 'typed' | 'fallback';
+    take?: number;
+    skip?: number;
+    maxHydrate?: number;
+    knownCards?: OfferCardItem[];
+  } = {}
+): Promise<OfferCardItem[]> {
+  const q = query.trim();
+  if (q.length < 2) {
+    return [];
+  }
+
+  const hydrateLimit = Math.min(
+    options.maxHydrate ?? SEARCH_HYDRATE_LIMIT,
+    SEARCH_HYDRATE_LIMIT_MAX
+  );
+
+  const body: Record<string, unknown> = {
+    q: q.slice(0, 500),
+    source: options.source ?? 'typed',
+    take: Math.min(options.take ?? 24, 50),
+    skip: options.skip ?? 0,
+  };
+  if (options.city) body.city = options.city;
+  if (options.categoryName) body.categoryName = options.categoryName;
+
+  const response = await authFetch('/search/natural', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const err = new Error(`NATURAL_SEARCH_${response.status}`);
+    (err as Error & { status?: number }).status = response.status;
+    throw err;
+  }
+
+  const json = (await response.json().catch(() => ({}))) as UnifiedSearchResponse;
+  const results = Array.isArray(json.results) ? json.results : [];
+
+  // Keep exact API relevance order. Dedupe by business after hydrate, always
+  // preferring the earlier (higher-ranked) hit when the same business appears twice.
+  const tasks: Array<HydrationTask & { rank: number }> = [];
+  const reservedBusinessIds = new Set<string>();
+
+  for (let rank = 0; rank < results.length; rank += 1) {
+    const result = results[rank];
+    if (!result?.id) continue;
+
+    if (result.type === 'order') {
+      const businessId = result.business?.id ? String(result.business.id) : undefined;
+      if (businessId) {
+        if (reservedBusinessIds.has(businessId)) continue;
+        reservedBusinessIds.add(businessId);
+      }
+      tasks.push({ kind: 'order', id: String(result.id), rank });
+    } else {
+      const businessId = String(result.id);
+      if (reservedBusinessIds.has(businessId)) continue;
+      reservedBusinessIds.add(businessId);
+      tasks.push({ kind: 'business', id: businessId, rank });
+    }
+
+    if (tasks.length >= hydrateLimit) break;
+  }
+
+  const hydrated = await hydrateTasks(tasks);
+  const rankedCards: Array<{ card: OfferCardItem; rank: number }> = [];
+  for (let i = 0; i < tasks.length; i += 1) {
+    const card = hydrated[i];
+    if (!card) continue;
+    rankedCards.push({ card, rank: tasks[i].rank });
+  }
+  rankedCards.sort((a, b) => a.rank - b.rank);
+
+  const deduped: OfferCardItem[] = [];
+  const seenCardIds = new Set<string>();
+  for (const { card } of rankedCards) {
     if (seenCardIds.has(card.id)) continue;
     seenCardIds.add(card.id);
     deduped.push(card);

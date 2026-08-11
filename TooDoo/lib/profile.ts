@@ -8,6 +8,7 @@ export type UserProfile = {
   firstName?: string;
   lastName?: string;
   gender?: UserGender | string;
+  location?: string;
   notificationsEnabled?: boolean;
   interests?: Array<string | { id?: string; _id?: string; name?: string }>;
 };
