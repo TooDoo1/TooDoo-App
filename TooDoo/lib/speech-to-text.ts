@@ -41,7 +41,17 @@ export type SpeechSupportInfo = {
   reason?: string;
 };
 
-const DEFAULT_SILENCE_TIMEOUT_MS = 1000;
+/** How long to wait for the user to *start* speaking after the mic opens. */
+const DEFAULT_INITIAL_GRACE_MS = 8000;
+/** How long after the last speech activity before we auto-stop. */
+const DEFAULT_SILENCE_TIMEOUT_MS = 2000;
+const MOBILE_INITIAL_GRACE_MS = 10000;
+const MOBILE_SILENCE_TIMEOUT_MS = 2800;
+
+function isMobileBrowser(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+}
 
 function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
   if (Platform.OS !== 'web' || typeof window === 'undefined') {
@@ -133,12 +143,17 @@ export function isSpeechToTextSupported(): boolean {
 /**
  * Start speech recognition (Web Speech API / Chrome).
  * Must be called synchronously from a real click/tap handler.
- * Auto-stops after `silenceTimeoutMs` of silence (default 1s).
+ *
+ * Auto-stops after silence following speech activity. Before the first speech
+ * event we use a longer grace period — mobile browsers often lag >1s before
+ * reporting sound/results, so a short timer there cuts off mid-sentence.
  */
 export function startSpeechToText(options?: {
   lang?: string;
   continuous?: boolean;
-  /** Stop after this many ms without speech activity. Default 1000. */
+  /** Wait this long for the user to start speaking. Defaults are longer on mobile. */
+  initialGraceMs?: number;
+  /** Stop after this many ms without speech activity (after speech has begun). */
   silenceTimeoutMs?: number;
   onPartial?: (text: string) => void;
   onListening?: () => void;
@@ -155,6 +170,7 @@ export function startSpeechToText(options?: {
   let settled = false;
   let stopping = false;
   let finalText = '';
+  let heardSpeech = false;
   let silenceTimer: ReturnType<typeof setTimeout> | null = null;
   let resolveDone!: (text: string) => void;
   let rejectDone!: (error: Error) => void;
@@ -164,7 +180,12 @@ export function startSpeechToText(options?: {
     rejectDone = reject;
   });
 
-  const silenceTimeoutMs = options?.silenceTimeoutMs ?? DEFAULT_SILENCE_TIMEOUT_MS;
+  const mobile = isMobileBrowser();
+  const initialGraceMs =
+    options?.initialGraceMs ?? (mobile ? MOBILE_INITIAL_GRACE_MS : DEFAULT_INITIAL_GRACE_MS);
+  const silenceTimeoutMs =
+    options?.silenceTimeoutMs ??
+    (mobile ? MOBILE_SILENCE_TIMEOUT_MS : DEFAULT_SILENCE_TIMEOUT_MS);
 
   const clearSilenceTimer = () => {
     if (silenceTimer) {
@@ -184,18 +205,23 @@ export function startSpeechToText(options?: {
     }
   };
 
-  const armSilenceTimer = () => {
+  const armSilenceTimer = (ms: number) => {
     if (settled || stopping) return;
     clearSilenceTimer();
     silenceTimer = setTimeout(() => {
       silenceTimer = null;
       requestStop();
-    }, silenceTimeoutMs);
+    }, ms);
   };
 
   const noteSpeechActivity = () => {
-    // While the user is speaking, don't count silence.
+    heardSpeech = true;
+    // While the user is speaking / results are arriving, don't count silence.
     clearSilenceTimer();
+  };
+
+  const armAfterSpeechPause = () => {
+    armSilenceTimer(silenceTimeoutMs);
   };
 
   const finish = (text: string, error?: Error) => {
@@ -228,8 +254,11 @@ export function startSpeechToText(options?: {
 
     recognition.onaudiostart = () => {
       options?.onListening?.();
-      // No speech yet — turn off after silence timeout if user stays quiet.
-      armSilenceTimer();
+      // Give the user time to start speaking — do NOT use the short silence
+      // timeout here (mobile often takes several seconds before first events).
+      if (!heardSpeech) {
+        armSilenceTimer(initialGraceMs);
+      }
     };
 
     recognition.onsoundstart = () => {
@@ -241,11 +270,19 @@ export function startSpeechToText(options?: {
     };
 
     recognition.onsoundend = () => {
-      armSilenceTimer();
+      if (heardSpeech) {
+        armAfterSpeechPause();
+      } else {
+        armSilenceTimer(initialGraceMs);
+      }
     };
 
     recognition.onspeechend = () => {
-      armSilenceTimer();
+      // Mobile browsers often fire speechend between words — only start the
+      // short silence timer once we've actually heard something.
+      if (heardSpeech) {
+        armAfterSpeechPause();
+      }
     };
 
     recognition.onresult = (event) => {
@@ -263,8 +300,9 @@ export function startSpeechToText(options?: {
       if (display) {
         options?.onPartial?.(display);
       }
-      // After each result chunk, wait again for silence.
-      armSilenceTimer();
+      // After each result chunk, wait again for a pause (gaps between interim
+      // results are often >1s on mobile).
+      armAfterSpeechPause();
     };
 
     recognition.onerror = (event) => {
@@ -272,9 +310,13 @@ export function startSpeechToText(options?: {
       if (code === 'aborted') {
         return;
       }
-      // Browser-level no-speech: treat as silence and let our timer / stop handle end.
+      // Browser-level no-speech: keep waiting within the initial grace window.
       if (code === 'no-speech') {
-        armSilenceTimer();
+        if (!heardSpeech) {
+          armSilenceTimer(initialGraceMs);
+        } else {
+          armAfterSpeechPause();
+        }
         return;
       }
       finish(finalText, new Error(code));

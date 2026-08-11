@@ -10,6 +10,6 @@ export default function ErbjudandenScreen() {
   return (
     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.screenBg }}>
       <Text style={{ color: theme.textMuted }}>Välj ett kort från startsidan för att se detaljer här.</Text>
-        </View>
+    </View>
   );
 }

@@ -11,15 +11,12 @@ export function isPlausibleSwedenCoordinate(lat: number, lng: number) {
 
 const NOMINATIM_USER_AGENT = 'TooDooApp/1.0 (contact: support@toodoo.app)';
 
-/** Geocode a postal address via Nominatim (native/server-side fetch only). */
+/** Geocode a postal address via Nominatim (works on web and native). */
 export async function geocodeAddressNominatim(address: string): Promise<Coords | null> {
-  if (Platform.OS === 'web') return null;
-
   const trimmed = address.trim();
   if (!trimmed) return null;
 
   try {
-    await waitForNominatimSlot();
     const response = await fetch(
       `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=se&q=${encodeURIComponent(trimmed)}`,
       {
@@ -67,37 +64,6 @@ export function formatDistanceKm(distanceKm?: number): string | null {
 
 const GEOCODE_CACHE_PREFIX = 'toodoo_geocode_';
 const webGeocodeCache = new Map<string, Coords | null>();
-const NOMINATIM_MIN_INTERVAL_MS = 1100;
-let lastNominatimRequestAt = 0;
-
-/** Nominatim blocks browser requests (CORS) — geocoding runs on native only. */
-export function isClientGeocodingAvailable(): boolean {
-  return Platform.OS !== 'web';
-}
-
-async function waitForNominatimSlot(): Promise<void> {
-  const now = Date.now();
-  const waitMs = lastNominatimRequestAt + NOMINATIM_MIN_INTERVAL_MS - now;
-  if (waitMs > 0) {
-    await new Promise((resolve) => setTimeout(resolve, waitMs));
-  }
-  lastNominatimRequestAt = Date.now();
-}
-
-async function readCachedGeocode(cacheKey: string): Promise<Coords | null | undefined> {
-  const key = `${GEOCODE_CACHE_PREFIX}${cacheKey}`;
-  try {
-    const cached = await AsyncStorage.getItem(key);
-    if (!cached) return undefined;
-    const parsed = JSON.parse(cached);
-    if (parsed && typeof parsed.lat === 'number' && typeof parsed.lng === 'number') {
-      return parsed;
-    }
-    return null;
-  } catch {
-    return undefined;
-  }
-}
 
 async function cacheNativeGeocodeResult(key: string, coords: Coords | null) {
   try {
@@ -117,16 +83,9 @@ export async function geocodeAddressCached(address: string): Promise<Coords | nu
     if (webGeocodeCache.has(cacheKey)) {
       return webGeocodeCache.get(cacheKey) ?? null;
     }
-
-    const cached = await readCachedGeocode(cacheKey);
-    if (cached !== undefined) {
-      webGeocodeCache.set(cacheKey, cached);
-      return cached;
-    }
-
-    // Browser cannot call Nominatim directly (CORS + rate limits).
-    webGeocodeCache.set(cacheKey, null);
-    return null;
+    const result = await geocodeAddressNominatim(trimmed);
+    webGeocodeCache.set(cacheKey, result);
+    return result;
   }
 
   const key = `${GEOCODE_CACHE_PREFIX}${cacheKey}`;
@@ -196,7 +155,7 @@ export function applyHaversineDistances<T extends DistanceCard>(
   });
 }
 
-/** Resolve distances from stored coordinates, geocoding missing ones on native only. */
+/** Resolve distances from geocoded addresses, falling back to stored coordinates. */
 export async function fillMissingDistancesFromAddresses<T extends DistanceCard>(
   cards: T[],
   userCoords: Coords,
@@ -205,45 +164,25 @@ export async function fillMissingDistancesFromAddresses<T extends DistanceCard>(
   const maxGeocode = options?.maxGeocode ?? 24;
   const distanceById = new Map<string, number>();
 
-  for (const card of cards) {
-    const lat = card.latitude;
-    const lng = card.longitude;
-    if (
-      typeof lat === 'number' &&
-      typeof lng === 'number' &&
-      isPlausibleSwedenCoordinate(lat, lng)
-    ) {
+  const geocodeCandidates = cards
+    .filter((card) => card.Adress && card.Adress !== 'Adress saknas')
+    .slice(0, maxGeocode);
+
+  for (const card of geocodeCandidates) {
+    const geo = await geocodeAddressCached(card.Adress);
+    if (geo) {
       distanceById.set(
         card.id,
-        haversineKm(userCoords.lat, userCoords.lng, lat, lng)
+        haversineKm(userCoords.lat, userCoords.lng, geo.lat, geo.lng)
       );
     }
   }
 
-  if (isClientGeocodingAvailable()) {
-    const geocodeCandidates = cards
-      .filter(
-        (card) =>
-          !distanceById.has(card.id) &&
-          card.Adress &&
-          card.Adress !== 'Adress saknas'
-      )
-      .slice(0, maxGeocode);
+  const withCoordFallback = applyHaversineDistances(cards, userCoords);
 
-    for (const card of geocodeCandidates) {
-      const geo = await geocodeAddressCached(card.Adress);
-      if (geo) {
-        distanceById.set(
-          card.id,
-          haversineKm(userCoords.lat, userCoords.lng, geo.lat, geo.lng)
-        );
-      }
-    }
-  }
-
-  return cards.map((card) => {
-    const distanceKm = distanceById.get(card.id);
-    return typeof distanceKm === 'number' ? { ...card, distanceKm } : card;
+  return withCoordFallback.map((card) => {
+    const geocoded = distanceById.get(card.id);
+    return typeof geocoded === 'number' ? { ...card, distanceKm: geocoded } : card;
   });
 }
 

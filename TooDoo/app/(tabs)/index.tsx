@@ -1505,7 +1505,8 @@ export default function HomeScreen() {
     const session = startSpeechToText({
       lang: 'sv-SE',
       continuous: true,
-      silenceTimeoutMs: 1000,
+      // Silence defaults are longer on mobile (see speech-to-text.ts) so the
+      // mic does not cut off before Chrome reports the first speech events.
       onPartial: (text) => {
         if (text.trim()) {
           setSearchQuery(text.trim());
