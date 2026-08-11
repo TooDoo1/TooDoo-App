@@ -76,9 +76,11 @@ import {
   OFFERS_CATEGORY_ACCENT,
 } from '@/lib/category-colors';
 import {
+  cardMatchesCategory,
   computeDiscountLabel,
   fetchHomeScreenData,
   getDiscountBadgeColor,
+  resolveBusinessCategoryIds,
   resolveBusinessIdFromOrder,
   type OfferCardItem,
 } from '@/lib/home-offers';
@@ -100,9 +102,17 @@ import {
 import { blurActiveElementOnWeb } from '@/lib/web-focus';
 import {
   searchCatalog,
+  searchNatural,
   sortSearchResultsHot,
   sortSearchResultsNearYou,
 } from '@/lib/catalog-search';
+import {
+  getSpeechSupportInfo,
+  startSpeechToText,
+  type SpeechToTextSession,
+} from '@/lib/speech-to-text';
+import { playMicCue } from '@/lib/mic-cues';
+import { showAlert } from '@/lib/show-alert';
 import {
   DEFAULT_SEARCH_TIPS,
   fetchSearchTips,
@@ -129,6 +139,7 @@ type CardItem = {
   title: string;
   image: ImageSourcePropType;
   categoryId?: string;
+  categoryIds?: string[];
   categoryName?: string;
   deal?: boolean;
   orderIds?: string[];
@@ -153,7 +164,7 @@ function filterCardsByActiveCategory(cards: CardItem[], activeCategory: string):
     return cards;
   }
 
-  return cards.filter((card) => card.categoryId === activeCategory);
+  return cards.filter((card) => cardMatchesCategory(card, activeCategory));
 }
 
 function sortDealsByDistance(deals: CardItem[]): CardItem[] {
@@ -185,6 +196,8 @@ type ApiBusiness = {
   imageUrl?: string;
   categoryId?: string;
   categoryName?: string;
+  categories?: Array<{ id?: string; _id?: string; name?: string } | string>;
+  categoryIds?: string[];
   status?: string;
   latitude?: number;
   longitude?: number;
@@ -426,8 +439,17 @@ function buildCatalogOfferCardsFlat(ordersRaw: any[], approvedBusinesses: ApiBus
       typeof order?.businessId === 'string'
         ? order.businessId
         : order?.businessId?.id ?? order?.businessId?._id;
+    const catalogBusiness = businessId ? businessById.get(String(businessId)) : undefined;
+    const nestedBusiness = order?.business;
     const business =
-      order?.business ?? (businessId ? businessById.get(String(businessId)) : undefined);
+      nestedBusiness || catalogBusiness
+        ? {
+            ...(catalogBusiness ?? {}),
+            ...(nestedBusiness ?? {}),
+            categories: nestedBusiness?.categories ?? catalogBusiness?.categories,
+            categoryIds: nestedBusiness?.categoryIds ?? catalogBusiness?.categoryIds,
+          }
+        : undefined;
 
     if (!business?.name && !business?.id && !order?.title) return;
 
@@ -441,6 +463,7 @@ function mapApiOrderToCardItem(order: any, index: number): CardItem {
   const business = order?.business ?? {};
   const orderId = String(order?.id ?? order?._id ?? `order-${index}`);
   const businessId = resolveBusinessIdFromOrder(order);
+  const categoryIds = resolveBusinessCategoryIds(business);
 
   const imageCandidate =
     order?.image?.publicUrl ??
@@ -459,7 +482,8 @@ function mapApiOrderToCardItem(order: any, index: number): CardItem {
     image: {
       uri: normalizedImageUri ?? `https://picsum.photos/seed/${encodeURIComponent(orderId)}/300/200`,
     },
-    categoryId: business?.categoryId ?? business?.category?.id,
+    categoryId: categoryIds[0] ?? business?.categoryId ?? business?.category?.id,
+    categoryIds,
     categoryName: business?.categoryName ?? business?.category?.name,
     deal: true,
     orderIds: [orderId],
@@ -1077,6 +1101,8 @@ export default function HomeScreen() {
   const [searchQuery, setSearchQuery] = useState(initialSearch.query);
   const [searchResults, setSearchResults] = useState<CardItem[]>(initialSearch.results as CardItem[]);
   const [isSearchLoading, setIsSearchLoading] = useState(false);
+  const [voiceListening, setVoiceListening] = useState(false);
+  const [voiceStatusMessage, setVoiceStatusMessage] = useState<string | null>(null);
   const [searchTips, setSearchTips] = useState<string[]>(DEFAULT_SEARCH_TIPS);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [isSearchDropdownMounted, setIsSearchDropdownMounted] = useState(false);
@@ -1100,6 +1126,12 @@ export default function HomeScreen() {
   const searchQueryRef = useRef(searchQuery);
   const searchResultsRef = useRef(searchResults);
   const knownCardsRef = useRef<CardItem[]>([]);
+  const voiceSessionRef = useRef<SpeechToTextSession | null>(null);
+  const voiceActiveRef = useRef(false);
+  const voiceQueryRef = useRef<string | null>(null);
+  /** Stable business-id order from the last natural/AI response — do not reshuffle. */
+  const voiceResultOrderRef = useRef<string[] | null>(null);
+  const userCityRef = useRef<string | null>(null);
   const searchBlurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchDropdownProgress = useSharedValue(0);
   const searchBarHeightSv = useSharedValue(SEARCH_BAR_HEIGHT);
@@ -1338,13 +1370,243 @@ export default function HomeScreen() {
     }, SEARCH_DROPDOWN_CLOSE_MS);
   }, []);
 
+  const clearVoiceSearchOwnership = useCallback(() => {
+    voiceQueryRef.current = null;
+    voiceResultOrderRef.current = null;
+  }, []);
+
+  const lockVoiceResultOrder = useCallback((cards: CardItem[]) => {
+    voiceResultOrderRef.current = cards.map((card) => card.id);
+  }, []);
+
+  const applyVoiceResultOrder = useCallback((cards: CardItem[]) => {
+    const order = voiceResultOrderRef.current;
+    if (!order || order.length === 0) return cards;
+    const rank = new Map(order.map((id, index) => [id, index]));
+    return [...cards].sort((a, b) => {
+      const ra = rank.get(a.id);
+      const rb = rank.get(b.id);
+      if (ra === undefined && rb === undefined) return 0;
+      if (ra === undefined) return 1;
+      if (rb === undefined) return -1;
+      return ra - rb;
+    });
+  }, []);
+
   const handleSearchTipPress = useCallback((tip: string) => {
     if (searchBlurTimerRef.current) {
       clearTimeout(searchBlurTimerRef.current);
       searchBlurTimerRef.current = null;
     }
+    clearVoiceSearchOwnership();
     setSearchQuery(tip);
     setIsSearchFocused(true);
+  }, [clearVoiceSearchOwnership]);
+
+  const stopVoiceSession = useCallback(() => {
+    const wasListening = voiceActiveRef.current || voiceSessionRef.current != null;
+    voiceActiveRef.current = false;
+    voiceSessionRef.current?.stop();
+    voiceSessionRef.current = null;
+    setVoiceListening(false);
+    // Delay so the cue isn't swallowed while the browser still holds the mic.
+    if (wasListening) {
+      playMicCue('off', { delayMs: 120 });
+    }
+  }, []);
+
+  const runVoiceSearch = useCallback(
+    async (transcript: string) => {
+      // Keep the transcript intact for the backend (only trim ends / enforce max length).
+      const q = transcript.trim().slice(0, 500);
+      if (q.length < 2) {
+        showAlert('Ingen röst', 'Jag hörde inget tydligt. Försök igen.');
+        return;
+      }
+
+      voiceQueryRef.current = q;
+      setSearchQuery(q);
+      setIsSearchFocused(false);
+      setIsSearchLoading(true);
+      setVoiceStatusMessage(null);
+
+      try {
+        let city = userCityRef.current ?? undefined;
+        if (!city) {
+          try {
+            const meRes = await authFetch('/user/me');
+            if (meRes.ok) {
+              const me = (await meRes.json().catch(() => ({}))) as { location?: string };
+              const loc = typeof me.location === 'string' ? me.location.trim() : '';
+              if (loc) {
+                userCityRef.current = loc;
+                city = loc;
+              }
+            }
+          } catch {
+            // City is optional for /search/natural.
+          }
+        }
+
+        const results = await searchNatural(q, authFetch, {
+          source: 'voice',
+          city,
+          take: 16,
+          maxHydrate: 12,
+          knownCards: knownCardsRef.current as OfferCardItem[],
+        });
+        // 200 with results=[] is a valid empty state — do not treat as error.
+        // Do not require response source === "ai-hybrid".
+        const next = results as CardItem[];
+        lockVoiceResultOrder(next);
+        setSearchResults(next);
+        setHomeSearchCache(q, next as OfferCardItem[]);
+      } catch (error) {
+        const status = (error as Error & { status?: number })?.status;
+        clearVoiceSearchOwnership();
+        if (status === 401) {
+          showAlert('Inloggning krävs', 'Logga in igen för att använda röstsökning.');
+        } else {
+          showAlert('Sökfel', 'Kunde inte söka med rösten. Försök igen.');
+        }
+      } finally {
+        setIsSearchLoading(false);
+      }
+    },
+    [authFetch, clearVoiceSearchOwnership, lockVoiceResultOrder]
+  );
+
+  const handleVoiceSearch = useCallback(() => {
+    if (!isLoggedIn) {
+      showAlert('Logga in', 'Du behöver vara inloggad för att söka med rösten.');
+      return;
+    }
+
+    if (voiceListening) {
+      stopVoiceSession();
+      return;
+    }
+
+    const support = getSpeechSupportInfo();
+    if (!support.supported) {
+      const message =
+        support.reason ??
+        'Röstigenkänning stöds inte här. Prova Google Chrome eller Microsoft Edge.';
+      setVoiceStatusMessage(message);
+      showAlert('Röstsökning', message);
+      return;
+    }
+
+    setVoiceStatusMessage(null);
+    voiceActiveRef.current = true;
+    setVoiceListening(true);
+    playMicCue('on');
+
+    const session = startSpeechToText({
+      lang: 'sv-SE',
+      continuous: true,
+      silenceTimeoutMs: 1000,
+      onPartial: (text) => {
+        if (text.trim()) {
+          setSearchQuery(text.trim());
+        }
+      },
+    });
+    voiceSessionRef.current = session;
+
+    void session.done
+      .then((transcript) => {
+        const wasActive = voiceActiveRef.current;
+        voiceSessionRef.current = null;
+        voiceActiveRef.current = false;
+        // Claim this query before flipping listening off, so the keyword
+        // search effect cannot race and overwrite natural results (same hits,
+        // different order).
+        const claimed = transcript.trim().slice(0, 500);
+        if (claimed.length >= 2) {
+          voiceQueryRef.current = claimed;
+        }
+        if (wasActive) {
+          playMicCue('off', { delayMs: 120 });
+        }
+        setVoiceListening(false);
+        return runVoiceSearch(transcript);
+      })
+      .catch((error: Error) => {
+        const wasActive = voiceActiveRef.current;
+        voiceSessionRef.current = null;
+        voiceActiveRef.current = false;
+        if (wasActive) {
+          playMicCue('off', { delayMs: 120 });
+        }
+        setVoiceListening(false);
+        const code = error?.message ?? '';
+        if (code === 'not-allowed' || code === 'service-not-allowed') {
+          const message =
+            'Tillåt mikrofonåtkomst i webbläsaren (låsikonen till vänster om adressfältet) och försök igen.';
+          setVoiceStatusMessage(message);
+          showAlert('Mikrofon blockerad', message);
+          return;
+        }
+        if (code === 'SPEECH_UNSUPPORTED') {
+          const message =
+            'Röstigenkänning stöds inte här. Prova Google Chrome eller Microsoft Edge.';
+          setVoiceStatusMessage(message);
+          showAlert('Röstsökning', message);
+          return;
+        }
+        if (code === 'network') {
+          const message =
+            'Röstigenkänning i Chrome behöver internet (Google Speech). Kontrollera nätverket.';
+          setVoiceStatusMessage(message);
+          showAlert('Ingen anslutning', message);
+          return;
+        }
+        if (code !== 'aborted' && code !== 'no-speech') {
+          const message = `Kunde inte lyssna (${code || 'okänt fel'}). Försök igen i Chrome.`;
+          setVoiceStatusMessage(message);
+          showAlert('Röstfel', message);
+        }
+      });
+  }, [isLoggedIn, voiceListening, stopVoiceSession, runVoiceSearch]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !isLoggedIn) return;
+    const support = getSpeechSupportInfo();
+    if (!support.supported && support.reason) {
+      setVoiceStatusMessage(support.reason);
+    }
+  }, [isLoggedIn]);
+
+  useEffect(() => {
+    if (!isLoggedIn) {
+      userCityRef.current = null;
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const meRes = await authFetch('/user/me');
+        if (!meRes.ok || cancelled) return;
+        const me = (await meRes.json().catch(() => ({}))) as { location?: string };
+        const loc = typeof me.location === 'string' ? me.location.trim() : '';
+        if (!cancelled && loc) {
+          userCityRef.current = loc;
+        }
+      } catch {
+        // optional
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authFetch, isLoggedIn]);
+
+  useEffect(() => {
+    return () => {
+      voiceSessionRef.current?.stop();
+      voiceSessionRef.current = null;
+    };
   }, []);
 
   const showSearchTipsDropdown = isSearchFocused && searchTips.length > 0;
@@ -1643,6 +1905,7 @@ export default function HomeScreen() {
     if (!trimmedSearchQuery) {
       setSearchResults([]);
       setIsSearchLoading(false);
+      clearVoiceSearchOwnership();
       return;
     }
 
@@ -1650,6 +1913,17 @@ export default function HomeScreen() {
       setSearchResults([]);
       setIsSearchLoading(false);
       setHomeSearchCache(searchQuery, []);
+      return;
+    }
+
+    // Voice/AI natural search already filled results for this query — don't overwrite.
+    if (voiceQueryRef.current === trimmedSearchQuery) {
+      setIsSearchLoading(false);
+      return;
+    }
+
+    // Still capturing speech — wait for the natural search pass.
+    if (voiceListening) {
       return;
     }
 
@@ -1668,20 +1942,21 @@ export default function HomeScreen() {
         knownCards: knownCardsRef.current,
       })
         .then((results) => {
-          if (!cancelled) {
-            const next = results as CardItem[];
-            setSearchResults(next);
-            setHomeSearchCache(trimmedSearchQuery, next as OfferCardItem[]);
-          }
+          if (cancelled) return;
+          // Voice/natural search owns this query — keep its relevance order.
+          if (voiceQueryRef.current === trimmedSearchQuery) return;
+          const next = results as CardItem[];
+          setSearchResults(next);
+          setHomeSearchCache(trimmedSearchQuery, next as OfferCardItem[]);
         })
         .catch(() => {
-          if (!cancelled) {
-            setSearchResults([]);
-            setHomeSearchCache(trimmedSearchQuery, []);
-          }
+          if (cancelled) return;
+          if (voiceQueryRef.current === trimmedSearchQuery) return;
+          setSearchResults([]);
+          setHomeSearchCache(trimmedSearchQuery, []);
         })
         .finally(() => {
-          if (!cancelled) {
+          if (!cancelled && voiceQueryRef.current !== trimmedSearchQuery) {
             setIsSearchLoading(false);
           }
         });
@@ -1691,26 +1966,38 @@ export default function HomeScreen() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [isSearchActive, searchQuery, trimmedSearchQuery]);
+  }, [isSearchActive, searchQuery, trimmedSearchQuery, voiceListening, clearVoiceSearchOwnership]);
 
   useEffect(() => {
     if (!coords || !isSearchActive || searchResults.length === 0) return;
 
     let cancelled = false;
+    const snapshot = searchResults;
+    const queryAtStart = trimmedSearchQuery;
     void (async () => {
-      const enriched = await fillMissingDistancesFromAddresses(searchResults, coords, {
+      const enriched = await fillMissingDistancesFromAddresses(snapshot, coords, {
         maxGeocode: 20,
       });
-      if (!cancelled) {
-        setSearchResults(enriched);
-        setHomeSearchCache(trimmedSearchQuery, enriched as OfferCardItem[]);
-      }
+      if (cancelled) return;
+      // Don't clobber a newer search (or voice ranking) with stale enrichment.
+      if (voiceQueryRef.current && voiceQueryRef.current !== queryAtStart) return;
+      if (trimmedSearchQuery !== queryAtStart) return;
+      // Distance badges only — keep AI/natural relevance order intact.
+      const next = applyVoiceResultOrder(enriched);
+      setSearchResults(next);
+      setHomeSearchCache(queryAtStart, next as OfferCardItem[]);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [coords, isSearchActive, trimmedSearchQuery, searchResults.length]);
+  }, [
+    coords,
+    isSearchActive,
+    trimmedSearchQuery,
+    searchResults.length,
+    applyVoiceResultOrder,
+  ]);
 
   const searchedNearYou = useMemo(
     () => sortSearchResultsNearYou(searchResults, coords),
@@ -1743,7 +2030,7 @@ export default function HomeScreen() {
   );
 
   // Voice-search hero needs room for headline + orb + copy.
-  const heroContentHeight = isLoggedIn ? 320 : HERO_HEIGHT;
+  const heroContentHeight = isLoggedIn ? 268 : HERO_HEIGHT;
   const heroBlockHeight = heroContentHeight + heroTopInset;
   const searchPanelStickyLift = 12;
   // Keep collapse shorter than hero height — 1:1 mapping breaks ScrollView layout.
@@ -1939,7 +2226,10 @@ export default function HomeScreen() {
                 <TextInput
               nativeID="home-search-input"
                   value={searchQuery}
-                  onChangeText={setSearchQuery}
+                  onChangeText={(text) => {
+                    clearVoiceSearchOwnership();
+                    setSearchQuery(text);
+                  }}
               onFocus={openSearchDropdown}
               onBlur={closeSearchDropdown}
                   placeholder={`${typedPlaceholder}|`}
@@ -1956,6 +2246,8 @@ export default function HomeScreen() {
           </View>
           <Pressable
             onPress={() => {
+              clearVoiceSearchOwnership();
+              stopVoiceSession();
               setSearchQuery('');
               clearHomeSearchCache();
             }}
@@ -1993,10 +2285,15 @@ export default function HomeScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="Sök med rösten"
                   hitSlop={8}
+                  onPress={handleVoiceSearch}
                   style={styles.inlineMicButtonWrap}
                 >
                   <LinearGradient
-                    colors={[theme.linkSoft, theme.link]}
+                    colors={
+                      voiceListening
+                        ? (['#ef4444', '#dc2626'] as [string, string])
+                        : ([theme.linkSoft, theme.link] as [string, string])
+                    }
                     start={{ x: 0.5, y: 0 }}
                     end={{ x: 0.5, y: 1 }}
                     style={styles.inlineMicBox}
@@ -2104,6 +2401,9 @@ export default function HomeScreen() {
                   height={heroBlockHeight}
                   backgroundColor={homeHeaderPanelBg}
                   topInset={heroTopInset}
+                  listening={voiceListening}
+                  statusMessage={voiceStatusMessage}
+                  onPress={handleVoiceSearch}
                 />
               ) : (
                 <HeroImageCarousel
@@ -2120,6 +2420,9 @@ export default function HomeScreen() {
                   height={heroBlockHeight}
                   backgroundColor={homeHeaderPanelBg}
                   topInset={heroTopInset}
+                  listening={voiceListening}
+                  statusMessage={voiceStatusMessage}
+                  onPress={handleVoiceSearch}
                 />
               ) : (
                 <HeroImageCarousel

@@ -30,6 +30,7 @@ import {
   sortSearchResultsForView,
   type SearchResultsView,
 } from '@/lib/catalog-search';
+import { getHomeSearchCache } from '@/lib/home-list-cache';
 import {
   fillMissingDistancesFromAddresses,
   formatDistanceKm,
@@ -183,7 +184,15 @@ export function SearchResultsScreen() {
     void (async () => {
       setIsLoading(true);
       try {
-        const results = await searchCatalog(query, { take: 40, maxHydrate: 40 });
+        // Prefer the same cards already shown on home (incl. AI/voice results).
+        const cached = getHomeSearchCache();
+        const cacheMatches =
+          cached.query.trim().toLocaleLowerCase('sv-SE') ===
+          query.trim().toLocaleLowerCase('sv-SE');
+        const results = cacheMatches
+          ? cached.results.slice()
+          : await searchCatalog(query, { take: 40, maxHydrate: 40 });
+
         const withDistance = coords
           ? await fillMissingDistancesFromAddresses(results, coords, { maxGeocode: 50 })
           : results;
