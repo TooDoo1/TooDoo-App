@@ -46,8 +46,7 @@ const DEFAULT_INITIAL_GRACE_MS = 8000;
 /** How long after the last speech activity before we auto-stop. */
 const DEFAULT_SILENCE_TIMEOUT_MS = 2000;
 const MOBILE_INITIAL_GRACE_MS = 15000;
-/** Mobile interim results / word gaps are often multi-second. */
-const MOBILE_SILENCE_TIMEOUT_MS = 4500;
+const MOBILE_SILENCE_TIMEOUT_MS = 2000;
 
 function isMobileBrowser(): boolean {
   if (typeof navigator === 'undefined') return false;
