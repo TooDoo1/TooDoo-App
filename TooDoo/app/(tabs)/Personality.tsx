@@ -38,6 +38,7 @@ export default function PersonalityScreen() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [birthDate, setBirthDate] = useState<Date | null>(null);
+  const [draftBirthDate, setDraftBirthDate] = useState<Date>(() => new Date(2000, 0, 1));
   const [isDatePickerVisible, setIsDatePickerVisible] = useState(false);
   const [selectedGender, setSelectedGender] = useState<'MALE' | 'FEMALE' | 'NON_BINARY' | 'OTHER' | null>(null);
   const [categoryOptions, setCategoryOptions] = useState<Array<{ id?: string; name: string }>>([]);
@@ -66,6 +67,7 @@ export default function PersonalityScreen() {
     setFirstName('');
     setLastName('');
     setBirthDate(null);
+    setDraftBirthDate(new Date(2000, 0, 1));
     setIsDatePickerVisible(false);
     setSelectedGender(null);
     setSelectedCategoryIds([]);
@@ -132,16 +134,15 @@ export default function PersonalityScreen() {
 
   const openBirthDatePicker = () => {
     const initialValue = birthDate ?? new Date(2000, 0, 1);
-    if (!birthDate) {
-      setBirthDate(initialValue);
-    }
+    setDraftBirthDate(initialValue);
     if (Platform.OS === 'android') {
       DateTimePickerAndroid.open({
         value: initialValue,
         mode: 'date',
         is24Hour: true,
         maximumDate: new Date(),
-        onChange: (_event, selectedDate) => {
+        onChange: (event, selectedDate) => {
+          if (event.type === 'dismissed') return;
           if (selectedDate) setBirthDate(selectedDate);
         },
       });
@@ -449,7 +450,7 @@ export default function PersonalityScreen() {
             >
               {Platform.OS === 'ios' ? (
                 <DateTimePicker
-                  value={birthDate ?? new Date(2000, 0, 1)}
+                  value={draftBirthDate}
                   mode="date"
                   maximumDate={new Date()}
                   display="spinner"
@@ -457,21 +458,24 @@ export default function PersonalityScreen() {
                   textColor={theme.text}
                   style={{ height: 190 }}
                   onChange={(_event, selectedDate) => {
-                    if (selectedDate) setBirthDate(selectedDate);
+                    if (selectedDate) setDraftBirthDate(selectedDate);
                   }}
                 />
               ) : (
                 <WebBirthDateWheelPicker
-                  value={birthDate ?? new Date(2000, 0, 1)}
+                  value={draftBirthDate}
                   maximumDate={new Date()}
                   theme={theme}
-                  onChange={setBirthDate}
+                  onChange={setDraftBirthDate}
                 />
               )}
               <Pressable
                 className="mt-2 rounded-2xl px-4 py-3"
                 style={{ backgroundColor: accentColor }}
-                onPress={() => setIsDatePickerVisible(false)}
+                onPress={() => {
+                  setBirthDate(draftBirthDate);
+                  setIsDatePickerVisible(false);
+                }}
               >
                 <Text className="text-center font-medium text-white">Klar</Text>
               </Pressable>
