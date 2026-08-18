@@ -159,6 +159,8 @@ export function startSpeechToText(options?: {
   silenceTimeoutMs?: number;
   onPartial?: (text: string) => void;
   onListening?: () => void;
+  /** True while speech is being detected; false during idle listening. */
+  onSpeakingChange?: (speaking: boolean) => void;
 }): SpeechToTextSession {
   const Ctor = getSpeechRecognitionCtor();
   if (!Ctor) {
@@ -174,6 +176,8 @@ export function startSpeechToText(options?: {
   let finalText = '';
   let heardSpeech = false;
   let silenceTimer: ReturnType<typeof setTimeout> | null = null;
+  let speakingHoldTimer: ReturnType<typeof setTimeout> | null = null;
+  let speaking = false;
   let resolveDone!: (text: string) => void;
   let rejectDone!: (error: Error) => void;
 
@@ -194,6 +198,32 @@ export function startSpeechToText(options?: {
       clearTimeout(silenceTimer);
       silenceTimer = null;
     }
+  };
+
+  const setSpeaking = (next: boolean) => {
+    if (speaking === next) return;
+    speaking = next;
+    options?.onSpeakingChange?.(next);
+  };
+
+  const markSpeaking = () => {
+    if (speakingHoldTimer) {
+      clearTimeout(speakingHoldTimer);
+    }
+    setSpeaking(true);
+    // Hold the "talking" visual across short gaps between words.
+    speakingHoldTimer = setTimeout(() => {
+      speakingHoldTimer = null;
+      setSpeaking(false);
+    }, 520);
+  };
+
+  const clearSpeaking = () => {
+    if (speakingHoldTimer) {
+      clearTimeout(speakingHoldTimer);
+      speakingHoldTimer = null;
+    }
+    setSpeaking(false);
   };
 
   const requestStop = () => {
@@ -231,6 +261,7 @@ export function startSpeechToText(options?: {
     settled = true;
     stopping = true;
     clearSilenceTimer();
+    clearSpeaking();
     const active = recognition;
     recognition = null;
     try {
@@ -278,6 +309,7 @@ export function startSpeechToText(options?: {
 
     recognition.onspeechstart = () => {
       noteSpeechActivity();
+      markSpeaking();
     };
 
     recognition.onsoundend = () => {
@@ -298,6 +330,7 @@ export function startSpeechToText(options?: {
 
     recognition.onresult = (event) => {
       noteSpeechActivity();
+      markSpeaking();
       let interim = '';
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const piece = event.results[i]?.[0]?.transcript ?? '';

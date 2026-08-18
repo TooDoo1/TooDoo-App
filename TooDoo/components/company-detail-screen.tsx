@@ -60,6 +60,7 @@ import {
   enrichCompanyDetailImages,
   invalidateCompanyDetailCache,
   loadCompanyDetail,
+  recordBusinessProfileClick,
 } from "@/lib/load-company-detail";
 import { shareOffer } from "@/lib/share-offer";
 
@@ -249,6 +250,7 @@ export default function CompanyDetailScreen() {
 
   const ordersRawRef = useRef<any[]>([]);
   const resolvedBusinessIdRef = useRef<string | undefined>(undefined);
+  const recordedClickIdRef = useRef<string | undefined>(undefined);
   const [realtimeRefreshNonce, setRealtimeRefreshNonce] = useState(0);
 
   const bumpCompanyDetailRefresh = useCallback(() => {
@@ -307,6 +309,12 @@ export default function CompanyDetailScreen() {
       ordersRawRef.current = result.orders;
       if (result.business?.id ?? result.business?._id) {
         resolvedBusinessIdRef.current = String(result.business.id ?? result.business._id);
+      }
+
+      const clickId = resolvedBusinessIdRef.current;
+      if (clickId && recordedClickIdRef.current !== clickId) {
+        recordedClickIdRef.current = clickId;
+        recordBusinessProfileClick(clickId);
       }
 
       setOrderImageUriById(result.images);

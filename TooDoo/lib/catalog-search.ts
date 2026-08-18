@@ -207,9 +207,9 @@ async function hydrateTasks(tasks: HydrationTask[]): Promise<(OfferCardItem | nu
 }
 
 /**
- * Unified catalog search. Calls the backend `GET /search` (relevance-ranked across
- * approved businesses + active orders), then hydrates each lightweight hit into a full
- * offer card via the order/business detail endpoints. Results stay in relevance order.
+ * Unified catalog search. Calls the backend `GET /search` (approved businesses only),
+ * then hydrates each lightweight hit into a full card via GET /business/:id.
+ * Results stay in relevance order. Orders are not returned from search.
  */
 export async function searchCatalog(
   query: string,
@@ -338,6 +338,18 @@ export async function searchNatural(
   });
 
   if (!response.ok) {
+    // 503 = AI search disabled / missing GPT key. Keyword GET /search still works
+    // and may itself fall back to hybrid when AI is available.
+    if (response.status === 503) {
+      return searchCatalog(query, {
+        city: options.city,
+        categoryName: options.categoryName,
+        take: options.take,
+        skip: options.skip,
+        maxHydrate: options.maxHydrate,
+        knownCards: options.knownCards,
+      });
+    }
     const err = new Error(`NATURAL_SEARCH_${response.status}`);
     (err as Error & { status?: number }).status = response.status;
     throw err;

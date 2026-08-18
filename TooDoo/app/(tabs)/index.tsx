@@ -1102,6 +1102,7 @@ export default function HomeScreen() {
   const [searchResults, setSearchResults] = useState<CardItem[]>(initialSearch.results as CardItem[]);
   const [isSearchLoading, setIsSearchLoading] = useState(false);
   const [voiceListening, setVoiceListening] = useState(false);
+  const [voiceSpeaking, setVoiceSpeaking] = useState(false);
   const [voiceStatusMessage, setVoiceStatusMessage] = useState<string | null>(null);
   const [searchTips, setSearchTips] = useState<string[]>(DEFAULT_SEARCH_TIPS);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
@@ -1409,6 +1410,7 @@ export default function HomeScreen() {
     voiceSessionRef.current?.stop();
     voiceSessionRef.current = null;
     setVoiceListening(false);
+    setVoiceSpeaking(false);
     // Delay so the cue isn't swallowed while the browser still holds the mic.
     if (wasListening) {
       playMicCue('off', { delayMs: 120 });
@@ -1500,6 +1502,7 @@ export default function HomeScreen() {
     setVoiceStatusMessage(null);
     voiceActiveRef.current = true;
     setVoiceListening(true);
+    setVoiceSpeaking(false);
     playMicCue('on');
 
     const session = startSpeechToText({
@@ -1512,6 +1515,7 @@ export default function HomeScreen() {
           setSearchQuery(text.trim());
         }
       },
+      onSpeakingChange: setVoiceSpeaking,
     });
     voiceSessionRef.current = session;
 
@@ -1531,6 +1535,7 @@ export default function HomeScreen() {
           playMicCue('off', { delayMs: 120 });
         }
         setVoiceListening(false);
+        setVoiceSpeaking(false);
         return runVoiceSearch(transcript);
       })
       .catch((error: Error) => {
@@ -1541,6 +1546,7 @@ export default function HomeScreen() {
           playMicCue('off', { delayMs: 120 });
         }
         setVoiceListening(false);
+        setVoiceSpeaking(false);
         const code = error?.message ?? '';
         if (code === 'not-allowed' || code === 'service-not-allowed') {
           const message =
@@ -1570,14 +1576,6 @@ export default function HomeScreen() {
         }
       });
   }, [isLoggedIn, voiceListening, stopVoiceSession, runVoiceSearch]);
-
-  useEffect(() => {
-    if (Platform.OS !== 'web' || !isLoggedIn) return;
-    const support = getSpeechSupportInfo();
-    if (!support.supported && support.reason) {
-      setVoiceStatusMessage(support.reason);
-    }
-  }, [isLoggedIn]);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -2403,6 +2401,7 @@ export default function HomeScreen() {
                   backgroundColor={homeHeaderPanelBg}
                   topInset={heroTopInset}
                   listening={voiceListening}
+                  speaking={voiceSpeaking}
                   statusMessage={voiceStatusMessage}
                   onPress={handleVoiceSearch}
                 />
@@ -2422,6 +2421,7 @@ export default function HomeScreen() {
                   backgroundColor={homeHeaderPanelBg}
                   topInset={heroTopInset}
                   listening={voiceListening}
+                  speaking={voiceSpeaking}
                   statusMessage={voiceStatusMessage}
                   onPress={handleVoiceSearch}
                 />

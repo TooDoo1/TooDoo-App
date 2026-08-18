@@ -516,42 +516,35 @@ export async function fetchOfferListCards(
   } = {}
 ): Promise<OfferCardItem[]> {
   const limit = options.limit ?? 50;
-  const { token, coords } = options;
+  const { token } = options;
   const nowMs = Date.now();
 
   let popularBusinesses: ApiBusiness[] = [];
 
-  if (token) {
+  if (mode === 'hot') {
+    // Canonical public ranking — GET /business/popular (alias: /business/for-you/popular).
+    const popularRes = await fetch(apiUrl('/business/popular?take=10'));
+    const popularJson = popularRes.ok ? await popularRes.json().catch(() => ({})) : {};
+    popularBusinesses = parsePopularBusinesses(popularJson);
+  } else if (token) {
     const authHeaders = { Authorization: `Bearer ${token}` };
-    if (mode === 'hot') {
-      // "Populärt just nu" ranking comes from GET /business/for-you/popular.
-      // Only ever fetch the top ten popular businesses.
-      const popularRes = await fetch(
-        apiUrl('/business/for-you/popular?take=10'),
-        { headers: authHeaders }
-      );
-      const popularJson = popularRes.ok ? await popularRes.json().catch(() => ({})) : {};
-      popularBusinesses = parsePopularBusinesses(popularJson);
-    } else {
-      const endpoint = coords
-        ? `/orders/for-you/close?take=${limit}&lat=${coords.lat}&lng=${coords.lng}`
-        : `/orders/for-you/close?take=${limit}`;
-      const [res, approvedBusinesses] = await Promise.all([
-        fetch(apiUrl(endpoint), { headers: authHeaders }),
-        fetchApprovedBusinessesCatalog().then((raw) =>
-          (raw as ApiBusiness[]).filter(
-            (business) => (business.status ?? 'APPROVED').toUpperCase() === 'APPROVED'
-          )
-        ),
-      ]);
-      const json = res.ok ? await res.json().catch(() => ({})) : {};
-      const fromApi = buildCatalogOfferCardsFlat(
-        parseOrdersPayload(json).filter((order) => isActiveOffer(order, nowMs)),
-        approvedBusinesses
-      );
-      if (fromApi.length > 0) {
-        return fromApi.slice(0, limit);
-      }
+    const take = Math.min(Math.max(limit, 1), 50);
+    const endpoint = `/orders/for-you/ending-soon?take=${take}`;
+    const [res, approvedBusinesses] = await Promise.all([
+      fetch(apiUrl(endpoint), { headers: authHeaders }),
+      fetchApprovedBusinessesCatalog().then((raw) =>
+        (raw as ApiBusiness[]).filter(
+          (business) => (business.status ?? 'APPROVED').toUpperCase() === 'APPROVED'
+        )
+      ),
+    ]);
+    const json = res.ok ? await res.json().catch(() => ({})) : {};
+    const fromApi = buildCatalogOfferCardsFlat(
+      parseOrdersPayload(json).filter((order) => isActiveOffer(order, nowMs)),
+      approvedBusinesses
+    );
+    if (fromApi.length > 0) {
+      return fromApi.slice(0, limit);
     }
   }
 
@@ -645,7 +638,7 @@ function sortHomeDeals(
   return [...cards].sort((a, b) => Number(b.deal) - Number(a.deal));
 }
 
-/** Parses the { businesses: [...] } payload from GET /business/for-you/popular. */
+/** Parses the { businesses: [...] } payload from GET /business/popular. */
 function parsePopularBusinesses(json: unknown): ApiBusiness[] {
   const obj = json as Record<string, unknown>;
   const list = Array.isArray(obj?.businesses)
@@ -725,6 +718,8 @@ export async function fetchHomeScreenData(options: {
   let hotFromApi: OfferCardItem[] = [];
   let popularBusinesses: ApiBusiness[] = [];
 
+  const popularUrl = '/business/popular?take=10';
+
   if (token) {
     const authHeaders = { Authorization: `Bearer ${token}` };
     const closeUrl = coords
@@ -734,7 +729,7 @@ export async function fetchHomeScreenData(options: {
     const [ordersJson, closeRes, popularRes] = await Promise.all([
       fetch(apiUrl('/orders')).then((res) => res.json().catch(() => [])),
       fetch(apiUrl(closeUrl), { headers: authHeaders }),
-      fetch(apiUrl('/business/for-you/popular?take=10'), { headers: authHeaders }),
+      fetch(apiUrl(popularUrl)),
     ]);
 
     allOrdersRaw = mergeOrdersById(parseOrdersPayload(ordersJson), ordersFromBusinessList);
@@ -747,8 +742,13 @@ export async function fetchHomeScreenData(options: {
     );
     popularBusinesses = parsePopularBusinesses(popularJson);
   } else {
-    const ordersJson = await fetch(apiUrl('/orders')).then((res) => res.json().catch(() => []));
+    const [ordersJson, popularRes] = await Promise.all([
+      fetch(apiUrl('/orders')).then((res) => res.json().catch(() => [])),
+      fetch(apiUrl(popularUrl)),
+    ]);
     allOrdersRaw = mergeOrdersById(parseOrdersPayload(ordersJson), ordersFromBusinessList);
+    const popularJson = popularRes.ok ? await popularRes.json().catch(() => ({})) : {};
+    popularBusinesses = parsePopularBusinesses(popularJson);
   }
 
   const activeCount = allOrdersRaw.filter((order) => isActiveOffer(order, nowMs)).length;
@@ -800,15 +800,16 @@ export async function fetchHomeScreenData(options: {
     if (nearYouFromApi.length === 0) {
       nearYouFromApi = resolveCarouselCards(catalogCardsFlat, businessOfferCards, 'endingSoon');
     }
-    if (popularBusinesses.length > 0) {
-      // Build cards from the popular endpoint payload in API rank order.
-      hotFromApi = buildBusinessCards(popularBusinesses, ordersByBusinessId, {
-        cachedImageUrlById,
-        categoryNameById,
-      }).slice(0, 10);
-    }
   } else {
     nearYouFromApi = resolveCarouselCards(catalogCardsFlat, businessOfferCards, 'endingSoon');
+  }
+
+  if (popularBusinesses.length > 0) {
+    // Build cards from the popular endpoint payload in API rank order.
+    hotFromApi = buildBusinessCards(popularBusinesses, ordersByBusinessId, {
+      cachedImageUrlById,
+      categoryNameById,
+    }).slice(0, 10);
   }
 
   // Guests / missing popular response: keep a stable catalog slice (not random).

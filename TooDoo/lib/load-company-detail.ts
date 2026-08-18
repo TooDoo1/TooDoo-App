@@ -43,6 +43,15 @@ async function fetchBusinessById(businessId: string) {
   };
 }
 
+/** Public click counter used by GET /business/popular ranking. */
+export function recordBusinessProfileClick(businessId?: string) {
+  const id = businessId?.trim();
+  if (!id) return;
+  void fetch(apiUrl(`/business/${encodeURIComponent(id)}/click`), {
+    method: 'POST',
+  }).catch(() => undefined);
+}
+
 export function collectOrderMeta(
   order: any,
   images: Record<string, string>,

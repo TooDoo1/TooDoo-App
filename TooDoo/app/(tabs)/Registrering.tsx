@@ -24,24 +24,6 @@ export default function RegistreringScreen() {
 
 	const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 
-	const checkEmailAvailability = async (emailToCheck: string) => {
-		// No public "email exists" endpoint; use reset-token behavior:
-		// 200 => user exists, 404 => user missing.
-		try {
-			const res = await fetch(apiUrl('/user/forgot-password/token'), {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ email: emailToCheck }),
-			});
-
-			if (res.status === 404) return { available: true as const };
-			if (res.ok) return { available: false as const };
-			return { available: true as const };
-		} catch {
-			return { available: true as const };
-		}
-	};
-
 	const handleBack = () => {
 		if (returnTo === 'erbjudanden') {
 			let parsedParams: Record<string, string | string[]> = {};
@@ -158,25 +140,13 @@ export default function RegistreringScreen() {
 			return;
 		}
 
-		setIsSubmittingRegister(true);
-		try {
-			const availability = await checkEmailAvailability(email.trim());
-			if (!availability.available) {
-				Alert.alert('E-post upptagen', 'Det finns redan ett konto med den e-postadressen.');
-				return;
-			}
+		setPendingRegistration({
+			email: email.trim(),
+			password,
+			accountType: 'user',
+		});
 
-			setPendingRegistration({
-				email: email.trim(),
-				password,
-				accountType: 'user',
-			});
-
-			router.push('/(tabs)/Personality');
-		} finally {
-			setIsSubmittingRegister(false);
-		}
-
+		router.push('/(tabs)/Personality');
 	};
 
 	return (

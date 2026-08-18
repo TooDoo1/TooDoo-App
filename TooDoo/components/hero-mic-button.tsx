@@ -537,6 +537,7 @@ export function HeroMicButton({
   backgroundColor = HERO_NAVY,
   topInset = 0,
   listening: listeningProp,
+  speaking = false,
   statusMessage,
   onPress,
 }: {
@@ -545,6 +546,8 @@ export function HeroMicButton({
   topInset?: number;
   /** When set, parent controls listening (voice search). */
   listening?: boolean;
+  /** True while the recognizer is hearing actual speech (not just an open mic). */
+  speaking?: boolean;
   /** Shown under the tap hint (e.g. browser not supported). */
   statusMessage?: string | null;
   accentColor?: string;
@@ -573,7 +576,9 @@ export function HeroMicButton({
     const tick = (now: number) => {
       const dt = Math.min(now - last, 48);
       last = now;
-      phaseRef.current += dt * 0.0048;
+      // Subtle motion when the mic is open but the user isn't speaking,
+      // bigger motion while speech is detected.
+      phaseRef.current += dt * (speaking ? 0.0062 : 0.0018);
       const step = Math.round(phaseRef.current * 36) / 36;
       if (step !== lastStep) {
         lastStep = step;
@@ -583,7 +588,7 @@ export function HeroMicButton({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [isListening]);
+  }, [isListening, speaking]);
 
   useEffect(() => {
     if (!isListening) {
@@ -616,7 +621,7 @@ export function HeroMicButton({
     onPress?.();
   };
 
-  const waveIntensity = isListening ? 1 : 0;
+  const waveIntensity = isListening ? (speaking ? 1 : 0.06) : 0;
   const trails = useMemo(
     () => ({
       left: waveTrail(-1, phase, waveIntensity),
@@ -835,7 +840,6 @@ export function HeroMicButton({
           )}
         </View>
 
-        <Text style={styles.talkTitle}>Prata med TooDoo</Text>
         <View style={styles.tapHintRow}>
           <Animated.View
             style={[
@@ -882,7 +886,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 0,
-    paddingBottom: 12,
+    paddingBottom: 8,
+    marginTop: -2,
     zIndex: 3,
   },
   panelFade: {
@@ -898,8 +903,10 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 2,
+    marginBottom: -2,
     paddingHorizontal: 24,
+    position: 'relative',
+    zIndex: 5,
   },
   headline: {
     color: '#ffffff',
@@ -913,7 +920,7 @@ const styles = StyleSheet.create({
     height: RING,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: -2,
+    marginBottom: -8,
   },
   micWrap: {
     width: RING,
@@ -971,13 +978,6 @@ const styles = StyleSheet.create({
   micIcon: {
     zIndex: 2,
   },
-  talkTitle: {
-    color: '#ffffff',
-    fontSize: 20,
-    fontWeight: '700',
-    letterSpacing: 0.1,
-    marginTop: -6,
-  },
   tapHintRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -990,8 +990,8 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   tapHint: {
-    color: 'rgba(255,255,255,0.72)',
-    fontSize: 14,
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: 16,
     fontWeight: '500',
   },
   statusMessage: {
