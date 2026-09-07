@@ -13,13 +13,13 @@ export function openEventFeedItem(
     return;
   }
 
-  const url = event.municipioEvent?.url;
-  if (!url) return;
+  const id = event.municipioEvent?.id;
+  if (!id) return;
 
   router.push({
     pathname: '/municipio-event-detail',
     params: {
-      url,
+      id,
       returnTo,
     },
   });

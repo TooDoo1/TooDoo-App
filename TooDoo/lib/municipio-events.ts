@@ -2,6 +2,8 @@ import type { ImageSourcePropType } from 'react-native';
 
 import { apiUrl, normalizeImageUrl } from '@/lib/api';
 
+export type CachedEventSource = 'MUNICIPIO' | 'VISIT_SWEDEN';
+
 export type MunicipioEventLocation = {
   name?: string;
   address?: string;
@@ -9,8 +11,14 @@ export type MunicipioEventLocation = {
   longitude?: number;
 };
 
+/** Cached public event from GET /events (Municipio, Visit Sweden, …). */
 export type MunicipioEventItem = {
-  url: string;
+  /** Surrogate database id — use with GET /events/:id */
+  id: string;
+  source: CachedEventSource;
+  externalId?: string;
+  /** Upstream id or URL depending on provider (not used for API detail lookup). */
+  url?: string;
   title: string;
   description: string;
   startsAt: string;
@@ -19,7 +27,16 @@ export type MunicipioEventItem = {
   locations: MunicipioEventLocation[];
   latitude?: number;
   longitude?: number;
+  distanceKm?: number;
   image?: ImageSourcePropType;
+};
+
+export type FetchCachedEventsOptions = {
+  source?: CachedEventSource;
+  days?: number;
+  lat?: number;
+  lng?: number;
+  radiusKm?: number;
 };
 
 function parseEventsPayload(json: unknown): unknown[] {
@@ -103,9 +120,32 @@ export function formatMunicipioLocations(locations: MunicipioEventLocation[]): s
   return labels.join(' · ');
 }
 
+function parseCachedEventSource(value: unknown): CachedEventSource {
+  const normalized = String(value ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_');
+  if (normalized === 'VISIT_SWEDEN') return 'VISIT_SWEDEN';
+  return 'MUNICIPIO';
+}
+
+function sourceSubtitle(source: CachedEventSource): string {
+  return source === 'VISIT_SWEDEN' ? 'Visit Sweden' : 'Helsingborg';
+}
+
 export function mapApiMunicipioEvent(raw: any): MunicipioEventItem | null {
-  const url = String(raw?.url ?? raw?.id ?? '').trim();
-  if (!url) return null;
+  const id = String(raw?.id ?? '').trim();
+  if (!id) return null;
+
+  const source = parseCachedEventSource(raw?.source);
+  const externalId =
+    typeof raw?.externalId === 'string' && raw.externalId.trim()
+      ? raw.externalId.trim()
+      : undefined;
+  const url =
+    typeof raw?.url === 'string' && raw.url.trim()
+      ? raw.url.trim()
+      : externalId;
 
   const locations: MunicipioEventLocation[] = Array.isArray(raw?.location)
     ? raw.location.map((entry: any) => ({
@@ -119,16 +159,24 @@ export function mapApiMunicipioEvent(raw: any): MunicipioEventItem | null {
   const locationLabel = formatMunicipioLocations(locations);
   const { latitude, longitude } = pickEventCoordinates(locations);
   const imageUri = normalizeImageUrl(raw?.image);
+  const distanceKm =
+    typeof raw?.distanceKm === 'number' && Number.isFinite(raw.distanceKm)
+      ? raw.distanceKm
+      : undefined;
 
   return {
-    url,
+    id,
+    source,
+    ...(externalId ? { externalId } : {}),
+    ...(url ? { url } : {}),
     title: raw?.name ?? raw?.title ?? 'Evenemang',
     description: stripHtml(String(raw?.description ?? '')),
     startsAt: toIsoFromUnixSeconds(raw?.startDate),
     endsAt: toIsoFromUnixSeconds(raw?.endDate),
-    locationLabel,
+    locationLabel: locationLabel ?? sourceSubtitle(source),
     locations,
     ...(latitude != null && longitude != null ? { latitude, longitude } : {}),
+    ...(distanceKm != null ? { distanceKm } : {}),
     ...(imageUri ? { image: { uri: imageUri } } : {}),
   };
 }
@@ -179,8 +227,33 @@ export function formatMunicipioEventDateRange(event: MunicipioEventItem): string
   return `${startDate} ${startTime} – ${dateFmt.format(end)} ${timeFmt.format(end)}`;
 }
 
-export async function fetchMunicipioEvents(): Promise<MunicipioEventItem[]> {
-  const response = await fetch(apiUrl('/events'));
+function buildEventsQuery(options?: FetchCachedEventsOptions): string {
+  const params = new URLSearchParams();
+  if (options?.source) params.set('source', options.source);
+  if (typeof options?.days === 'number' && Number.isFinite(options.days)) {
+    params.set('days', String(Math.max(1, Math.min(30, Math.round(options.days)))));
+  }
+  if (
+    typeof options?.lat === 'number' &&
+    Number.isFinite(options.lat) &&
+    typeof options?.lng === 'number' &&
+    Number.isFinite(options.lng)
+  ) {
+    params.set('lat', String(options.lat));
+    params.set('lng', String(options.lng));
+    if (typeof options.radiusKm === 'number' && Number.isFinite(options.radiusKm)) {
+      params.set('radiusKm', String(Math.max(1, Math.min(200, options.radiusKm))));
+    }
+  }
+  return params.toString();
+}
+
+/** Public list of cached events (Municipio + Visit Sweden by default). */
+export async function fetchMunicipioEvents(
+  options?: FetchCachedEventsOptions
+): Promise<MunicipioEventItem[]> {
+  const query = buildEventsQuery(options);
+  const response = await fetch(apiUrl(`/events${query ? `?${query}` : ''}`));
   if (!response.ok) {
     return [];
   }
@@ -193,8 +266,9 @@ export async function fetchMunicipioEvents(): Promise<MunicipioEventItem[]> {
   );
 }
 
-export async function fetchMunicipioEventByUrl(url: string): Promise<MunicipioEventItem | null> {
-  const trimmed = url.trim();
+/** Detail by surrogate DB id (GET /events/:id). */
+export async function fetchMunicipioEventById(id: string): Promise<MunicipioEventItem | null> {
+  const trimmed = id.trim();
   if (!trimmed) return null;
 
   const response = await fetch(apiUrl(`/events/${encodeURIComponent(trimmed)}`));
@@ -204,4 +278,9 @@ export async function fetchMunicipioEventByUrl(url: string): Promise<MunicipioEv
 
   const json = await response.json().catch(() => null);
   return mapApiMunicipioEvent(json);
+}
+
+/** @deprecated Prefer fetchMunicipioEventById — /events/:id is the DB surrogate id. */
+export async function fetchMunicipioEventByUrl(urlOrId: string): Promise<MunicipioEventItem | null> {
+  return fetchMunicipioEventById(urlOrId);
 }

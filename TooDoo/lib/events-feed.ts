@@ -44,10 +44,10 @@ function toBusinessFeedItem(event: BusinessEventItem): EventFeedItem {
 
 function toMunicipioFeedItem(event: MunicipioEventItem): EventFeedItem {
   return {
-    id: `municipio:${event.url}`,
+    id: `municipio:${event.id}`,
     source: 'municipio',
     title: event.title,
-    subtitle: event.locationLabel ?? 'Helsingborg',
+    subtitle: event.locationLabel ?? 'Evenemang',
     startsAt: event.startsAt,
     endsAt: event.endsAt,
     image: event.image,
@@ -96,10 +96,21 @@ export function getFeedEventStartParts(
   return { day, month };
 }
 
-export async function fetchEventFeed(options?: { limit?: number }): Promise<EventFeedItem[]> {
+export async function fetchEventFeed(options?: {
+  limit?: number;
+  lat?: number;
+  lng?: number;
+  radiusKm?: number;
+  days?: number;
+}): Promise<EventFeedItem[]> {
   const [businessEvents, municipioEvents] = await Promise.all([
     fetchBusinessEvents(),
-    fetchMunicipioEvents(),
+    fetchMunicipioEvents({
+      lat: options?.lat,
+      lng: options?.lng,
+      radiusKm: options?.radiusKm,
+      days: options?.days,
+    }),
   ]);
 
   const merged = sortFeedItems([

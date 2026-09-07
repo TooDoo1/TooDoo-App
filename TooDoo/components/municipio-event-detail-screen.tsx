@@ -24,7 +24,7 @@ import { navigateBackFromDetail } from '@/lib/detail-navigation';
 import { BrandColors, brandInkRgba, brandNavyRgba } from '@/lib/brand-colors';
 import { resolveMapOriginCoords, isPlausibleSwedenCoordinate } from '@/lib/geo';
 import {
-  fetchMunicipioEventByUrl,
+  fetchMunicipioEventById,
   formatMunicipioEventDateRange,
   type MunicipioEventItem,
 } from '@/lib/municipio-events';
@@ -57,8 +57,15 @@ export function MunicipioEventDetailScreen() {
   const theme = uiTheme(themeMode);
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ url?: string | string[]; returnTo?: string | string[] }>();
-  const url = Array.isArray(params.url) ? params.url[0] : params.url;
+  const params = useLocalSearchParams<{
+    id?: string | string[];
+    /** @deprecated Prefer `id` (DB surrogate). Kept for old deep links. */
+    url?: string | string[];
+    returnTo?: string | string[];
+  }>();
+  const idParam = Array.isArray(params.id) ? params.id[0] : params.id;
+  const urlParam = Array.isArray(params.url) ? params.url[0] : params.url;
+  const eventId = (idParam ?? urlParam)?.trim();
   const returnTo = Array.isArray(params.returnTo) ? params.returnTo[0] : params.returnTo;
 
   const [event, setEvent] = useState<MunicipioEventItem | null>(null);
@@ -72,7 +79,7 @@ export function MunicipioEventDetailScreen() {
     let cancelled = false;
 
     void (async () => {
-      if (!url) {
+      if (!eventId) {
         setEvent(null);
         setIsLoading(false);
         return;
@@ -80,7 +87,7 @@ export function MunicipioEventDetailScreen() {
 
       setIsLoading(true);
       try {
-        const next = await fetchMunicipioEventByUrl(url);
+        const next = await fetchMunicipioEventById(eventId);
         if (!cancelled) {
           setEvent(next);
         }
@@ -98,7 +105,7 @@ export function MunicipioEventDetailScreen() {
     return () => {
       cancelled = true;
     };
-  }, [url]);
+  }, [eventId]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -139,7 +146,7 @@ export function MunicipioEventDetailScreen() {
     return () => {
       cancelled = true;
     };
-  }, [isFocused, url, addressText]);
+  }, [isFocused, eventId, addressText]);
 
   const when = useMemo(() => (event ? formatMunicipioEventDateRange(event) : null), [event]);
   const eventRemainingMs = event ? getEventRemainingMs(event, nowMs) : null;
@@ -152,7 +159,7 @@ export function MunicipioEventDetailScreen() {
       ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressText)}`
       : undefined;
 
-  const mapResetKey = `${url ?? 'no-url'}-${mapCoordinate?.latitude ?? 'no-lat'}-${mapCoordinate?.longitude ?? 'no-lng'}-${mapOriginCoords ? `${mapOriginCoords.latitude},${mapOriginCoords.longitude}` : 'no-origin'}`;
+  const mapResetKey = `${eventId ?? 'no-id'}-${mapCoordinate?.latitude ?? 'no-lat'}-${mapCoordinate?.longitude ?? 'no-lng'}-${mapOriginCoords ? `${mapOriginCoords.latitude},${mapOriginCoords.longitude}` : 'no-origin'}`;
 
   const handleDetailBack = useCallback(() => {
     if (Platform.OS === 'web') {
