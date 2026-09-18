@@ -120,6 +120,9 @@ export async function hydrateOfferCardImages(
   const needsOrderHydration = new Set<string>();
 
   for (const card of cards) {
+    // Cached public events are not businesses — never hit GET /business/:eventId.
+    if (card.resultKind === 'event') continue;
+
     const orderId = card.orderIds?.[0] ? String(card.orderIds[0]) : undefined;
     if (orderId) {
       if (!resolvedByOrderId.has(orderId)) {

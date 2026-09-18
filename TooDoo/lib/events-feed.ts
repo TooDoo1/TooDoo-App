@@ -98,6 +98,7 @@ export function getFeedEventStartParts(
 
 export async function fetchEventFeed(options?: {
   limit?: number;
+  city?: string;
   lat?: number;
   lng?: number;
   radiusKm?: number;
@@ -106,6 +107,7 @@ export async function fetchEventFeed(options?: {
   const [businessEvents, municipioEvents] = await Promise.all([
     fetchBusinessEvents(),
     fetchMunicipioEvents({
+      city: options?.city,
       lat: options?.lat,
       lng: options?.lng,
       radiusKm: options?.radiusKm,

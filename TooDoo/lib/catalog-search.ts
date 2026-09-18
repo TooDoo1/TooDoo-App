@@ -17,6 +17,35 @@ const SEARCH_HYDRATE_LIMIT = 20;
 const SEARCH_HYDRATE_LIMIT_MAX = 40;
 const SEARCH_HYDRATE_CONCURRENCY = 4;
 
+/**
+ * Backend event-intent matching understands "event" / "evenemang", but not English plural "events".
+ * Also pull an explicit city from phrases like "i Helsingborg" when the caller didn't pass one.
+ */
+export function normalizeCatalogSearchQuery(
+  query: string,
+  options?: { city?: string }
+): { q: string; city?: string } {
+  let q = query.trim().replace(/\s+/g, ' ');
+  let city = options?.city?.trim() || undefined;
+
+  // Whole-word only so business names like "Events AB" still match after rewrite.
+  q = q.replace(/\bevents\b/gi, 'evenemang');
+
+  if (!city) {
+    const cityMatch = q.match(/\b(?:i|in|på)\s+([A-Za-zÅÄÖåäöÉéÜü][A-Za-zÅÄÖåäöÉéÜü\-]*(?:\s+[A-Za-zÅÄÖåäöÉéÜü\-]+)?)\b/i);
+    const extracted = cityMatch?.[1]?.trim();
+    const blocked = /^(helgen|kväll|kvallen|kvällar|dag|dagar|närheten|stan|centrum|sommar|vinter)$/i;
+    if (extracted && extracted.length >= 2 && !blocked.test(extracted)) {
+      city = extracted;
+    }
+  }
+
+  return {
+    q: q.slice(0, 100),
+    ...(city ? { city } : {}),
+  };
+}
+
 function getOfferClaimedCount(card: OfferCardItem) {
   const raw = Array.isArray(card.erbjudandeclaimade)
     ? card.erbjudandeclaimade[0]
@@ -57,9 +86,17 @@ export function sortSearchResultsNearYou(
 }
 
 export function sortSearchResultsHot(cards: OfferCardItem[]) {
-  return [...cards]
-    .filter((card) => card.deal !== false && (card.orderIds?.length ?? 0) > 0)
+  const events = cards.filter((card) => card.resultKind === 'event');
+  const deals = cards
+    .filter(
+      (card) =>
+        card.resultKind !== 'event' &&
+        card.deal !== false &&
+        (card.orderIds?.length ?? 0) > 0
+    )
     .sort((a, b) => getOfferClaimedCount(b) - getOfferClaimedCount(a));
+  // Keep event hits visible under "Populärt" — they never have claimable deals.
+  return [...events, ...deals];
 }
 
 export function sortSearchResultsForView(
@@ -72,15 +109,20 @@ export function sortSearchResultsForView(
   return cards;
 }
 
-/** Lightweight result from the unified `GET /search` + `GET /search/suggestions` endpoints. */
+/** Lightweight result from the unified `GET /search` + `POST /search/natural` endpoints. */
 type UnifiedSearchResult = {
-  type?: 'business' | 'order';
+  type?: 'business' | 'order' | 'event';
   id?: string;
   label?: string;
   subtitle?: string;
   city?: string;
-  category?: { id?: string; name?: string; icon?: string };
+  category?: { id?: string; name?: string; icon?: string } | null;
   business?: { id?: string; name?: string };
+  startDate?: number;
+  endDate?: number;
+  source?: string;
+  image?: string;
+  distanceKm?: number;
 };
 
 type UnifiedSearchResponse = {
@@ -98,6 +140,67 @@ async function fetchUnifiedSearch(params: URLSearchParams): Promise<UnifiedSearc
   }
   const json = (await response.json().catch(() => ({}))) as UnifiedSearchResponse;
   return Array.isArray(json.results) ? json.results : [];
+}
+
+function mapEventSearchHitToCard(result: UnifiedSearchResult): OfferCardItem | null {
+  const id = String(result.id ?? '').trim();
+  if (!id) return null;
+
+  const imageUri = normalizeImageUrl(result.image);
+  // Prefer https — Visit Sweden sometimes returns http:// assets that browsers block on HTTPS pages.
+  const secureImageUri =
+    imageUri && imageUri.startsWith('http://')
+      ? `https://${imageUri.slice('http://'.length)}`
+      : imageUri;
+  const locality = decodeSearchHtml(String(result.subtitle ?? result.city ?? '').trim());
+  const sourceRaw = String(result.source ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_');
+  const eventSource =
+    sourceRaw === 'VISIT_SWEDEN' ? ('VISIT_SWEDEN' as const) : ('MUNICIPIO' as const);
+  const title = decodeSearchHtml(result.label?.trim() || 'Evenemang');
+
+  return {
+    id,
+    resultKind: 'event',
+    eventSource,
+    title,
+    image: {
+      uri:
+        secureImageUri ??
+        `https://picsum.photos/seed/${encodeURIComponent(`event-${id}`)}/300/200`,
+    },
+    categoryName: 'Evenemang',
+    deal: false,
+    orderIds: [],
+    Adress: locality || 'Evenemang',
+    Website: '',
+    kortbeskrivning: locality || 'Evenemang',
+    långbeskrivning: '',
+    ...(typeof result.distanceKm === 'number' && Number.isFinite(result.distanceKm)
+      ? { distanceKm: result.distanceKm }
+      : {}),
+  };
+}
+
+function decodeSearchHtml(value: string): string {
+  return value
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&#8211;/gi, '–')
+    .replace(/&#8212;/gi, '—')
+    .replace(/&#8220;/gi, '“')
+    .replace(/&#8221;/gi, '”')
+    .replace(/&#(\d+);/g, (_, code) => {
+      const n = Number(code);
+      return Number.isFinite(n) ? String.fromCharCode(n) : _;
+    })
+    .trim();
 }
 
 function mapBusinessRecordToCard(business: any, orders: any[]): OfferCardItem {
@@ -185,7 +288,10 @@ async function hydrateBusinessCard(businessId: string): Promise<OfferCardItem | 
   }
 }
 
-type HydrationTask = { kind: 'order' | 'business'; id: string };
+type HydrationTask =
+  | { kind: 'order'; id: string; rank: number }
+  | { kind: 'business'; id: string; rank: number }
+  | { kind: 'event'; card: OfferCardItem; rank: number };
 
 async function hydrateTasks(tasks: HydrationTask[]): Promise<(OfferCardItem | null)[]> {
   const ordered: (OfferCardItem | null)[] = new Array(tasks.length).fill(null);
@@ -193,9 +299,11 @@ async function hydrateTasks(tasks: HydrationTask[]): Promise<(OfferCardItem | nu
   for (let i = 0; i < tasks.length; i += SEARCH_HYDRATE_CONCURRENCY) {
     const batch = tasks.slice(i, i + SEARCH_HYDRATE_CONCURRENCY);
     const cards = await Promise.all(
-      batch.map((task) =>
-        task.kind === 'order' ? hydrateOrderCard(task.id) : hydrateBusinessCard(task.id)
-      )
+      batch.map((task) => {
+        if (task.kind === 'event') return Promise.resolve(task.card);
+        if (task.kind === 'order') return hydrateOrderCard(task.id);
+        return hydrateBusinessCard(task.id);
+      })
     );
     cards.forEach((card, index) => {
       ordered[i + index] = card;
@@ -206,10 +314,115 @@ async function hydrateTasks(tasks: HydrationTask[]): Promise<(OfferCardItem | nu
   return ordered;
 }
 
+function normalizeSearchResultType(
+  result: UnifiedSearchResult
+): 'business' | 'order' | 'event' {
+  const raw = String(result.type ?? '')
+    .trim()
+    .toLowerCase();
+  if (raw === 'event' || raw === 'order' || raw === 'business') {
+    return raw;
+  }
+  // Cached public events always carry Municipio / Visit Sweden source.
+  const source = String(result.source ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_');
+  if (source === 'MUNICIPIO' || source === 'VISIT_SWEDEN') {
+    return 'event';
+  }
+  return 'business';
+}
+
 /**
- * Unified catalog search. Calls the backend `GET /search` (approved businesses only),
- * then hydrates each lightweight hit into a full card via GET /business/:id.
- * Results stay in relevance order. Orders are not returned from search.
+ * Build hydration tasks from unified search hits while preserving API rank.
+ * Event hits become cards immediately; business/order hits are hydrated via detail GETs.
+ * Events do not consume the detail-hydrate budget so they are not dropped when
+ * many businesses rank above them.
+ */
+function buildHydrationTasks(
+  results: UnifiedSearchResult[],
+  hydrateLimit: number
+): HydrationTask[] {
+  const tasks: HydrationTask[] = [];
+  const reservedBusinessIds = new Set<string>();
+  const reservedEventIds = new Set<string>();
+  let detailBudgetUsed = 0;
+
+  for (let rank = 0; rank < results.length; rank += 1) {
+    const result = results[rank];
+    if (!result?.id) continue;
+    const type = normalizeSearchResultType(result);
+
+    if (type === 'event') {
+      const eventId = String(result.id);
+      if (reservedEventIds.has(eventId)) continue;
+      const card = mapEventSearchHitToCard(result);
+      if (!card) continue;
+      reservedEventIds.add(eventId);
+      tasks.push({ kind: 'event', card, rank });
+      continue;
+    }
+
+    if (detailBudgetUsed >= hydrateLimit) {
+      // Keep scanning — later ranks may still include events.
+      continue;
+    }
+
+    if (type === 'order') {
+      const businessId = result.business?.id ? String(result.business.id) : undefined;
+      if (businessId) {
+        if (reservedBusinessIds.has(businessId)) continue;
+        reservedBusinessIds.add(businessId);
+      }
+      tasks.push({ kind: 'order', id: String(result.id), rank });
+      detailBudgetUsed += 1;
+    } else {
+      // Default / type: "business" — treat unknown as business for forward compatibility.
+      const businessId = String(result.id);
+      if (reservedBusinessIds.has(businessId)) continue;
+      reservedBusinessIds.add(businessId);
+      tasks.push({ kind: 'business', id: businessId, rank });
+      detailBudgetUsed += 1;
+    }
+  }
+
+  return tasks;
+}
+
+async function finalizeSearchCards(
+  tasks: HydrationTask[],
+  knownCards?: OfferCardItem[]
+): Promise<OfferCardItem[]> {
+  const hydrated = await hydrateTasks(tasks);
+  const rankedCards: Array<{ card: OfferCardItem; rank: number }> = [];
+  for (let i = 0; i < tasks.length; i += 1) {
+    const card = hydrated[i];
+    if (!card) continue;
+    rankedCards.push({ card, rank: tasks[i].rank });
+  }
+  rankedCards.sort((a, b) => a.rank - b.rank);
+
+  const deduped: OfferCardItem[] = [];
+  const seenCardIds = new Set<string>();
+  for (const { card } of rankedCards) {
+    const key = `${card.resultKind ?? 'business'}:${card.id}`;
+    if (seenCardIds.has(key)) continue;
+    seenCardIds.add(key);
+    deduped.push(card);
+  }
+
+  try {
+    return await hydrateOfferCardImages(deduped, { knownCards });
+  } catch {
+    return deduped;
+  }
+}
+
+/**
+ * Unified catalog search. Calls `GET /search` (businesses + event-intent public events),
+ * then hydrates business hits via GET /business/:id. Event hits use the search payload.
+ * Results stay in API relevance order. Orders/deals are not returned from search.
  */
 export async function searchCatalog(
   query: string,
@@ -223,7 +436,8 @@ export async function searchCatalog(
     knownCards?: OfferCardItem[];
   } = {}
 ): Promise<OfferCardItem[]> {
-  const q = query.trim();
+  const normalized = normalizeCatalogSearchQuery(query, { city: options.city });
+  const q = normalized.q;
   if (q.length < 2) {
     return [];
   }
@@ -234,62 +448,20 @@ export async function searchCatalog(
   );
 
   const params = new URLSearchParams({
-    q: q.slice(0, 100),
+    q,
     take: String(Math.min(options.take ?? 24, 50)),
     skip: String(options.skip ?? 0),
   });
   if (options.categoryName) {
     params.set('categoryName', options.categoryName);
   }
-  if (options.city) {
-    params.set('city', options.city);
+  if (normalized.city) {
+    params.set('city', normalized.city);
   }
 
   const results = await fetchUnifiedSearch(params);
-
-  // Preserve relevance order, dedupe by business so one business yields one card.
-  const seenBusinessIds = new Set<string>();
-  const tasks: HydrationTask[] = [];
-
-  for (const result of results) {
-    if (!result?.id) continue;
-
-    if (result.type === 'order') {
-      const businessId = result.business?.id ? String(result.business.id) : undefined;
-      if (businessId) {
-        if (seenBusinessIds.has(businessId)) continue;
-        seenBusinessIds.add(businessId);
-      }
-      tasks.push({ kind: 'order', id: String(result.id) });
-    } else {
-      const businessId = String(result.id);
-      if (seenBusinessIds.has(businessId)) continue;
-      seenBusinessIds.add(businessId);
-      tasks.push({ kind: 'business', id: businessId });
-    }
-
-    if (tasks.length >= hydrateLimit) break;
-  }
-
-  const cards = await hydrateTasks(tasks);
-
-  // A high-ranking order and a separate business hit can resolve to the same business.
-  const deduped: OfferCardItem[] = [];
-  const seenCardIds = new Set<string>();
-  for (const card of cards) {
-    if (!card) continue;
-    if (seenCardIds.has(card.id)) continue;
-    seenCardIds.add(card.id);
-    deduped.push(card);
-  }
-
-  try {
-    return await hydrateOfferCardImages(deduped, {
-      knownCards: options.knownCards,
-    });
-  } catch {
-    return deduped;
-  }
+  const tasks = buildHydrationTasks(results, hydrateLimit);
+  return finalizeSearchCards(tasks, options.knownCards);
 }
 
 type AuthFetch = (path: string, init?: RequestInit) => Promise<Response>;
@@ -297,6 +469,7 @@ type AuthFetch = (path: string, init?: RequestInit) => Promise<Response>;
 /**
  * AI hybrid / natural search via `POST /search/natural`.
  * Voice entry must send `source: "voice"` with a Bearer token (use authFetch).
+ * Same mixed business + event result shape as GET /search.
  * Response `source` may be `"keyword"` or `"ai-hybrid"` — treat any 200 `results` as success.
  */
 export async function searchNatural(
@@ -312,7 +485,8 @@ export async function searchNatural(
     knownCards?: OfferCardItem[];
   } = {}
 ): Promise<OfferCardItem[]> {
-  const q = query.trim();
+  const normalized = normalizeCatalogSearchQuery(query, { city: options.city });
+  const q = normalized.q;
   if (q.length < 2) {
     return [];
   }
@@ -328,7 +502,7 @@ export async function searchNatural(
     take: Math.min(options.take ?? 24, 50),
     skip: options.skip ?? 0,
   };
-  if (options.city) body.city = options.city;
+  if (normalized.city) body.city = normalized.city;
   if (options.categoryName) body.categoryName = options.categoryName;
 
   const response = await authFetch('/search/natural', {
@@ -357,55 +531,6 @@ export async function searchNatural(
 
   const json = (await response.json().catch(() => ({}))) as UnifiedSearchResponse;
   const results = Array.isArray(json.results) ? json.results : [];
-
-  // Keep exact API relevance order. Dedupe by business after hydrate, always
-  // preferring the earlier (higher-ranked) hit when the same business appears twice.
-  const tasks: Array<HydrationTask & { rank: number }> = [];
-  const reservedBusinessIds = new Set<string>();
-
-  for (let rank = 0; rank < results.length; rank += 1) {
-    const result = results[rank];
-    if (!result?.id) continue;
-
-    if (result.type === 'order') {
-      const businessId = result.business?.id ? String(result.business.id) : undefined;
-      if (businessId) {
-        if (reservedBusinessIds.has(businessId)) continue;
-        reservedBusinessIds.add(businessId);
-      }
-      tasks.push({ kind: 'order', id: String(result.id), rank });
-    } else {
-      const businessId = String(result.id);
-      if (reservedBusinessIds.has(businessId)) continue;
-      reservedBusinessIds.add(businessId);
-      tasks.push({ kind: 'business', id: businessId, rank });
-    }
-
-    if (tasks.length >= hydrateLimit) break;
-  }
-
-  const hydrated = await hydrateTasks(tasks);
-  const rankedCards: Array<{ card: OfferCardItem; rank: number }> = [];
-  for (let i = 0; i < tasks.length; i += 1) {
-    const card = hydrated[i];
-    if (!card) continue;
-    rankedCards.push({ card, rank: tasks[i].rank });
-  }
-  rankedCards.sort((a, b) => a.rank - b.rank);
-
-  const deduped: OfferCardItem[] = [];
-  const seenCardIds = new Set<string>();
-  for (const { card } of rankedCards) {
-    if (seenCardIds.has(card.id)) continue;
-    seenCardIds.add(card.id);
-    deduped.push(card);
-  }
-
-  try {
-    return await hydrateOfferCardImages(deduped, {
-      knownCards: options.knownCards,
-    });
-  } catch {
-    return deduped;
-  }
+  const tasks = buildHydrationTasks(results, hydrateLimit);
+  return finalizeSearchCards(tasks, options.knownCards);
 }

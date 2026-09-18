@@ -34,6 +34,7 @@ import {
   fillMissingDistancesFromAddresses,
   formatDistanceKm,
   getUserCoords,
+  resolveUserCityFromDevice,
 } from '@/lib/geo';
 import { openOfferDetail } from '@/lib/open-offer-detail';
 import { usePaginatedList, SEE_ALL_PAGE_SIZE } from '@/lib/paginated-list';
@@ -138,7 +139,9 @@ function SearchResultCard({
           {card.title}
         </Text>
         <Text className="mt-0.5 text-xs text-white/80" numberOfLines={1}>
-          {offerLabel || card.kortbeskrivning || 'Erbjudande'}
+          {card.resultKind === 'event'
+            ? card.Adress || 'Evenemang'
+            : offerLabel || card.kortbeskrivning || 'Erbjudande'}
         </Text>
       </LinearGradient>
     </Pressable>
@@ -183,7 +186,12 @@ export function SearchResultsScreen() {
     void (async () => {
       setIsLoading(true);
       try {
-        const results = await searchCatalog(query, { take: 40, maxHydrate: 40 });
+        const city = (await resolveUserCityFromDevice().catch(() => null))?.city;
+        const results = await searchCatalog(query, {
+          take: 40,
+          maxHydrate: 40,
+          city: city || undefined,
+        });
         const withDistance = coords
           ? await fillMissingDistancesFromAddresses(results, coords, { maxGeocode: 50 })
           : results;
@@ -266,6 +274,7 @@ export function SearchResultsScreen() {
 
   const getBadgeLabel = useCallback(
     (card: OfferCardItem) => {
+      if (card.resultKind === 'event') return 'Evenemang';
       if (view !== 'near') return undefined;
       return formatDistanceKm(card.distanceKm) ?? 'Nära dig';
     },
@@ -301,7 +310,9 @@ export function SearchResultsScreen() {
         <ScreenBackButton />
         <FlatList
           data={pagination.pageItems}
-          keyExtractor={(item, idx) => `${item.orderIds?.[0] ?? item.id}-p${pagination.page}-${idx}`}
+          keyExtractor={(item, idx) =>
+            `${item.resultKind ?? 'business'}-${item.orderIds?.[0] ?? item.id}-p${pagination.page}-${idx}`
+          }
           renderItem={({ item, index }) => (
             <SearchResultCard
               card={item}

@@ -18,10 +18,11 @@ The production API is a separate **Express + Prisma** backend (deployed on Railw
 
 ## What the app does
 
-- **Upptäck** — personalized offer feeds (`/orders/for-you`, hot, close), category filters, search with live suggestions, and business search tips.
+- **Upptäck** — personalized offer feeds (`/orders/for-you`, ending-soon, close), popular businesses (`/business/popular`), category filters, and unified search.
+- **Sök** — `GET /search` / `POST /search/natural` return **businesses** and, for event/culture intents (konsert, jazz, vad händer, …), **cached public events** (`type: "event"`). The home search tips dropdown also surfaces matching events (suggestions alone stay business-only on the API).
 - **Favoriter** — bookmark businesses (authenticated `USER` role).
 - **Mina Erbjudanden** — claimed offers with redeem countdown, QR display, and optional worker QR scanning.
-- **Evenemang** — browse and open business events.
+- **Evenemang** — business events (`/business-events`) plus city-scoped public events (`GET /events?city=…` from Municipio / Visit Sweden).
 - **Company detail** — offers, events, claim flow, favorites, maps, and realtime invalidation via SSE.
 - **Auth** — login, portal login for managers, registration, multi-step onboarding (`Registrering` → `Personality`), password reset.
 - **Profil** — account settings, interests/categories, security, support links.
@@ -32,8 +33,9 @@ The production API is a separate **Express + Prisma** backend (deployed on Railw
 | --- | --- |
 | **Order / offer** | A redeemable deal tied to a business, with publish window, daily redemption times, and optional caps. |
 | **Claim** | User action that creates a QR code; redemption is validated at the business. |
-| **Business event** | Scheduled listing (not claimable) with optional user interest. |
-| **Category** | Interest/filter dimension; each category has a distinct accent color in the UI. |
+| **Business event** | Scheduled listing from a TooDoo business (not claimable) with optional user interest. |
+| **Cached public event** | External event from Municipio or Visit Sweden (`GET /events`, searchable via unified search as `type: "event"`). Detail uses the DB surrogate `id`. |
+| **Category** | Interest/filter dimension; businesses can have multiple categories. |
 
 ## Tech stack
 
@@ -134,13 +136,15 @@ Common endpoints used by this app:
 | Area | Examples |
 | --- | --- |
 | Auth | `POST /user/login`, `POST /user/register`, `POST /user/refresh`, `GET /user/me` |
-| Offers | `GET /orders`, `GET /orders/for-you`, `GET /orders/search/suggestions` |
-| Businesses | `GET /business`, `GET /business/search/suggestions`, `GET /business/:id` |
+| Offers | `GET /orders`, `GET /orders/for-you`, `GET /orders/for-you/ending-soon`, `GET /orders/for-you/close` |
+| Businesses | `GET /business`, `GET /business/popular`, `GET /business/:id`, `POST /business/:id/click` |
+| Search | `GET /search`, `GET /search/suggestions`, `POST /search/natural` (businesses + event-intent public events) |
 | Claims | `POST /claim`, `GET /user/me/claims`, `POST /claim/validate` |
 | Favorites | `POST /user/me/favorite-business/:id`, `DELETE /user/me/unfavorite-business/:id` |
-| Events | `GET /business-events`, interest endpoints |
+| Events | `GET /business-events`, `GET /events?city=…`, `GET /events/:id` |
 | Realtime | `GET /realtime/stream` (SSE; `?token=` on web EventSource) |
-| Search tips | `GET /search/tips` (see [`TooDoo-Backend/SEARCH_TIPS_INTEGRATION.md`](TooDoo-Backend/SEARCH_TIPS_INTEGRATION.md)) |
+
+**Search contract:** results may be `type: "business"` or `type: "event"`. The app maps event hits to cards and opens `/municipio-event-detail` with the surrogate event `id`. Ignoring `type: "event"` would make event search look empty even when the API returns events.
 
 **Auth:** responses include `token` and `refreshToken`. The client stores them in AsyncStorage and sends `Authorization: Bearer <token>` on protected routes.
 

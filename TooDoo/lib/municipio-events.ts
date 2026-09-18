@@ -32,6 +32,8 @@ export type MunicipioEventItem = {
 };
 
 export type FetchCachedEventsOptions = {
+  /** Primary area filter — preferred for the app city-scoped feed. */
+  city?: string;
   source?: CachedEventSource;
   days?: number;
   lat?: number;
@@ -229,6 +231,7 @@ export function formatMunicipioEventDateRange(event: MunicipioEventItem): string
 
 function buildEventsQuery(options?: FetchCachedEventsOptions): string {
   const params = new URLSearchParams();
+  if (options?.city?.trim()) params.set('city', options.city.trim());
   if (options?.source) params.set('source', options.source);
   if (typeof options?.days === 'number' && Number.isFinite(options.days)) {
     params.set('days', String(Math.max(1, Math.min(30, Math.round(options.days)))));

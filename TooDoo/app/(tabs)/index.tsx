@@ -118,6 +118,7 @@ import {
   fetchSearchTips,
   getLocalSearchTips,
   mergeSearchTips,
+  type SearchTipItem,
 } from '@/lib/search-tips';
 
 const ALL_CATEGORIES_ID = 'all';
@@ -157,6 +158,8 @@ type CardItem = {
   erbjudandemängd?: number | string[];
   erbjudandelängd?: string | string[];
   distanceKm?: number;
+  resultKind?: 'business' | 'event';
+  eventSource?: 'MUNICIPIO' | 'VISIT_SWEDEN';
 };
 
 function filterCardsByActiveCategory(cards: CardItem[], activeCategory: string): CardItem[] {
@@ -268,7 +271,13 @@ function isActiveOffer(order: any, nowMs: number = Date.now()): boolean {
 }
 
 function getNearbyBadge(card: CardItem) {
+  if (card.resultKind === 'event') return 'Evenemang';
   return formatDistanceKm(card.distanceKm) ?? 'Nära dig';
+}
+
+function getSearchResultBadge(card: CardItem) {
+  if (card.resultKind === 'event') return 'Evenemang';
+  return 'Träff';
 }
 
 function getEndingSoonBadge(card: CardItem) {
@@ -513,6 +522,7 @@ function ForYouOrderCarousel({
   badgeLabel,
   badgeColor,
   getBadgeLabel,
+  getBadgeColor,
   showFavoriteButton = false,
   showActivityDots = false,
   businessIdsWithEvents,
@@ -523,6 +533,7 @@ function ForYouOrderCarousel({
   badgeLabel: string;
   badgeColor: string;
   getBadgeLabel?: (card: CardItem) => string;
+  getBadgeColor?: (card: CardItem) => string;
   /** Only företag (not individual erbjudanden) should be favoritable. */
   showFavoriteButton?: boolean;
   /** Event + offer dots under company cards (Nära dig). */
@@ -550,9 +561,13 @@ function ForYouOrderCarousel({
       contentContainerStyle={{ paddingHorizontal: 2 }}
     >
       <View className="flex-row gap-3 pb-2">
-        {items.map((card, idx) => (
+        {items.map((card, idx) => {
+          const isEvent = card.resultKind === 'event';
+          const resolvedBadgeColor = getBadgeColor?.(card) ?? badgeColor;
+          const canFavorite = showFavoriteButton && !isEvent && isLoggedIn && role === 'USER';
+          return (
           <Pressable
-            key={`${card.orderIds?.[0] ?? card.id}-${idx}`}
+            key={`${card.resultKind ?? 'business'}:${card.orderIds?.[0] ?? card.id}-${idx}`}
             className="overflow-hidden rounded-2xl"
             style={{
               width: 168,
@@ -573,13 +588,13 @@ function ForYouOrderCarousel({
               <View className="absolute left-2 top-2">
               <View
                   className="rounded-full px-2 py-1"
-                style={{ backgroundColor: badgeColor }}
+                style={{ backgroundColor: resolvedBadgeColor }}
               >
                 <Text className="text-[10px] font-semibold text-white">
                   {getBadgeLabel ? getBadgeLabel(card) : badgeLabel}
                 </Text>
               </View>
-                {showActivityDots ? (
+                {showActivityDots && !isEvent ? (
                   <CompanyActivityDots
                     hasEvent={businessIdsWithEvents?.has(card.id) ?? false}
                     hasOffer={Boolean(card.deal)}
@@ -587,7 +602,7 @@ function ForYouOrderCarousel({
                   />
                 ) : null}
               </View>
-              {showFavoriteButton && isLoggedIn && role === 'USER' ? (
+              {canFavorite ? (
                 <View className="absolute right-2 top-2 h-8 w-8 items-center justify-center rounded-full" style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}>
                   <Pressable
                     onPress={async (e: any) => {
@@ -624,12 +639,15 @@ function ForYouOrderCarousel({
                   {card.title}
                 </Text>
                 <Text className="mt-0.5 text-[11px] text-white/80" numberOfLines={1}>
-                  {card.kortbeskrivning || 'Erbjudande'}
+                  {isEvent
+                    ? card.kortbeskrivning || 'Evenemang'
+                    : card.kortbeskrivning || 'Erbjudande'}
                 </Text>
               </LinearGradient>
             </View>
           </Pressable>
-        ))}
+          );
+        })}
       </View>
     </ScrollView>
   );
@@ -646,9 +664,13 @@ function FeaturedDealCard({
   height: number;
   titleSize?: 'sm' | 'lg';
 }) {
-  const discount = computeDiscountLabel(card);
+  const { mode } = useThemePreference();
+  const theme = uiTheme(mode);
+  const isEvent = card.resultKind === 'event';
+  const discount = isEvent ? null : computeDiscountLabel(card);
   const discountColor = getDiscountBadgeColor(card);
   const offerLabel = Array.isArray(card.erbjudande) ? card.erbjudande[0] : card.erbjudande;
+  const title = isEvent ? card.title : offerLabel || card.title;
   return (
     <Pressable
       onPress={() => onPress?.(card)}
@@ -666,6 +688,11 @@ function FeaturedDealCard({
           displayWidth={IMAGE_DISPLAY_WIDTH.cardWide}
         />
       </View>
+      {isEvent ? (
+        <View className="absolute left-2 top-2 rounded-full px-2 py-1" style={{ backgroundColor: theme.eventColor }}>
+          <Text className="text-[10px] font-semibold text-white">Evenemang</Text>
+        </View>
+      ) : null}
       <LinearGradient
         colors={['rgba(0,0,0,0.00)', 'rgba(0,0,0,0.85)']}
         start={{ x: 0.5, y: 0 }}
@@ -684,7 +711,7 @@ function FeaturedDealCard({
           className={titleSize === 'lg' ? 'text-xl font-semibold text-white' : 'text-sm font-semibold text-white'}
           numberOfLines={titleSize === 'lg' ? 2 : 1}
         >
-          {offerLabel || card.title}
+          {title}
         </Text>
         {discount ? (
           <View
@@ -1104,7 +1131,9 @@ export default function HomeScreen() {
   const [voiceListening, setVoiceListening] = useState(false);
   const [voiceSpeaking, setVoiceSpeaking] = useState(false);
   const [voiceStatusMessage, setVoiceStatusMessage] = useState<string | null>(null);
-  const [searchTips, setSearchTips] = useState<string[]>(DEFAULT_SEARCH_TIPS);
+  const [searchTips, setSearchTips] = useState<SearchTipItem[]>(
+    DEFAULT_SEARCH_TIPS.map((label) => ({ label, kind: 'tip' as const }))
+  );
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [isSearchDropdownMounted, setIsSearchDropdownMounted] = useState(false);
   const [searchBarHeight, setSearchBarHeight] = useState(SEARCH_BAR_HEIGHT);
@@ -1322,6 +1351,7 @@ export default function HomeScreen() {
         const tips = await fetchSearchTips({
           take: 8,
           q: trimmed.length >= 1 ? trimmed : undefined,
+          city: userCityRef.current ?? undefined,
           authFetch,
           isLoggedIn,
         });
@@ -1394,15 +1424,29 @@ export default function HomeScreen() {
     });
   }, []);
 
-  const handleSearchTipPress = useCallback((tip: string) => {
-    if (searchBlurTimerRef.current) {
-      clearTimeout(searchBlurTimerRef.current);
-      searchBlurTimerRef.current = null;
-    }
-    clearVoiceSearchOwnership();
-    setSearchQuery(tip);
-    setIsSearchFocused(true);
-  }, [clearVoiceSearchOwnership]);
+  const handleSearchTipPress = useCallback(
+    (tip: SearchTipItem) => {
+      if (searchBlurTimerRef.current) {
+        clearTimeout(searchBlurTimerRef.current);
+        searchBlurTimerRef.current = null;
+      }
+      clearVoiceSearchOwnership();
+
+      if (tip.kind === 'event' && tip.id) {
+        setIsSearchFocused(false);
+        setHomeScrollOffset(scrollOffsetRef.current);
+        router.push({
+          pathname: '/municipio-event-detail',
+          params: { id: tip.id, returnTo: 'index' },
+        });
+        return;
+      }
+
+      setSearchQuery(tip.label);
+      setIsSearchFocused(true);
+    },
+    [clearVoiceSearchOwnership, router]
+  );
 
   const stopVoiceSession = useCallback(() => {
     const wasListening = voiceActiveRef.current || voiceSessionRef.current != null;
@@ -1698,7 +1742,10 @@ export default function HomeScreen() {
       try {
         const [data, events] = await Promise.all([
           fetchHomeScreenData({ token, coords }),
-          fetchEventFeed({ limit: 12 }).catch(() => [] as EventFeedItem[]),
+          fetchEventFeed({
+            limit: 12,
+            city: userCityRef.current ?? undefined,
+          }).catch(() => [] as EventFeedItem[]),
         ]);
 
         if (cancelled) return;
@@ -1936,8 +1983,9 @@ export default function HomeScreen() {
         setIsSearchLoading(true);
       }
       void searchCatalog(trimmedSearchQuery, {
-        take: 16,
-        maxHydrate: 12,
+        take: 24,
+        maxHydrate: 16,
+        city: userCityRef.current ?? undefined,
         knownCards: knownCardsRef.current,
       })
         .then((results) => {
@@ -2150,7 +2198,7 @@ export default function HomeScreen() {
           >
             {searchTips.map((tip, index) => (
               <Pressable
-                key={tip}
+                key={`${tip.kind}:${tip.id ?? tip.label}:${index}`}
                 onPress={() => handleSearchTipPress(tip)}
                 className="flex-row items-center px-4 py-3"
                 style={
@@ -2163,14 +2211,31 @@ export default function HomeScreen() {
                 }
               >
                 <Ionicons
-                  name={searchQuery.trim() ? 'business-outline' : 'bulb-outline'}
+                  name={
+                    tip.kind === 'event'
+                      ? 'calendar-outline'
+                      : searchQuery.trim()
+                        ? 'business-outline'
+                        : 'bulb-outline'
+                  }
                   size={18}
-                  color={FilterChipTheme.textMuted}
+                  color={tip.kind === 'event' ? theme.eventColor : FilterChipTheme.textMuted}
                   style={{ marginRight: 12 }}
                 />
-                <Text className="flex-1 text-base" style={{ color: FilterChipTheme.text }}>
-                  {tip}
-                </Text>
+                <View className="flex-1">
+                  <Text className="text-base" style={{ color: FilterChipTheme.text }} numberOfLines={1}>
+                    {tip.label}
+                  </Text>
+                  {tip.kind === 'event' ? (
+                    <Text
+                      className="mt-0.5 text-xs"
+                      style={{ color: FilterChipTheme.textMuted }}
+                      numberOfLines={1}
+                    >
+                      Evenemang
+                    </Text>
+                  ) : null}
+                </View>
                 <Ionicons name="arrow-forward" size={16} color={FilterChipTheme.textMuted} />
               </Pressable>
             ))}
@@ -2482,6 +2547,10 @@ export default function HomeScreen() {
                     onCardPress={handleCardPress}
                     badgeLabel="Träff"
                     badgeColor={brandInkRgba(0.75)}
+                    getBadgeLabel={getSearchResultBadge}
+                    getBadgeColor={(card) =>
+                      card.resultKind === 'event' ? theme.eventColor : brandInkRgba(0.75)
+                    }
                     showFavoriteButton
                     emptyText={`Inga träffar för "${trimmedSearchQuery}".`}
                   />
@@ -2501,6 +2570,9 @@ export default function HomeScreen() {
                           badgeLabel="Nära dig"
                           badgeColor={brandInkRgba(0.75)}
                           getBadgeLabel={getNearbyBadge}
+                          getBadgeColor={(card) =>
+                            card.resultKind === 'event' ? theme.eventColor : brandInkRgba(0.75)
+                          }
                           showFavoriteButton
                           showActivityDots
                           businessIdsWithEvents={businessIdsWithEvents}

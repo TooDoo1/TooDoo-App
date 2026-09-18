@@ -27,6 +27,7 @@ import { useThemePreference } from "@/context/theme-preference-context";
 import { uiTheme } from "@/lib/ui-theme";
 import { CardMedia } from "@/components/ui/card-media";
 import { BusinessOpeningHoursPanel } from "@/components/ui/business-opening-hours-panel";
+import { BusinessVoteControl } from "@/components/business-vote-control";
 import { schedulePrefetchImageUris } from "@/lib/image-prefetch";
 import { IMAGE_DISPLAY_WIDTH } from "@/lib/image-url";
 import { CompanyDetailTabBarSync } from "@/components/company-detail-tab-bar-sync";
@@ -62,7 +63,7 @@ import {
   loadCompanyDetail,
   recordBusinessProfileClick,
 } from "@/lib/load-company-detail";
-import { shareOffer } from "@/lib/share-offer";
+import { shareBusiness, shareOffer } from "@/lib/share-offer";
 
 const localImagesById: Record<string, ImageSourcePropType> = {
   "event-3": require("../assets/images/testbild.jpg"),
@@ -515,6 +516,18 @@ export default function CompanyDetailScreen() {
     [displayTitle, resolvedBusinessId]
   );
 
+  const shareDetailBusiness = useCallback(() => {
+    if (!resolvedBusinessId) {
+      Alert.alert("Kunde inte dela", "Företaget saknar information som behövs för att skapa en länk.");
+      return;
+    }
+
+    void shareBusiness({
+      businessId: resolvedBusinessId,
+      businessName: displayTitle,
+    });
+  }, [displayTitle, resolvedBusinessId]);
+
   const toggleEventInterest = async (event: BusinessEventItem) => {
     if (!isLoggedIn) {
       navigateToLogin();
@@ -909,7 +922,9 @@ export default function CompanyDetailScreen() {
 
   const showCompanyDetail = Boolean(title || id || claimBusinessId || claimOrderId);
   const showFavoriteButton = Boolean(showCompanyDetail && resolvedBusinessId && isLoggedIn && role === "USER");
+  const showShareButton = Boolean(showCompanyDetail && resolvedBusinessId);
   const companyIsFavorite = resolvedBusinessId ? isFavorite(resolvedBusinessId) : false;
+  const shareButtonTop = insets.top + 8 + (showFavoriteButton ? 48 : 0);
   const handleDetailBack = useCallback(() => {
     if (Platform.OS === 'web') {
       performWebStackBack(router, { returnTo, isCompanyDetail: true });
@@ -971,6 +986,28 @@ export default function CompanyDetailScreen() {
             size={22}
             color={companyIsFavorite ? FAVORITE_HEART_COLOR : "#ffffff"}
           />
+        </Pressable>
+      ) : null}
+      {showShareButton ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Dela företag"
+          onPress={shareDetailBusiness}
+          hitSlop={10}
+          style={{
+            position: "absolute",
+            top: shareButtonTop,
+            right: 16,
+            zIndex: 30,
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(0,0,0,0.45)",
+          }}
+        >
+          <Ionicons name="share-outline" size={20} color="#ffffff" />
         </Pressable>
       ) : null}
       <ScrollView
@@ -1096,6 +1133,10 @@ export default function CompanyDetailScreen() {
           </Pressable>
         ) : null}
       </View>
+
+      {resolvedBusinessId ? (
+        <BusinessVoteControl businessId={resolvedBusinessId} mode={mode} />
+      ) : null}
 
       <BusinessOpeningHoursPanel openingHours={hydratedBusiness?.openingHours} mode={mode} />
 

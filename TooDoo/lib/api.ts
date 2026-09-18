@@ -1,5 +1,5 @@
 export const API_BASE_URL =
-	process.env.EXPO_PUBLIC_API_URL ?? 'https://toodoo-backend-production-10ee.up.railway.app';
+	process.env.EXPO_PUBLIC_API_URL ?? 'https://toodoo-backend-production-21f4.up.railway.app';
 
 export function apiUrl(path: string) {
 	if (!path.startsWith('/')) return `${API_BASE_URL}/${path}`;

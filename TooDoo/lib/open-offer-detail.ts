@@ -21,6 +21,18 @@ export function openOfferDetail(
   card: OfferCardItem,
   returnTo: 'index' | 'heta' | 'slutarsnart' = 'index'
 ) {
+  // Unified search can return cached public events (`type: "event"`).
+  if (card.resultKind === 'event') {
+    router.push({
+      pathname: '/municipio-event-detail',
+      params: {
+        id: card.id,
+        returnTo: returnTo === 'index' ? 'index' : 'evenemang',
+      },
+    });
+    return;
+  }
+
   const remoteImageUri =
     typeof card.image === 'object' && card.image && 'uri' in card.image && typeof card.image.uri === 'string'
       ? card.image.uri

@@ -33,6 +33,12 @@ export type OfferCardItem = {
   distanceKm?: number;
   /** Per-offer image URIs used when expanding one business card into many offers. */
   orderImageUris?: string[];
+  /**
+   * Unified search may return cached public events (`type: "event"`).
+   * When `resultKind === 'event'`, `id` is the `cached_event` surrogate id.
+   */
+  resultKind?: 'business' | 'event';
+  eventSource?: 'MUNICIPIO' | 'VISIT_SWEDEN';
 };
 
 type ApiBusiness = {

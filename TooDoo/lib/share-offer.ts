@@ -127,3 +127,85 @@ export function shareOfferFromCard(card: OfferCardItem) {
     offerText: typeof offerText === 'string' ? offerText : undefined,
   });
 }
+
+export type ShareBusinessInput = {
+  businessId: string;
+  businessName?: string;
+};
+
+export function buildBusinessShareUrl({ businessId }: ShareBusinessInput) {
+  const params = new URLSearchParams({
+    id: businessId,
+    claimBusinessId: businessId,
+  });
+  const path = `${COMPANY_DETAIL_PATH}?${params.toString()}`;
+  const base = getAppBaseUrl();
+  if (!base) {
+    return path;
+  }
+  return `${base}${path}`;
+}
+
+function buildBusinessShareMessage(input: ShareBusinessInput, url: string) {
+  const businessName = compactShareText(input.businessName);
+  if (businessName) {
+    return `Kolla in ${businessName} på TooDoo!\n\n${url}`;
+  }
+  return `Kolla in det här företaget på TooDoo!\n\n${url}`;
+}
+
+async function copyBusinessShareUrl(url: string) {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(url);
+    Alert.alert('Länk kopierad', 'Företagslänken har kopierats till urklipp.');
+    return;
+  }
+
+  Alert.alert('Dela företag', url);
+}
+
+export async function shareBusiness(input: ShareBusinessInput) {
+  const businessId = compactShareText(input.businessId);
+  if (!businessId || isPlaceholderNavigationId(businessId)) {
+    Alert.alert('Kunde inte dela', 'Företaget saknar information som behövs för att skapa en länk.');
+    return;
+  }
+
+  const url = buildBusinessShareUrl({ ...input, businessId });
+  if (!isAbsoluteShareUrl(url)) {
+    Alert.alert(
+      'Kunde inte dela',
+      'Sätt EXPO_PUBLIC_APP_URL till din webbadress (t.ex. Vercel-URL:en) för att kunna dela företagslänkar från appen.'
+    );
+    return;
+  }
+
+  const message = buildBusinessShareMessage(input, url);
+  const title = compactShareText(input.businessName) ?? 'Företag på TooDoo';
+
+  if (Platform.OS === 'web') {
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      try {
+        await navigator.share({ title, text: message, url });
+      } catch (error) {
+        if ((error as { name?: string }).name !== 'AbortError') {
+          await copyBusinessShareUrl(url);
+        }
+      }
+      return;
+    }
+
+    await copyBusinessShareUrl(url);
+    return;
+  }
+
+  try {
+    await Share.share(
+      Platform.OS === 'ios'
+        ? { message, url, title }
+        : { message, title }
+    );
+  } catch {
+    // User dismissed the native share sheet.
+  }
+}

@@ -24,6 +24,7 @@ import {
   fetchEventFeed,
   type EventFeedItem,
 } from '@/lib/events-feed';
+import { resolveUserCityFromDevice } from '@/lib/geo';
 import { getHomeEventsCache, setHomeEventsCache } from '@/lib/home-list-cache';
 import { openEventFeedItem } from '@/lib/open-event-feed';
 import { usePaginatedList, SEE_ALL_PAGE_SIZE } from '@/lib/paginated-list';
@@ -125,7 +126,10 @@ export function EventListScreen() {
         setIsLoading(true);
       }
       try {
-        const next = await fetchEventFeed();
+        const location = await resolveUserCityFromDevice().catch(() => null);
+        const next = await fetchEventFeed({
+          city: location?.city,
+        });
         if (!cancelled) {
           setEvents(next);
           setHomeEventsCache(next);
