@@ -6,6 +6,7 @@ import {
   Easing,
   ImageSourcePropType,
   InteractionManager,
+  Modal,
   Platform,
   RefreshControl,
   Pressable,
@@ -22,6 +23,7 @@ import {
   getTabBarWidth,
 } from '@/components/floating-tab-bar';
 import Reanimated, {
+  cancelAnimation,
   Easing as ReanimatedEasing,
   interpolate,
   runOnJS,
@@ -116,20 +118,22 @@ import { showAlert } from '@/lib/show-alert';
 import {
   DEFAULT_SEARCH_TIPS,
   fetchSearchTips,
-  getLocalSearchTips,
+  getLocalBusinessSearchTips,
   mergeSearchTips,
+  SEARCH_SHOP_TIPS_TAKE,
+  splitSearchTips,
   type SearchTipItem,
 } from '@/lib/search-tips';
 
 const ALL_CATEGORIES_ID = 'all';
 const OFFERS_CATEGORY_ID = 'offers';
-const SEARCH_DROPDOWN_CORNER_RADIUS = 28;
+const SEARCH_DROPDOWN_CORNER_RADIUS = 16;
 const SEARCH_DROPDOWN_OPEN_MS = 220;
 const SEARCH_DROPDOWN_CLOSE_MS = 240;
-const SEARCH_TIPS_DEBOUNCE_MS = 80;
-const SEARCH_BAR_HEIGHT = 48;
+const SEARCH_TIPS_DEBOUNCE_MS = 120;
+const SEARCH_BAR_HEIGHT = 44;
 const SEARCH_PANEL_BOTTOM_RADIUS = 12;
-const SEARCH_DROPDOWN_MAX_HEIGHT = 268;
+const SEARCH_DROPDOWN_MAX_HEIGHT = 380;
 /** 0–1: where on the search bar the fade begins (0.5 = halfway down the bar). */
 const SEARCH_DROPDOWN_DISAPPEAR_RATIO = 0.5;
 const SEARCH_DROPDOWN_OPEN_EASING = ReanimatedEasing.bezier(0.22, 1, 0.36, 1);
@@ -168,6 +172,67 @@ function filterCardsByActiveCategory(cards: CardItem[], activeCategory: string):
   }
 
   return cards.filter((card) => cardMatchesCategory(card, activeCategory));
+}
+
+const SEARCH_TIP_PREVIEW_LIMIT = 2;
+
+function getSearchTipKey(tip: SearchTipItem) {
+  return `${tip.kind}:${tip.id ?? tip.label.trim().toLocaleLowerCase('sv-SE')}`;
+}
+
+function uniqueCardsById(cards: CardItem[]): CardItem[] {
+  const seen = new Set<string>();
+  const result: CardItem[] = [];
+  for (const card of cards) {
+    if (!card?.id || seen.has(card.id)) continue;
+    seen.add(card.id);
+    result.push(card);
+  }
+  return result;
+}
+
+function matchCardsToSearchTip(
+  cards: CardItem[],
+  tip: SearchTipItem,
+  categories: Array<{ id: string; label: string }> = []
+): CardItem[] {
+  const matched: CardItem[] = [];
+
+  if (tip.id) {
+    const byId = cards.find((card) => card.id === tip.id);
+    if (byId) matched.push(byId);
+  }
+
+  const q = tip.label.trim().toLocaleLowerCase('sv-SE');
+  if (!q) return matched.slice(0, SEARCH_TIP_PREVIEW_LIMIT);
+
+  const category = categories.find(
+    (item) => item.label.trim().toLocaleLowerCase('sv-SE') === q
+  );
+  if (category) {
+    for (const card of cards) {
+      if (matched.some((item) => item.id === card.id)) continue;
+      if (card.resultKind === 'event') continue;
+      if (!cardMatchesCategory(card, category.id)) continue;
+      matched.push(card);
+      if (matched.length >= SEARCH_TIP_PREVIEW_LIMIT) break;
+    }
+    if (matched.length > 0) return matched.slice(0, SEARCH_TIP_PREVIEW_LIMIT);
+  }
+
+  for (const card of cards) {
+    if (matched.some((item) => item.id === card.id)) continue;
+    if (card.resultKind === 'event') continue;
+    const hay = [card.title, card.categoryName, card.kortbeskrivning, card.Adress]
+      .filter(Boolean)
+      .join(' ')
+      .toLocaleLowerCase('sv-SE');
+    if (!hay.includes(q)) continue;
+    matched.push(card);
+    if (matched.length >= SEARCH_TIP_PREVIEW_LIMIT) break;
+  }
+
+  return matched.slice(0, SEARCH_TIP_PREVIEW_LIMIT);
 }
 
 function sortDealsByDistance(deals: CardItem[]): CardItem[] {
@@ -523,6 +588,7 @@ function ForYouOrderCarousel({
   badgeColor,
   getBadgeLabel,
   getBadgeColor,
+  showBadge = true,
   showFavoriteButton = false,
   showActivityDots = false,
   businessIdsWithEvents,
@@ -534,6 +600,8 @@ function ForYouOrderCarousel({
   badgeColor: string;
   getBadgeLabel?: (card: CardItem) => string;
   getBadgeColor?: (card: CardItem) => string;
+  /** Hide the top-left pill tag (used while searching). */
+  showBadge?: boolean;
   /** Only företag (not individual erbjudanden) should be favoritable. */
   showFavoriteButton?: boolean;
   /** Event + offer dots under company cards (Nära dig). */
@@ -585,23 +653,33 @@ function ForYouOrderCarousel({
                 displayWidth={IMAGE_DISPLAY_WIDTH.card}
               />
               <View className="absolute inset-0 bg-black/20" />
-              <View className="absolute left-2 top-2">
-              <View
-                  className="rounded-full px-2 py-1"
-                style={{ backgroundColor: resolvedBadgeColor }}
-              >
-                <Text className="text-[10px] font-semibold text-white">
-                  {getBadgeLabel ? getBadgeLabel(card) : badgeLabel}
-                </Text>
-              </View>
-                {showActivityDots && !isEvent ? (
+              {showBadge ? (
+                <View className="absolute left-2 top-2">
+                  <View
+                    className="rounded-full px-2 py-1"
+                    style={{ backgroundColor: resolvedBadgeColor }}
+                  >
+                    <Text className="text-[10px] font-semibold text-white">
+                      {getBadgeLabel ? getBadgeLabel(card) : badgeLabel}
+                    </Text>
+                  </View>
+                  {showActivityDots && !isEvent ? (
+                    <CompanyActivityDots
+                      hasEvent={businessIdsWithEvents?.has(card.id) ?? false}
+                      hasOffer={Boolean(card.deal)}
+                      eventColor={theme.eventColor}
+                    />
+                  ) : null}
+                </View>
+              ) : showActivityDots && !isEvent ? (
+                <View className="absolute left-2 top-2">
                   <CompanyActivityDots
                     hasEvent={businessIdsWithEvents?.has(card.id) ?? false}
                     hasOffer={Boolean(card.deal)}
                     eventColor={theme.eventColor}
                   />
-                ) : null}
-              </View>
+                </View>
+              ) : null}
               {canFavorite ? (
                 <View className="absolute right-2 top-2 h-8 w-8 items-center justify-center rounded-full" style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}>
                   <Pressable
@@ -1104,10 +1182,6 @@ function SectionTitleRow({
   );
 }
 
-function isLikelyPicsumUrl(uri: string) {
-  return uri.includes('picsum.photos/');
-}
-
 export default function HomeScreen() {
   const homeSnapshot = getHomeScreenSnapshot();
   const initialSearch = getHomeSearchCache();
@@ -1127,6 +1201,9 @@ export default function HomeScreen() {
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [searchQuery, setSearchQuery] = useState(initialSearch.query);
   const [searchResults, setSearchResults] = useState<CardItem[]>(initialSearch.results as CardItem[]);
+  const [searchCommitted, setSearchCommitted] = useState(
+    () => initialSearch.query.trim().length >= 2
+  );
   const [isSearchLoading, setIsSearchLoading] = useState(false);
   const [voiceListening, setVoiceListening] = useState(false);
   const [voiceSpeaking, setVoiceSpeaking] = useState(false);
@@ -1134,6 +1211,9 @@ export default function HomeScreen() {
   const [searchTips, setSearchTips] = useState<SearchTipItem[]>(
     DEFAULT_SEARCH_TIPS.map((label) => ({ label, kind: 'tip' as const }))
   );
+  const [expandedSearchTipKey, setExpandedSearchTipKey] = useState<string | null>(null);
+  const [expandedTipCards, setExpandedTipCards] = useState<CardItem[]>([]);
+  const [isExpandedTipLoading, setIsExpandedTipLoading] = useState(false);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [isSearchDropdownMounted, setIsSearchDropdownMounted] = useState(false);
   const [searchBarHeight, setSearchBarHeight] = useState(SEARCH_BAR_HEIGHT);
@@ -1163,9 +1243,18 @@ export default function HomeScreen() {
   const voiceResultOrderRef = useRef<string[] | null>(null);
   const userCityRef = useRef<string | null>(null);
   const searchBlurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const homeSearchBarRef = useRef<View>(null);
+  const tipPreviewRequestRef = useRef(0);
+  const expandedTipCacheRef = useRef<Map<string, CardItem[]>>(new Map());
   const searchDropdownProgress = useSharedValue(0);
+  const searchOverlayProgress = useSharedValue(0);
+  const searchBarHomeY = useSharedValue(140);
+  const searchBarHomeX = useSharedValue(24);
+  const searchBarHomeW = useSharedValue(320);
   const searchBarHeightSv = useSharedValue(SEARCH_BAR_HEIGHT);
   const searchDropdownHeightSv = useSharedValue(SEARCH_DROPDOWN_MAX_HEIGHT);
+  const [isSearchOverlayMounted, setIsSearchOverlayMounted] = useState(false);
+  const [searchInputReady, setSearchInputReady] = useState(false);
   searchQueryRef.current = searchQuery;
   searchResultsRef.current = searchResults;
   const router = useRouter();
@@ -1333,16 +1422,18 @@ export default function HomeScreen() {
   useEffect(() => {
     let cancelled = false;
     const trimmed = searchQuery.trim();
-    const catalogNames = () =>
-      knownCardsRef.current.map((card) => card.title).filter(Boolean);
 
     if (trimmed.length >= 1) {
-      const instantTips = mergeSearchTips(
-        getLocalSearchTips(trimmed, catalogNames(), 8),
-        getLocalSearchTips(trimmed, DEFAULT_SEARCH_TIPS, 8)
+      const instantShops = getLocalBusinessSearchTips(
+        trimmed,
+        knownCardsRef.current,
+        SEARCH_SHOP_TIPS_TAKE
       );
-      if (instantTips.length > 0) {
-        setSearchTips(instantTips);
+      if (instantShops.length > 0) {
+        setSearchTips([
+          ...instantShops,
+          ...DEFAULT_SEARCH_TIPS.map((label) => ({ label, kind: 'tip' as const })),
+        ]);
       }
     }
 
@@ -1357,14 +1448,42 @@ export default function HomeScreen() {
         });
         if (cancelled) return;
 
+        const known = knownCardsRef.current;
+        const enrichTip = (tip: SearchTipItem): SearchTipItem => {
+          if (tip.imageUri || (tip.previewImages && tip.previewImages.length > 0)) {
+            return tip;
+          }
+          const match = known.find(
+            (card) =>
+              (tip.id && card.id === tip.id) ||
+              card.title.toLocaleLowerCase('sv-SE') === tip.label.toLocaleLowerCase('sv-SE')
+          );
+          const uri =
+            match &&
+            typeof match.image === 'object' &&
+            match.image &&
+            'uri' in match.image &&
+            typeof match.image.uri === 'string'
+              ? match.image.uri
+              : undefined;
+          const subtitle =
+            tip.subtitle ||
+            (tip.kind === 'business' ? match?.categoryName?.trim() : undefined);
+          return {
+            ...tip,
+            ...(uri ? { imageUri: uri } : null),
+            ...(subtitle ? { subtitle } : null),
+          };
+        };
+
         if (trimmed.length >= 1) {
-          const localTips = getLocalSearchTips(trimmed, catalogNames(), 8);
-          setSearchTips(mergeSearchTips(tips, localTips));
+          const localShops = getLocalBusinessSearchTips(trimmed, known, SEARCH_SHOP_TIPS_TAKE);
+          setSearchTips(mergeSearchTips(localShops, tips).map(enrichTip));
           return;
         }
 
         if (tips.length > 0) {
-          setSearchTips(tips);
+          setSearchTips(tips.map(enrichTip));
         }
       })();
     }, trimmed.length >= 1 ? SEARCH_TIPS_DEBOUNCE_MS : 0);
@@ -1388,17 +1507,79 @@ export default function HomeScreen() {
       clearTimeout(searchBlurTimerRef.current);
       searchBlurTimerRef.current = null;
     }
-    setIsSearchFocused(true);
-  }, []);
 
-  const closeSearchDropdown = useCallback(() => {
+    const startOverlay = (x: number, y: number, w: number) => {
+      cancelAnimation(searchOverlayProgress);
+      searchBarHomeX.value = Math.max(0, x);
+      searchBarHomeY.value = Math.max(0, y);
+      searchBarHomeW.value = Math.max(160, w);
+      searchOverlayProgress.value = 0;
+      setSearchInputReady(false);
+      setIsSearchFocused(true);
+      setIsSearchOverlayMounted(true);
+      requestAnimationFrame(() => {
+        searchOverlayProgress.value = withTiming(
+          1,
+          {
+            duration: 460,
+            easing: SEARCH_DROPDOWN_OPEN_EASING,
+          },
+          (finished) => {
+            if (finished) {
+              runOnJS(setSearchInputReady)(true);
+            }
+          }
+        );
+      });
+    };
+
+    const node = homeSearchBarRef.current as
+      | (View & { measureInWindow?: (cb: (x: number, y: number, w: number, h: number) => void) => void })
+      | null;
+
+    if (node?.measureInWindow) {
+      node.measureInWindow((x, y, w) => {
+        startOverlay(x, y, w);
+      });
+      return;
+    }
+
+    startOverlay(24, Math.max(120, insets.top + 180), Math.max(200, windowWidth - 48));
+  }, [
+    insets.top,
+    searchBarHomeW,
+    searchBarHomeX,
+    searchBarHomeY,
+    searchOverlayProgress,
+    windowWidth,
+  ]);
+
+  const closeSearchOverlay = useCallback(() => {
     if (searchBlurTimerRef.current) {
       clearTimeout(searchBlurTimerRef.current);
-    }
-    searchBlurTimerRef.current = setTimeout(() => {
-      setIsSearchFocused(false);
       searchBlurTimerRef.current = null;
-    }, SEARCH_DROPDOWN_CLOSE_MS);
+    }
+    setSearchInputReady(false);
+    blurActiveElementOnWeb();
+    cancelAnimation(searchOverlayProgress);
+    searchOverlayProgress.value = withTiming(
+      0,
+      {
+        duration: 340,
+        easing: SEARCH_DROPDOWN_CLOSE_EASING,
+      },
+      (finished) => {
+        if (finished) {
+          runOnJS(setIsSearchFocused)(false);
+          runOnJS(setIsSearchOverlayMounted)(false);
+        }
+      }
+    );
+  }, [searchOverlayProgress]);
+
+  /** Kept for any remaining blur hooks — overlay closes only via back / explicit dismiss. */
+  const closeSearchDropdown = useCallback(() => {
+    // no-op: full-screen search stays open until the user taps back
   }, []);
 
   const clearVoiceSearchOwnership = useCallback(() => {
@@ -1424,30 +1605,6 @@ export default function HomeScreen() {
     });
   }, []);
 
-  const handleSearchTipPress = useCallback(
-    (tip: SearchTipItem) => {
-      if (searchBlurTimerRef.current) {
-        clearTimeout(searchBlurTimerRef.current);
-        searchBlurTimerRef.current = null;
-      }
-      clearVoiceSearchOwnership();
-
-      if (tip.kind === 'event' && tip.id) {
-        setIsSearchFocused(false);
-        setHomeScrollOffset(scrollOffsetRef.current);
-        router.push({
-          pathname: '/municipio-event-detail',
-          params: { id: tip.id, returnTo: 'index' },
-        });
-        return;
-      }
-
-      setSearchQuery(tip.label);
-      setIsSearchFocused(true);
-    },
-    [clearVoiceSearchOwnership, router]
-  );
-
   const stopVoiceSession = useCallback(() => {
     const wasListening = voiceActiveRef.current || voiceSessionRef.current != null;
     voiceActiveRef.current = false;
@@ -1461,6 +1618,72 @@ export default function HomeScreen() {
     }
   }, []);
 
+  const handleSearchTipPress = useCallback(
+    (tip: SearchTipItem) => {
+      if (searchBlurTimerRef.current) {
+        clearTimeout(searchBlurTimerRef.current);
+        searchBlurTimerRef.current = null;
+      }
+
+      const key = getSearchTipKey(tip);
+      if (expandedSearchTipKey === key) {
+        tipPreviewRequestRef.current += 1;
+        setExpandedSearchTipKey(null);
+        setExpandedTipCards([]);
+        setIsExpandedTipLoading(false);
+        return;
+      }
+
+      const known = uniqueCardsById([...deals, ...hotOfferCards, ...nearYouCards]);
+      const cached = expandedTipCacheRef.current.get(key);
+      const localMatches =
+        cached ?? matchCardsToSearchTip(known, tip, categoryFilters);
+      const requestId = tipPreviewRequestRef.current + 1;
+      tipPreviewRequestRef.current = requestId;
+      setExpandedSearchTipKey(key);
+      setExpandedTipCards(localMatches);
+      setIsExpandedTipLoading(false);
+
+      if (cached || localMatches.length >= SEARCH_TIP_PREVIEW_LIMIT) {
+        if (!cached && localMatches.length > 0) {
+          expandedTipCacheRef.current.set(key, localMatches);
+        }
+        return;
+      }
+
+      setIsExpandedTipLoading(true);
+      void searchCatalog(tip.label, {
+        take: SEARCH_TIP_PREVIEW_LIMIT,
+        maxHydrate: SEARCH_TIP_PREVIEW_LIMIT,
+        city: userCityRef.current ?? undefined,
+        knownCards: known,
+      })
+        .then((results) => {
+          if (tipPreviewRequestRef.current !== requestId) return;
+          const businesses = (results as CardItem[]).filter(
+            (card) => card.resultKind !== 'event'
+          );
+          const merged = uniqueCardsById([...localMatches, ...businesses]).slice(
+            0,
+            SEARCH_TIP_PREVIEW_LIMIT
+          );
+          expandedTipCacheRef.current.set(key, merged);
+          setExpandedTipCards(merged);
+        })
+        .catch(() => {
+          if (tipPreviewRequestRef.current !== requestId) return;
+          expandedTipCacheRef.current.set(key, localMatches);
+          setExpandedTipCards(localMatches);
+        })
+        .finally(() => {
+          if (tipPreviewRequestRef.current === requestId) {
+            setIsExpandedTipLoading(false);
+          }
+        });
+    },
+    [categoryFilters, deals, expandedSearchTipKey, hotOfferCards, nearYouCards]
+  );
+
   const runVoiceSearch = useCallback(
     async (transcript: string) => {
       // Keep the transcript intact for the backend (only trim ends / enforce max length).
@@ -1472,9 +1695,10 @@ export default function HomeScreen() {
 
       voiceQueryRef.current = q;
       setSearchQuery(q);
-      setIsSearchFocused(false);
+      setSearchCommitted(true);
       setIsSearchLoading(true);
       setVoiceStatusMessage(null);
+      closeSearchOverlay();
 
       try {
         let city = userCityRef.current ?? undefined;
@@ -1519,7 +1743,7 @@ export default function HomeScreen() {
         setIsSearchLoading(false);
       }
     },
-    [authFetch, clearVoiceSearchOwnership, lockVoiceResultOrder]
+    [authFetch, clearVoiceSearchOwnership, closeSearchOverlay, lockVoiceResultOrder]
   );
 
   const handleVoiceSearch = useCallback(() => {
@@ -1874,6 +2098,26 @@ export default function HomeScreen() {
   const trimmedSearchQuery = searchQuery.trim();
   const isSearchActive = trimmedSearchQuery.length >= 2;
   const isSearchTooShort = trimmedSearchQuery.length === 1;
+  const showLiveOverlaySearch = isSearchOverlayMounted && (isSearchActive || isSearchTooShort);
+  const showCommittedSearchResults = searchCommitted && isSearchActive;
+  const showCommittedSearchPrompt = searchCommitted && isSearchTooShort;
+  const shouldFetchSearch =
+    isSearchActive && (searchCommitted || isSearchOverlayMounted);
+
+  useEffect(() => {
+    tipPreviewRequestRef.current += 1;
+    setExpandedSearchTipKey(null);
+    setExpandedTipCards([]);
+    setIsExpandedTipLoading(false);
+  }, [trimmedSearchQuery]);
+
+  useEffect(() => {
+    if (isSearchOverlayMounted) return;
+    tipPreviewRequestRef.current += 1;
+    setExpandedSearchTipKey(null);
+    setExpandedTipCards([]);
+    setIsExpandedTipLoading(false);
+  }, [isSearchOverlayMounted]);
 
   useEffect(() => {
     knownCardsRef.current = [...deals, ...hotOfferCards, ...nearYouCards];
@@ -1955,6 +2199,11 @@ export default function HomeScreen() {
       return;
     }
 
+    if (!shouldFetchSearch) {
+      setIsSearchLoading(false);
+      return;
+    }
+
     if (!isSearchActive) {
       setSearchResults([]);
       setIsSearchLoading(false);
@@ -2013,10 +2262,24 @@ export default function HomeScreen() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [isSearchActive, searchQuery, trimmedSearchQuery, voiceListening, clearVoiceSearchOwnership]);
+  }, [
+    clearVoiceSearchOwnership,
+    isSearchActive,
+    searchQuery,
+    shouldFetchSearch,
+    trimmedSearchQuery,
+    voiceListening,
+  ]);
 
   useEffect(() => {
-    if (!coords || !isSearchActive || searchResults.length === 0) return;
+    if (
+      !coords ||
+      (!showCommittedSearchResults && !showLiveOverlaySearch) ||
+      !isSearchActive ||
+      searchResults.length === 0
+    ) {
+      return;
+    }
 
     let cancelled = false;
     const snapshot = searchResults;
@@ -2040,6 +2303,8 @@ export default function HomeScreen() {
     };
   }, [
     coords,
+    showCommittedSearchResults,
+    showLiveOverlaySearch,
     isSearchActive,
     trimmedSearchQuery,
     searchResults.length,
@@ -2054,6 +2319,7 @@ export default function HomeScreen() {
   const searchedHot = useMemo(() => sortSearchResultsHot(searchResults), [searchResults]);
 
   const handleCardPress = (card: CardItem) => {
+    closeSearchOverlay();
     setHomeScrollOffset(scrollOffsetRef.current);
     setHomeSearchCache(trimmedSearchQuery, searchResults as OfferCardItem[]);
     openOfferDetail(router, card, 'index');
@@ -2113,7 +2379,9 @@ export default function HomeScreen() {
   });
   const inlineMicOpacity = inlineMicAnim;
   const searchDropdownExpanded = showSearchTipsDropdown || isSearchDropdownMounted;
-  const searchDropdownDividerColor = 'rgba(0, 0, 0, 0.08)';
+  const searchDropdownDividerColor = theme.isDark
+    ? 'rgba(255, 255, 255, 0.08)'
+    : 'rgba(0, 0, 0, 0.08)';
 
   const searchPanelStyle = {
     backgroundColor: homeHeaderPanelBg,
@@ -2135,118 +2403,172 @@ export default function HomeScreen() {
         } as const)),
   };
 
-  const renderSearchTipsDropdown = () =>
-    isSearchDropdownMounted && searchTips.length > 0 ? (
-      <Reanimated.View
-        pointerEvents="box-none"
-        style={[
-          searchDropdownClipAnimatedStyle,
-          {
-            position: 'absolute',
-            left: 0,
-            width: '100%',
-            zIndex: 1,
-            elevation: 1,
-            overflow: 'hidden',
-          },
-        ]}
-      >
-        <Reanimated.View
-          className="w-full overflow-hidden"
-          onLayout={(event) => {
-            const measuredHeight = event.nativeEvent.layout.height;
-            if (measuredHeight > 0) {
-              searchDropdownHeightSv.value = measuredHeight;
-            }
-          }}
-          style={[
-            filterSurfaceStyle,
-            searchDropdownAnimatedStyle,
-            {
-              width: '100%',
-              borderRadius: SEARCH_DROPDOWN_CORNER_RADIUS,
-              ...(Platform.OS === 'web'
-                ? {
-                    boxShadow: '0 12px 28px rgba(0,0,0,0.14)',
-                  }
-                : {
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 8 },
-                    shadowOpacity: 0.12,
-                    shadowRadius: 14,
-                    elevation: 1,
-                  }),
-            },
-          ]}
-        >
-                  <View
-            className="px-4 py-2.5"
-            style={{ borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: searchDropdownDividerColor }}
-          >
-            <Text
-              className="text-xs font-semibold uppercase tracking-wide"
-              style={{ color: FilterChipTheme.textMuted }}
-            >
-              {searchQuery.trim() ? 'Förslag' : 'Söktips'}
-                    </Text>
-                  </View>
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            nestedScrollEnabled
-            style={{ maxHeight: 220 }}
-            showsVerticalScrollIndicator={false}
-          >
-            {searchTips.map((tip, index) => (
-              <Pressable
-                key={`${tip.kind}:${tip.id ?? tip.label}:${index}`}
-                onPress={() => handleSearchTipPress(tip)}
-                className="flex-row items-center px-4 py-3"
-                style={
-                  index < searchTips.length - 1
-                    ? {
-                        borderBottomWidth: StyleSheet.hairlineWidth,
-                        borderBottomColor: searchDropdownDividerColor,
-                      }
-                    : undefined
+  const homeContentDisappearStyle = useAnimatedStyle(() => {
+    const progress = searchOverlayProgress.value;
+    return {
+      opacity: interpolate(progress, [0, 0.28], [1, 0], 'clamp'),
+      transform: [
+        {
+          scale: interpolate(progress, [0, 0.45], [1, 0.965], 'clamp'),
+        },
+        {
+          translateY: interpolate(progress, [0, 0.45], [0, -18], 'clamp'),
+        },
+      ],
+    };
+  });
+
+  const searchOverlayBackdropStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(searchOverlayProgress.value, [0, 0.22, 1], [0, 1, 1], 'clamp'),
+  }));
+
+  const searchOverlayHeaderStyle = useAnimatedStyle(() => {
+    const progress = searchOverlayProgress.value;
+    const startY = searchBarHomeY.value;
+    const endY = insets.top + 8;
+    const startX = searchBarHomeX.value;
+    const endX = 12;
+    const startW = searchBarHomeW.value;
+    const endW = Math.max(160, windowWidth - 24);
+    return {
+      position: 'absolute',
+      top: interpolate(progress, [0, 1], [startY, endY], 'clamp'),
+      left: interpolate(progress, [0, 1], [startX, endX], 'clamp'),
+      width: interpolate(progress, [0, 1], [startW, endW], 'clamp'),
+      zIndex: 20,
+    };
+  });
+
+  const searchOverlayBackStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(searchOverlayProgress.value, [0.4, 0.75], [0, 1], 'clamp'),
+    width: interpolate(searchOverlayProgress.value, [0.4, 0.8], [0, 40], 'clamp'),
+    marginRight: interpolate(searchOverlayProgress.value, [0.4, 0.8], [0, 8], 'clamp'),
+    overflow: 'hidden',
+    transform: [
+      {
+        translateX: interpolate(searchOverlayProgress.value, [0.4, 0.8], [-16, 0], 'clamp'),
+      },
+    ],
+  }));
+
+  const searchOverlayContentStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(searchOverlayProgress.value, [0.58, 1], [0, 1], 'clamp'),
+    transform: [
+      {
+        translateY: interpolate(searchOverlayProgress.value, [0.58, 1], [24, 0], 'clamp'),
+      },
+    ],
+  }));
+
+  const renderSearchTipRows = (tips: SearchTipItem[]) =>
+    tips.map((tip, index) => {
+      const tipKey = getSearchTipKey(tip);
+      const isExpanded = expandedSearchTipKey === tipKey;
+      return (
+        <View
+          key={`${tipKey}:${index}`}
+          style={
+            index < tips.length - 1
+              ? {
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                  borderBottomColor: searchDropdownDividerColor,
+                  paddingHorizontal: 16,
+                  paddingTop: 12,
+                  paddingBottom: isExpanded ? 14 : 12,
                 }
+              : {
+                  paddingHorizontal: 16,
+                  paddingTop: 12,
+                  paddingBottom: isExpanded ? 14 : 12,
+                }
+          }
+        >
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded: isExpanded }}
+            accessibilityLabel={
+              isExpanded ? `Dölj företag för ${tip.label}` : `Visa företag för ${tip.label}`
+            }
+            onPress={() => handleSearchTipPress(tip)}
+            className="flex-row items-center"
+          >
+            <Ionicons
+              name={
+                tip.kind === 'event'
+                  ? 'calendar-outline'
+                  : tip.kind === 'business'
+                    ? getCategoryIconName(tip.subtitle || tip.label)
+                    : 'search-outline'
+              }
+              size={17}
+              color={
+                tip.kind === 'business'
+                  ? getCategoryAccentColor(tip.subtitle || tip.label)
+                  : tip.kind === 'event'
+                    ? theme.eventColor
+                    : theme.textMuted
+              }
+              style={{ marginRight: 10 }}
+            />
+            <View className="flex-1">
+              <Text
+                className="text-[15px] font-medium"
+                style={{ color: theme.text }}
+                numberOfLines={1}
               >
-                <Ionicons
-                  name={
-                    tip.kind === 'event'
-                      ? 'calendar-outline'
-                      : searchQuery.trim()
-                        ? 'business-outline'
-                        : 'bulb-outline'
-                  }
-                  size={18}
-                  color={tip.kind === 'event' ? theme.eventColor : FilterChipTheme.textMuted}
-                  style={{ marginRight: 12 }}
+                {tip.label}
+              </Text>
+              {tip.subtitle || tip.kind === 'event' || tip.kind === 'business' ? (
+                <Text
+                  className="mt-0.5 text-[11px]"
+                  style={{ color: theme.textFaint }}
+                  numberOfLines={1}
+                >
+                  {tip.subtitle ||
+                    (tip.kind === 'event'
+                      ? 'Evenemang'
+                      : tip.kind === 'business'
+                        ? 'Företag'
+                        : 'Sökning')}
+                </Text>
+              ) : null}
+            </View>
+            <Ionicons
+              name={isExpanded ? 'chevron-up' : 'chevron-down'}
+              size={18}
+              color={theme.textFaint}
+            />
+          </Pressable>
+
+          {isExpanded ? (
+            <View style={{ marginTop: 12, marginLeft: 2 }}>
+              {isExpandedTipLoading && expandedTipCards.length === 0 ? (
+                <Text style={{ color: theme.textMuted, paddingLeft: 2 }}>Laddar...</Text>
+              ) : (
+                <ForYouOrderCarousel
+                  cards={expandedTipCards}
+                  onCardPress={handleCardPress}
+                  badgeLabel={tip.label}
+                  badgeColor={brandInkRgba(0.75)}
+                  showBadge={false}
+                  showFavoriteButton
+                  showActivityDots
+                  businessIdsWithEvents={businessIdsWithEvents}
+                  emptyText={`Inga företag för "${tip.label}" just nu.`}
                 />
-                <View className="flex-1">
-                  <Text className="text-base" style={{ color: FilterChipTheme.text }} numberOfLines={1}>
-                    {tip.label}
-                  </Text>
-                  {tip.kind === 'event' ? (
-                    <Text
-                      className="mt-0.5 text-xs"
-                      style={{ color: FilterChipTheme.textMuted }}
-                      numberOfLines={1}
-                    >
-                      Evenemang
-                    </Text>
-                  ) : null}
-                </View>
-                <Ionicons name="arrow-forward" size={16} color={FilterChipTheme.textMuted} />
-              </Pressable>
-            ))}
-          </ScrollView>
-        </Reanimated.View>
-      </Reanimated.View>
-    ) : null;
+              )}
+            </View>
+          ) : null}
+        </View>
+      );
+    });
+
+  const { shops: shopSearchTips, generics: genericSearchTips } = splitSearchTips(searchTips);
+  const showSplitSearchTips = Boolean(searchQuery.trim()) && shopSearchTips.length > 0;
 
   const renderHomeSearchHeader = () => (
-  <View style={styles.searchHeaderRoot} pointerEvents="box-none">
-              <View
+    <View style={styles.searchHeaderRoot} pointerEvents="box-none">
+      <View
         style={[
           styles.searchBarAnchor,
           Platform.OS === 'web'
@@ -2255,182 +2577,372 @@ export default function HomeScreen() {
                 marginLeft: navBarLeft,
                 width: navBarWidth,
               },
-          {
-            zIndex: searchDropdownExpanded ? 100 : 0,
-            elevation: searchDropdownExpanded ? 100 : 0,
-          },
         ]}
       >
-        <View style={styles.searchBarWithMicRow}>
-        <View style={styles.searchBarDropdownHost}>
-        {renderSearchTipsDropdown()}
-
         <View
-          style={[
-            filterSurfaceStyle,
-            styles.searchBarRow,
-            {
-              height: SEARCH_BAR_HEIGHT,
-              width: '100%',
-              position: 'relative',
-              zIndex: 2,
-              elevation: 2,
-            },
-          ]}
-          onLayout={(event) => {
-            const measuredHeight = event.nativeEvent.layout.height;
-            if (measuredHeight > 0) {
-              searchBarHeightSv.value = measuredHeight;
-              setSearchBarHeight(measuredHeight);
-            }
+          ref={homeSearchBarRef}
+          collapsable={false}
+          style={{
+            width: '100%',
+            opacity: isSearchOverlayMounted ? 0 : 1,
           }}
         >
-          <Ionicons name="sparkles" size={18} color="#7c5cf6" style={styles.searchBarIcon} />
-          <View style={styles.searchBarInputSlot}>
-                <TextInput
-              nativeID="home-search-input"
-                  value={searchQuery}
-                  onChangeText={(text) => {
-                    clearVoiceSearchOwnership();
-                    setSearchQuery(text);
-                  }}
-              onFocus={openSearchDropdown}
-              onBlur={closeSearchDropdown}
-                  placeholder={`${typedPlaceholder}|`}
-              placeholderTextColor={FilterChipTheme.placeholder}
-              style={[
-                styles.searchBarInput,
-                {
-                  color: FilterChipTheme.text,
-                  height: SEARCH_BAR_HEIGHT,
-                },
-              ]}
-                  returnKeyType="search"
-                />
-          </View>
           <Pressable
-            onPress={() => {
-              clearVoiceSearchOwnership();
-              stopVoiceSession();
-              setSearchQuery('');
-              clearHomeSearchCache();
-            }}
+            accessibilityRole="search"
+            accessibilityLabel="Öppna sök"
+            onPress={openSearchDropdown}
             style={[
-              styles.searchBarClearButton,
-              { opacity: searchQuery.trim() ? 1 : 0 },
-            ]}
-            pointerEvents={searchQuery.trim() ? 'auto' : 'none'}
-            disabled={!searchQuery.trim()}
-            accessibilityElementsHidden={!searchQuery.trim()}
-            importantForAccessibility={searchQuery.trim() ? 'auto' : 'no-hide-descendants'}
-          >
-            <Ionicons name="close-circle" size={18} color={FilterChipTheme.textMuted} />
-                </Pressable>
-              </View>
-        </View>
-
-          {isLoggedIn ? (
-            <Animated.View
-              style={{
-                width: inlineMicWidth,
-                marginLeft: inlineMicMarginLeft,
+              filterSurfaceStyle,
+              styles.searchBarRow,
+              {
                 height: SEARCH_BAR_HEIGHT,
-                overflow: 'hidden',
-                alignItems: 'center',
+                width: '100%',
+              },
+            ]}
+          >
+            <Ionicons
+              name="search-outline"
+              size={18}
+              color={FilterChipTheme.textMuted}
+              style={styles.searchBarIcon}
+            />
+            <Text
+              numberOfLines={1}
+              style={{
+                flex: 1,
+                color: searchQuery.trim() ? FilterChipTheme.text : FilterChipTheme.placeholder,
+                fontSize: 15,
               }}
             >
-              <Animated.View
-                style={{
-                  opacity: inlineMicOpacity,
-                  transform: [{ translateY: inlineMicTranslateY }],
-                }}
-              >
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Sök med rösten"
-                  hitSlop={8}
-                  onPress={handleVoiceSearch}
-                  style={styles.inlineMicButtonWrap}
-                >
-                  <LinearGradient
-                    colors={
-                      voiceListening
-                        ? (['#ef4444', '#dc2626'] as [string, string])
-                        : ([theme.linkSoft, theme.link] as [string, string])
-                    }
-                    start={{ x: 0.5, y: 0 }}
-                    end={{ x: 0.5, y: 1 }}
-                    style={styles.inlineMicBox}
-                  >
-                    <Ionicons name="mic" size={20} color="#ffffff" />
-                  </LinearGradient>
-                </Pressable>
-              </Animated.View>
-            </Animated.View>
-          ) : null}
-            </View>
-            </View>
+              {searchQuery.trim() || `${typedPlaceholder}|`}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
 
       <View className="mt-2" style={{ zIndex: 1, elevation: 1 }}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 24 }}>
-                <View className="flex-row gap-2">
-                  {quickCategories.map((cat) => (
-                    (() => {
-                const isOffersCategory = cat.id === OFFERS_CATEGORY_ID;
-                const isSelected = activeCategory === cat.id;
-                const baseAccent = isOffersCategory
-                  ? OFFERS_CATEGORY_ACCENT
-                  : getCategoryAccentColor(cat.label);
-                const isHighlighted = isOffersCategory || isSelected;
-                const chipColor = isOffersCategory
-                  ? isSelected
-                    ? darkenHexColor(baseAccent)
-                    : baseAccent
-                  : baseAccent;
-                const chipTextColor = getOnAccentTextColor(chipColor);
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 24 }}
+        >
+          <View className="flex-row gap-2">
+            {quickCategories.map((cat) => {
+              const isOffersCategory = cat.id === OFFERS_CATEGORY_ID;
+              const isSelected = activeCategory === cat.id;
+              const baseAccent = isOffersCategory
+                ? OFFERS_CATEGORY_ACCENT
+                : getCategoryAccentColor(cat.label);
+              const isHighlighted = isOffersCategory || isSelected;
+              const chipColor = isOffersCategory
+                ? isSelected
+                  ? darkenHexColor(baseAccent)
+                  : baseAccent
+                : baseAccent;
+              const chipTextColor = getOnAccentTextColor(chipColor);
 
-                      return (
-                    <Pressable
-                      key={cat.id}
-                      onPress={() =>
-                        setActiveCategory((prev) => (prev === cat.id ? ALL_CATEGORIES_ID : cat.id))
-                      }
-                      className="flex-row items-center rounded-full px-3 py-2"
-                style={
-                  isHighlighted
-                    ? { backgroundColor: chipColor, borderColor: chipColor, borderWidth: 1 }
-                    : filterSurfaceStyle
-                }
-              >
-                <Ionicons
-                  name={cat.icon}
-                  size={14}
-                  color={isHighlighted ? chipTextColor : FilterChipTheme.textMuted}
-                />
-                <Text
-                  className="ml-2 text-xs"
-                  style={{ color: isHighlighted ? chipTextColor : FilterChipTheme.textMuted }}
+              return (
+                <Pressable
+                  key={cat.id}
+                  onPress={() =>
+                    setActiveCategory((prev) => (prev === cat.id ? ALL_CATEGORIES_ID : cat.id))
+                  }
+                  className="flex-row items-center rounded-full px-3 py-2"
+                  style={
+                    isHighlighted
+                      ? { backgroundColor: chipColor, borderColor: chipColor, borderWidth: 1 }
+                      : filterSurfaceStyle
+                  }
                 >
-                        {cat.label}
-                      </Text>
-                    </Pressable>
-                      );
-                    })()
-                  ))}
-                </View>
-              </ScrollView>
-            </View>
+                  <Ionicons
+                    name={cat.icon}
+                    size={14}
+                    color={isHighlighted ? chipTextColor : FilterChipTheme.textMuted}
+                  />
+                  <Text
+                    className="ml-2 text-xs"
+                    style={{ color: isHighlighted ? chipTextColor : FilterChipTheme.textMuted }}
+                  >
+                    {cat.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </ScrollView>
+      </View>
 
       <View
         pointerEvents="none"
         style={[styles.searchPanelBottomEdge, { borderColor: searchPanelBorderColor }]}
       />
-  </View>
+    </View>
   );
+
+  const renderSearchOverlay = () => (
+    <Modal
+      visible={isSearchOverlayMounted}
+      animationType="none"
+      presentationStyle="overFullScreen"
+      transparent
+      onRequestClose={closeSearchOverlay}
+      statusBarTranslucent
+    >
+      <View style={{ flex: 1 }} pointerEvents="box-none">
+        <Reanimated.View
+          pointerEvents="auto"
+          style={[
+            StyleSheet.absoluteFillObject,
+            { backgroundColor: theme.screenBg },
+            searchOverlayBackdropStyle,
+          ]}
+        />
+
+        <Reanimated.View style={searchOverlayHeaderStyle}>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              width: '100%',
+            }}
+          >
+            <Reanimated.View style={searchOverlayBackStyle}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Stäng sök"
+                onPress={closeSearchOverlay}
+                hitSlop={10}
+                style={{
+                  width: 40,
+                  height: 40,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: 20,
+                }}
+              >
+                <Ionicons name="chevron-back" size={26} color={theme.text} />
+              </Pressable>
+            </Reanimated.View>
+
+            <View
+              style={[
+                filterSurfaceStyle,
+                styles.searchBarRow,
+                {
+                  flex: 1,
+                  height: SEARCH_BAR_HEIGHT,
+                },
+              ]}
+            >
+              <Ionicons
+                name="search-outline"
+                size={18}
+                color={FilterChipTheme.textMuted}
+                style={styles.searchBarIcon}
+              />
+              <View style={styles.searchBarInputSlot}>
+                <TextInput
+                  autoFocus={searchInputReady}
+                  value={searchQuery}
+                  onChangeText={(text) => {
+                    clearVoiceSearchOwnership();
+                    setSearchCommitted(false);
+                    setSearchQuery(text);
+                  }}
+                  onSubmitEditing={() => {
+                    if (searchQuery.trim().length < 2) return;
+                    setSearchCommitted(true);
+                    closeSearchOverlay();
+                  }}
+                  placeholder={`${typedPlaceholder}|`}
+                  placeholderTextColor={FilterChipTheme.placeholder}
+                  style={[
+                    styles.searchBarInput,
+                    {
+                      color: FilterChipTheme.text,
+                      height: SEARCH_BAR_HEIGHT,
+                    },
+                  ]}
+                  returnKeyType="search"
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                />
+              </View>
+              <Pressable
+                onPress={() => {
+                  clearVoiceSearchOwnership();
+                  stopVoiceSession();
+                  setSearchCommitted(false);
+                  setSearchQuery('');
+                  setSearchResults([]);
+                  clearHomeSearchCache();
+                }}
+                style={[
+                  styles.searchBarClearButton,
+                  { opacity: searchQuery.trim() ? 1 : 0 },
+                ]}
+                pointerEvents={searchQuery.trim() ? 'auto' : 'none'}
+                disabled={!searchQuery.trim()}
+              >
+                <Ionicons name="close-circle" size={18} color={FilterChipTheme.textMuted} />
+              </Pressable>
+            </View>
+          </View>
+        </Reanimated.View>
+
+        <Reanimated.View
+          style={[
+            {
+              flex: 1,
+              marginTop: insets.top + SEARCH_BAR_HEIGHT + 20,
+            },
+            searchOverlayContentStyle,
+          ]}
+        >
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
+            showsVerticalScrollIndicator={false}
+          >
+            {searchTips.length > 0 ? (
+              showSplitSearchTips ? (
+                <>
+                  <View style={{ paddingTop: 4 }}>
+                    <Text
+                      className="px-4 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide"
+                      style={{ color: theme.textFaint }}
+                    >
+                      Sökförslag
+                    </Text>
+                    {renderSearchTipRows(shopSearchTips)}
+                  </View>
+                  {genericSearchTips.length > 0 ? (
+                    <View style={{ paddingTop: 18 }}>
+                      <Text
+                        className="px-4 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide"
+                        style={{ color: theme.textFaint }}
+                      >
+                        Populärt
+                      </Text>
+                      {renderSearchTipRows(genericSearchTips)}
+                    </View>
+                  ) : null}
+                </>
+              ) : (
+                <View style={{ paddingTop: 4 }}>
+                  <Text
+                    className="px-4 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide"
+                    style={{ color: theme.textFaint }}
+                  >
+                    {searchQuery.trim() ? 'Sökförslag' : 'Populärt just nu'}
+                  </Text>
+                  {renderSearchTipRows(searchTips)}
+                </View>
+              )
+            ) : null}
+
+            {showLiveOverlaySearch ? (
+              <View className="mt-4 px-6">
+                <SectionTitleRow
+                  title="Sökresultat"
+                  icon="search"
+                  iconColor={OFFERS_CATEGORY_ACCENT}
+                  onSeeAllPress={() => {
+                    setSearchCommitted(true);
+                    closeSearchOverlay();
+                    openSearchResultsView('all');
+                  }}
+                />
+                {isSearchTooShort ? (
+                  <Text style={{ color: theme.textMuted }}>Skriv minst 2 tecken för att söka.</Text>
+                ) : isSearchLoading ? (
+                  <Text style={{ color: theme.textMuted }}>Söker...</Text>
+                ) : (
+                  <>
+                    <ForYouOrderCarousel
+                      cards={searchResults}
+                      onCardPress={handleCardPress}
+                      badgeLabel="Träff"
+                      badgeColor={brandInkRgba(0.75)}
+                      getBadgeLabel={getSearchResultBadge}
+                      getBadgeColor={(card) =>
+                        card.resultKind === 'event' ? theme.eventColor : brandInkRgba(0.75)
+                      }
+                      showBadge={false}
+                      showFavoriteButton
+                      showActivityDots
+                      businessIdsWithEvents={businessIdsWithEvents}
+                      emptyText={`Inga träffar för "${trimmedSearchQuery}".`}
+                    />
+
+                    {searchResults.length > 0 ? (
+                      <>
+                        <View className="mt-6">
+                          <SectionTitleRow
+                            title="Nära dig"
+                            icon="navigate"
+                            iconColor={OFFERS_CATEGORY_ACCENT}
+                            onSeeAllPress={() => {
+                              setSearchCommitted(true);
+                              closeSearchOverlay();
+                              openSearchResultsView('near');
+                            }}
+                          />
+                          <ForYouOrderCarousel
+                            cards={searchedNearYou}
+                            onCardPress={handleCardPress}
+                            badgeLabel="Nära dig"
+                            badgeColor={brandInkRgba(0.75)}
+                            getBadgeLabel={getNearbyBadge}
+                            getBadgeColor={(card) =>
+                              card.resultKind === 'event' ? theme.eventColor : brandInkRgba(0.75)
+                            }
+                            showBadge={false}
+                            showFavoriteButton
+                            showActivityDots
+                            businessIdsWithEvents={businessIdsWithEvents}
+                            emptyText={`Inga träffar nära dig för "${trimmedSearchQuery}".`}
+                          />
+                        </View>
+
+                        <View className="mt-6">
+                          <SectionTitleRow
+                            title="Populärt just nu"
+                            icon="flame"
+                            iconColor={OFFERS_CATEGORY_ACCENT}
+                            subtitle="Baserat på din sökning"
+                            onSeeAllPress={() => {
+                              setSearchCommitted(true);
+                              closeSearchOverlay();
+                              openSearchResultsView('hot');
+                            }}
+                          />
+                          <FeaturedDealsSplit
+                            cards={searchedHot}
+                            onCardPress={handleCardPress}
+                            emptyText={`Inga populära erbjudanden för "${trimmedSearchQuery}".`}
+                          />
+                        </View>
+                      </>
+                    ) : null}
+                  </>
+                )}
+              </View>
+            ) : null}
+          </ScrollView>
+        </Reanimated.View>
+      </View>
+    </Modal>
+  );
+
 
   return (
     <View style={{ flex: 1, backgroundColor: homeHeaderPanelBg }}>
-      <View className="flex-1" style={[styles.screen, { backgroundColor: 'transparent' }]}>
+      <Reanimated.View
+        className="flex-1"
+        pointerEvents={isSearchOverlayMounted ? 'none' : 'auto'}
+        style={[styles.screen, { backgroundColor: 'transparent', flex: 1 }, homeContentDisappearStyle]}
+      >
         <ScrollView
           ref={scrollRef}
           className="flex-1"
@@ -2528,7 +3040,7 @@ export default function HomeScreen() {
         </View>
 
         <View className="mt-4 px-6">
-          {isSearchActive || isSearchTooShort ? (
+          {showCommittedSearchResults || showCommittedSearchPrompt ? (
             <>
               <SectionTitleRow
                 title="Sökresultat"
@@ -2551,6 +3063,7 @@ export default function HomeScreen() {
                     getBadgeColor={(card) =>
                       card.resultKind === 'event' ? theme.eventColor : brandInkRgba(0.75)
                     }
+                    showBadge={false}
                     showFavoriteButton
                     emptyText={`Inga träffar för "${trimmedSearchQuery}".`}
                   />
@@ -2573,6 +3086,7 @@ export default function HomeScreen() {
                           getBadgeColor={(card) =>
                             card.resultKind === 'event' ? theme.eventColor : brandInkRgba(0.75)
                           }
+                          showBadge={false}
                           showFavoriteButton
                           showActivityDots
                           businessIdsWithEvents={businessIdsWithEvents}
@@ -2689,7 +3203,8 @@ export default function HomeScreen() {
         </View>
 
         </ScrollView>
-      </View>
+      </Reanimated.View>
+      {renderSearchOverlay()}
     </View>
   );
 }
@@ -2731,11 +3246,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     width: '100%',
-    borderRadius: 14,
-    paddingHorizontal: 16,
+    borderRadius: 999,
+    paddingHorizontal: 14,
   },
   searchBarIcon: {
-    marginRight: 8,
+    marginRight: 10,
     flexShrink: 0,
   },
   searchBarWithMicRow: {
@@ -2756,7 +3271,7 @@ const styles = StyleSheet.create({
   inlineMicBox: {
     width: SEARCH_BAR_HEIGHT,
     height: SEARCH_BAR_HEIGHT,
-    borderRadius: 14,
+    borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2769,7 +3284,7 @@ const styles = StyleSheet.create({
   searchBarInput: {
     width: '100%',
     paddingVertical: 0,
-    fontSize: 16,
+    fontSize: 15,
     lineHeight: 20,
     borderWidth: 0,
     ...Platform.select({
@@ -2780,9 +3295,9 @@ const styles = StyleSheet.create({
     }),
   },
   searchBarClearButton: {
-    marginLeft: 8,
-    width: 32,
-    height: 32,
+    marginLeft: 6,
+    width: 28,
+    height: 28,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 999,
