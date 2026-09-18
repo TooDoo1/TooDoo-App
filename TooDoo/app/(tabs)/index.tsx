@@ -138,6 +138,11 @@ const SEARCH_DROPDOWN_MAX_HEIGHT = 380;
 const SEARCH_DROPDOWN_DISAPPEAR_RATIO = 0.5;
 const SEARCH_DROPDOWN_OPEN_EASING = ReanimatedEasing.bezier(0.22, 1, 0.36, 1);
 const SEARCH_DROPDOWN_CLOSE_EASING = ReanimatedEasing.bezier(0.4, 0, 0.2, 1);
+/** Full-screen search fly-up — short + transform-only to avoid layout lag. */
+const SEARCH_OVERLAY_OPEN_MS = 340;
+const SEARCH_OVERLAY_CLOSE_MS = 260;
+const SEARCH_OVERLAY_OPEN_EASING = ReanimatedEasing.bezier(0.22, 1, 0.36, 1);
+const SEARCH_OVERLAY_CLOSE_EASING = ReanimatedEasing.bezier(0.4, 0.0, 0.2, 1);
 
 type CardItem = {
   id: string;
@@ -1251,6 +1256,9 @@ export default function HomeScreen() {
   const searchBarHomeY = useSharedValue(140);
   const searchBarHomeX = useSharedValue(24);
   const searchBarHomeW = useSharedValue(320);
+  const searchBarEndY = useSharedValue(56);
+  const searchBarEndX = useSharedValue(12);
+  const searchBarEndW = useSharedValue(320);
   const searchBarHeightSv = useSharedValue(SEARCH_BAR_HEIGHT);
   const searchDropdownHeightSv = useSharedValue(SEARCH_DROPDOWN_MAX_HEIGHT);
   const [isSearchOverlayMounted, setIsSearchOverlayMounted] = useState(false);
@@ -1510,9 +1518,15 @@ export default function HomeScreen() {
 
     const startOverlay = (x: number, y: number, w: number) => {
       cancelAnimation(searchOverlayProgress);
+      const endY = insets.top + 8;
+      const endX = 48; // room for fixed back chevron
+      const endW = Math.max(160, windowWidth - endX - 12);
       searchBarHomeX.value = Math.max(0, x);
       searchBarHomeY.value = Math.max(0, y);
       searchBarHomeW.value = Math.max(160, w);
+      searchBarEndY.value = endY;
+      searchBarEndX.value = endX;
+      searchBarEndW.value = endW;
       searchOverlayProgress.value = 0;
       setSearchInputReady(false);
       setIsSearchFocused(true);
@@ -1521,8 +1535,8 @@ export default function HomeScreen() {
         searchOverlayProgress.value = withTiming(
           1,
           {
-            duration: 460,
-            easing: SEARCH_DROPDOWN_OPEN_EASING,
+            duration: SEARCH_OVERLAY_OPEN_MS,
+            easing: SEARCH_OVERLAY_OPEN_EASING,
           },
           (finished) => {
             if (finished) {
@@ -1547,6 +1561,9 @@ export default function HomeScreen() {
     startOverlay(24, Math.max(120, insets.top + 180), Math.max(200, windowWidth - 48));
   }, [
     insets.top,
+    searchBarEndW,
+    searchBarEndX,
+    searchBarEndY,
     searchBarHomeW,
     searchBarHomeX,
     searchBarHomeY,
@@ -1565,8 +1582,8 @@ export default function HomeScreen() {
     searchOverlayProgress.value = withTiming(
       0,
       {
-        duration: 340,
-        easing: SEARCH_DROPDOWN_CLOSE_EASING,
+        duration: SEARCH_OVERLAY_CLOSE_MS,
+        easing: SEARCH_OVERLAY_CLOSE_EASING,
       },
       (finished) => {
         if (finished) {
@@ -1618,7 +1635,7 @@ export default function HomeScreen() {
     }
   }, []);
 
-  const handleSearchTipPress = useCallback(
+  const toggleSearchTipExpand = useCallback(
     (tip: SearchTipItem) => {
       if (searchBlurTimerRef.current) {
         clearTimeout(searchBlurTimerRef.current);
@@ -1682,6 +1699,26 @@ export default function HomeScreen() {
         });
     },
     [categoryFilters, deals, expandedSearchTipKey, hotOfferCards, nearYouCards]
+  );
+
+  /** Tap the tip label → run that query (not expand). */
+  const selectSearchTip = useCallback(
+    (tip: SearchTipItem) => {
+      if (searchBlurTimerRef.current) {
+        clearTimeout(searchBlurTimerRef.current);
+        searchBlurTimerRef.current = null;
+      }
+      clearVoiceSearchOwnership();
+      stopVoiceSession();
+      tipPreviewRequestRef.current += 1;
+      setExpandedSearchTipKey(null);
+      setExpandedTipCards([]);
+      setIsExpandedTipLoading(false);
+      setSearchQuery(tip.label);
+      setSearchCommitted(true);
+      closeSearchOverlay();
+    },
+    [clearVoiceSearchOwnership, closeSearchOverlay, stopVoiceSession]
   );
 
   const runVoiceSearch = useCallback(
@@ -2403,61 +2440,48 @@ export default function HomeScreen() {
         } as const)),
   };
 
-  const homeContentDisappearStyle = useAnimatedStyle(() => {
+  const homeContentDisappearStyle = useAnimatedStyle(() => ({
+    // Opacity-only — scaling the whole home tree is a major source of jank.
+    opacity: interpolate(searchOverlayProgress.value, [0, 0.4], [1, 0], 'clamp'),
+  }));
+
+  const searchOverlayBackdropStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(searchOverlayProgress.value, [0, 0.35], [0, 1], 'clamp'),
+  }));
+
+  const searchOverlayHeaderStyle = useAnimatedStyle(() => {
     const progress = searchOverlayProgress.value;
+    // Transform-only (no top/left/width layout thrash). Fixed end width.
+    const endW = Math.max(1, searchBarEndW.value);
     return {
-      opacity: interpolate(progress, [0, 0.28], [1, 0], 'clamp'),
+      position: 'absolute',
+      left: 0,
+      top: 0,
+      width: endW,
+      zIndex: 20,
       transform: [
         {
-          scale: interpolate(progress, [0, 0.45], [1, 0.965], 'clamp'),
+          translateX: interpolate(
+            progress,
+            [0, 1],
+            [searchBarHomeX.value, searchBarEndX.value],
+            'clamp'
+          ),
         },
         {
-          translateY: interpolate(progress, [0, 0.45], [0, -18], 'clamp'),
+          translateY: interpolate(
+            progress,
+            [0, 1],
+            [searchBarHomeY.value, searchBarEndY.value],
+            'clamp'
+          ),
         },
       ],
     };
   });
 
-  const searchOverlayBackdropStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(searchOverlayProgress.value, [0, 0.22, 1], [0, 1, 1], 'clamp'),
-  }));
-
-  const searchOverlayHeaderStyle = useAnimatedStyle(() => {
-    const progress = searchOverlayProgress.value;
-    const startY = searchBarHomeY.value;
-    const endY = insets.top + 8;
-    const startX = searchBarHomeX.value;
-    const endX = 12;
-    const startW = searchBarHomeW.value;
-    const endW = Math.max(160, windowWidth - 24);
-    return {
-      position: 'absolute',
-      top: interpolate(progress, [0, 1], [startY, endY], 'clamp'),
-      left: interpolate(progress, [0, 1], [startX, endX], 'clamp'),
-      width: interpolate(progress, [0, 1], [startW, endW], 'clamp'),
-      zIndex: 20,
-    };
-  });
-
-  const searchOverlayBackStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(searchOverlayProgress.value, [0.4, 0.75], [0, 1], 'clamp'),
-    width: interpolate(searchOverlayProgress.value, [0.4, 0.8], [0, 40], 'clamp'),
-    marginRight: interpolate(searchOverlayProgress.value, [0.4, 0.8], [0, 8], 'clamp'),
-    overflow: 'hidden',
-    transform: [
-      {
-        translateX: interpolate(searchOverlayProgress.value, [0.4, 0.8], [-16, 0], 'clamp'),
-      },
-    ],
-  }));
-
   const searchOverlayContentStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(searchOverlayProgress.value, [0.58, 1], [0, 1], 'clamp'),
-    transform: [
-      {
-        translateY: interpolate(searchOverlayProgress.value, [0.58, 1], [24, 0], 'clamp'),
-      },
-    ],
+    opacity: interpolate(searchOverlayProgress.value, [0.55, 1], [0, 1], 'clamp'),
   }));
 
   const renderSearchTipRows = (tips: SearchTipItem[]) =>
@@ -2483,62 +2507,78 @@ export default function HomeScreen() {
                 }
           }
         >
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ expanded: isExpanded }}
-            accessibilityLabel={
-              isExpanded ? `Dölj företag för ${tip.label}` : `Visa företag för ${tip.label}`
-            }
-            onPress={() => handleSearchTipPress(tip)}
-            className="flex-row items-center"
-          >
-            <Ionicons
-              name={
-                tip.kind === 'event'
-                  ? 'calendar-outline'
-                  : tip.kind === 'business'
-                    ? getCategoryIconName(tip.subtitle || tip.label)
-                    : 'search-outline'
-              }
-              size={17}
-              color={
-                tip.kind === 'business'
-                  ? getCategoryAccentColor(tip.subtitle || tip.label)
-                  : tip.kind === 'event'
-                    ? theme.eventColor
-                    : theme.textMuted
-              }
-              style={{ marginRight: 10 }}
-            />
-            <View className="flex-1">
-              <Text
-                className="text-[15px] font-medium"
-                style={{ color: theme.text }}
-                numberOfLines={1}
-              >
-                {tip.label}
-              </Text>
-              {tip.subtitle || tip.kind === 'event' || tip.kind === 'business' ? (
+          <View className="flex-row items-center">
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Sök ${tip.label}`}
+              onPress={() => selectSearchTip(tip)}
+              className="min-w-0 flex-1 flex-row items-center"
+            >
+              <Ionicons
+                name={
+                  tip.kind === 'event'
+                    ? 'calendar-outline'
+                    : tip.kind === 'business'
+                      ? getCategoryIconName(tip.subtitle || tip.label)
+                      : 'search-outline'
+                }
+                size={17}
+                color={
+                  tip.kind === 'business'
+                    ? getCategoryAccentColor(tip.subtitle || tip.label)
+                    : tip.kind === 'event'
+                      ? theme.eventColor
+                      : theme.textMuted
+                }
+                style={{ marginRight: 10 }}
+              />
+              <View className="min-w-0 flex-1">
                 <Text
-                  className="mt-0.5 text-[11px]"
-                  style={{ color: theme.textFaint }}
+                  className="text-[15px] font-medium"
+                  style={{ color: theme.text }}
                   numberOfLines={1}
                 >
-                  {tip.subtitle ||
-                    (tip.kind === 'event'
-                      ? 'Evenemang'
-                      : tip.kind === 'business'
-                        ? 'Företag'
-                        : 'Sökning')}
+                  {tip.label}
                 </Text>
-              ) : null}
-            </View>
-            <Ionicons
-              name={isExpanded ? 'chevron-up' : 'chevron-down'}
-              size={18}
-              color={theme.textFaint}
-            />
-          </Pressable>
+                {tip.subtitle || tip.kind === 'event' || tip.kind === 'business' ? (
+                  <Text
+                    className="mt-0.5 text-[11px]"
+                    style={{ color: theme.textFaint }}
+                    numberOfLines={1}
+                  >
+                    {tip.subtitle ||
+                      (tip.kind === 'event'
+                        ? 'Evenemang'
+                        : tip.kind === 'business'
+                          ? 'Företag'
+                          : 'Sökning')}
+                  </Text>
+                ) : null}
+              </View>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: isExpanded }}
+              accessibilityLabel={
+                isExpanded ? `Dölj företag för ${tip.label}` : `Visa företag för ${tip.label}`
+              }
+              onPress={() => toggleSearchTipExpand(tip)}
+              hitSlop={10}
+              style={{
+                width: 36,
+                height: 36,
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginLeft: 4,
+              }}
+            >
+              <Ionicons
+                name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                size={18}
+                color={theme.textFaint}
+              />
+            </Pressable>
+          </View>
 
           {isExpanded ? (
             <View style={{ marginTop: 12, marginLeft: 2 }}>
@@ -2586,6 +2626,7 @@ export default function HomeScreen() {
             width: '100%',
             opacity: isSearchOverlayMounted ? 0 : 1,
           }}
+          pointerEvents={isSearchOverlayMounted ? 'none' : 'auto'}
         >
           <Pressable
             accessibilityRole="search"
@@ -2698,95 +2739,98 @@ export default function HomeScreen() {
           ]}
         />
 
-        <Reanimated.View style={searchOverlayHeaderStyle}>
-          <View
+        <View
+          style={{
+            position: 'absolute',
+            top: insets.top + 8,
+            left: 4,
+            zIndex: 100,
+            elevation: 100,
+            width: 44,
+            height: SEARCH_BAR_HEIGHT,
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}
+        >
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Stäng sök"
+            onPress={closeSearchOverlay}
+            hitSlop={12}
             style={{
-              flexDirection: 'row',
+              width: 44,
+              height: SEARCH_BAR_HEIGHT,
               alignItems: 'center',
-              width: '100%',
+              justifyContent: 'center',
             }}
           >
-            <Reanimated.View style={searchOverlayBackStyle}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Stäng sök"
-                onPress={closeSearchOverlay}
-                hitSlop={10}
-                style={{
-                  width: 40,
-                  height: 40,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderRadius: 20,
-                }}
-              >
-                <Ionicons name="chevron-back" size={26} color={theme.text} />
-              </Pressable>
-            </Reanimated.View>
+            <Ionicons name="chevron-back" size={28} color={theme.text} />
+          </Pressable>
+        </View>
 
-            <View
-              style={[
-                filterSurfaceStyle,
-                styles.searchBarRow,
-                {
-                  flex: 1,
-                  height: SEARCH_BAR_HEIGHT,
-                },
-              ]}
-            >
-              <Ionicons
-                name="search-outline"
-                size={18}
-                color={FilterChipTheme.textMuted}
-                style={styles.searchBarIcon}
-              />
-              <View style={styles.searchBarInputSlot}>
-                <TextInput
-                  autoFocus={searchInputReady}
-                  value={searchQuery}
-                  onChangeText={(text) => {
-                    clearVoiceSearchOwnership();
-                    setSearchCommitted(false);
-                    setSearchQuery(text);
-                  }}
-                  onSubmitEditing={() => {
-                    if (searchQuery.trim().length < 2) return;
-                    setSearchCommitted(true);
-                    closeSearchOverlay();
-                  }}
-                  placeholder={`${typedPlaceholder}|`}
-                  placeholderTextColor={FilterChipTheme.placeholder}
-                  style={[
-                    styles.searchBarInput,
-                    {
-                      color: FilterChipTheme.text,
-                      height: SEARCH_BAR_HEIGHT,
-                    },
-                  ]}
-                  returnKeyType="search"
-                  autoCorrect={false}
-                  autoCapitalize="none"
-                />
-              </View>
-              <Pressable
-                onPress={() => {
+        <Reanimated.View style={searchOverlayHeaderStyle} pointerEvents="box-none">
+          <View
+            style={[
+              filterSurfaceStyle,
+              styles.searchBarRow,
+              {
+                width: '100%',
+                height: SEARCH_BAR_HEIGHT,
+              },
+            ]}
+          >
+            <Ionicons
+              name="search-outline"
+              size={18}
+              color={FilterChipTheme.textMuted}
+              style={styles.searchBarIcon}
+            />
+            <View style={styles.searchBarInputSlot}>
+              <TextInput
+                autoFocus={searchInputReady}
+                value={searchQuery}
+                onChangeText={(text) => {
                   clearVoiceSearchOwnership();
-                  stopVoiceSession();
                   setSearchCommitted(false);
-                  setSearchQuery('');
-                  setSearchResults([]);
-                  clearHomeSearchCache();
+                  setSearchQuery(text);
                 }}
+                onSubmitEditing={() => {
+                  if (searchQuery.trim().length < 2) return;
+                  setSearchCommitted(true);
+                  closeSearchOverlay();
+                }}
+                placeholder={`${typedPlaceholder}|`}
+                placeholderTextColor={FilterChipTheme.placeholder}
                 style={[
-                  styles.searchBarClearButton,
-                  { opacity: searchQuery.trim() ? 1 : 0 },
+                  styles.searchBarInput,
+                  {
+                    color: FilterChipTheme.text,
+                    height: SEARCH_BAR_HEIGHT,
+                  },
                 ]}
-                pointerEvents={searchQuery.trim() ? 'auto' : 'none'}
-                disabled={!searchQuery.trim()}
-              >
-                <Ionicons name="close-circle" size={18} color={FilterChipTheme.textMuted} />
-              </Pressable>
+                returnKeyType="search"
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
             </View>
+            <Pressable
+              onPress={() => {
+                clearVoiceSearchOwnership();
+                stopVoiceSession();
+                setSearchCommitted(false);
+                setSearchQuery('');
+                setSearchResults([]);
+                clearHomeSearchCache();
+              }}
+              style={[
+                styles.searchBarClearButton,
+                { opacity: searchQuery.trim() ? 1 : 0 },
+              ]}
+              pointerEvents={searchQuery.trim() ? 'auto' : 'none'}
+              disabled={!searchQuery.trim()}
+            >
+              <Ionicons name="close-circle" size={18} color={FilterChipTheme.textMuted} />
+            </Pressable>
           </View>
         </Reanimated.View>
 
@@ -2841,7 +2885,7 @@ export default function HomeScreen() {
               )
             ) : null}
 
-            {showLiveOverlaySearch ? (
+            {showLiveOverlaySearch && searchInputReady ? (
               <View className="mt-4 px-6">
                 <SectionTitleRow
                   title="Sökresultat"
