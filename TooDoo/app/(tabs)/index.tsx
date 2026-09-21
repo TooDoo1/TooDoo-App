@@ -146,8 +146,8 @@ const SEARCH_DROPDOWN_DISAPPEAR_RATIO = 0.5;
 const SEARCH_DROPDOWN_OPEN_EASING = ReanimatedEasing.bezier(0.22, 1, 0.36, 1);
 const SEARCH_DROPDOWN_CLOSE_EASING = ReanimatedEasing.bezier(0.4, 0, 0.2, 1);
 /** Full-screen search fly-up — short + transform-only to avoid layout lag. */
-const SEARCH_OVERLAY_OPEN_MS = 340;
-const SEARCH_OVERLAY_CLOSE_MS = 260;
+const SEARCH_OVERLAY_OPEN_MS = 200;
+const SEARCH_OVERLAY_CLOSE_MS = 160;
 const SEARCH_OVERLAY_OPEN_EASING = ReanimatedEasing.bezier(0.22, 1, 0.36, 1);
 const SEARCH_OVERLAY_CLOSE_EASING = ReanimatedEasing.bezier(0.4, 0.0, 0.2, 1);
 
@@ -1260,9 +1260,6 @@ export default function HomeScreen() {
   const expandedTipCacheRef = useRef<Map<string, CardItem[]>>(new Map());
   const searchDropdownProgress = useSharedValue(0);
   const searchOverlayProgress = useSharedValue(0);
-  const searchBarHomeY = useSharedValue(140);
-  const searchBarHomeX = useSharedValue(24);
-  const searchBarHomeW = useSharedValue(320);
   const searchBarEndY = useSharedValue(56);
   const searchBarEndX = useSharedValue(12);
   const searchBarEndW = useSharedValue(320);
@@ -1517,7 +1514,7 @@ export default function HomeScreen() {
     };
   }, []);
 
-  const openSearchDropdown = useCallback((options?: { instant?: boolean; forDismiss?: boolean }) => {
+  const openSearchDropdown = useCallback((_options?: { instant?: boolean }) => {
     if (Platform.OS === 'web') {
       void import('@/components/ui/maplibre-map.web').then((mod) => {
         mod.prefetchBusinessMapAssets();
@@ -1539,71 +1536,34 @@ export default function HomeScreen() {
       SEARCH_OVERLAY_MAP_BUTTON_GAP;
     const endW = Math.max(160, windowWidth - endX - endRightReserve);
 
-    // Returning from map: same header chrome — open already at rest (no fly morph).
-    if (options?.instant) {
-      cancelAnimation(searchOverlayProgress);
-      searchBarHomeX.value = endX;
-      searchBarHomeY.value = endY;
-      searchBarHomeW.value = endW;
-      searchBarEndY.value = endY;
-      searchBarEndX.value = endX;
-      searchBarEndW.value = endW;
-      searchOverlayProgress.value = 1;
-      setIsSearchFocused(true);
-      setIsSearchOverlayMounted(true);
-      // Skip autofocus when this open only exists to morph back to home.
-      setSearchInputReady(!options.forDismiss);
-      return;
-    }
-
-    const startOverlay = (x: number, y: number, w: number) => {
-      cancelAnimation(searchOverlayProgress);
-      searchBarHomeX.value = Math.max(0, x);
-      searchBarHomeY.value = Math.max(0, y);
-      searchBarHomeW.value = Math.max(160, w);
-      searchBarEndY.value = endY;
-      searchBarEndX.value = endX;
-      searchBarEndW.value = endW;
-      searchOverlayProgress.value = 0;
-      setSearchInputReady(false);
-      setIsSearchFocused(true);
-      setIsSearchOverlayMounted(true);
-      requestAnimationFrame(() => {
-        searchOverlayProgress.value = withTiming(
-          1,
-          {
-            duration: SEARCH_OVERLAY_OPEN_MS,
-            easing: SEARCH_OVERLAY_OPEN_EASING,
-          },
-          (finished) => {
-            if (finished) {
-              runOnJS(setSearchInputReady)(true);
-            }
+    // Appear in place — no fly/morph from the home search bar.
+    cancelAnimation(searchOverlayProgress);
+    searchBarEndY.value = endY;
+    searchBarEndX.value = endX;
+    searchBarEndW.value = endW;
+    searchOverlayProgress.value = 0;
+    setSearchInputReady(false);
+    setIsSearchFocused(true);
+    setIsSearchOverlayMounted(true);
+    requestAnimationFrame(() => {
+      searchOverlayProgress.value = withTiming(
+        1,
+        {
+          duration: SEARCH_OVERLAY_OPEN_MS,
+          easing: SEARCH_OVERLAY_OPEN_EASING,
+        },
+        (finished) => {
+          if (finished) {
+            runOnJS(setSearchInputReady)(true);
           }
-        );
-      });
-    };
-
-    const node = homeSearchBarRef.current as
-      | (View & { measureInWindow?: (cb: (x: number, y: number, w: number, h: number) => void) => void })
-      | null;
-
-    if (node?.measureInWindow) {
-      node.measureInWindow((x, y, w) => {
-        startOverlay(x, y, w);
-      });
-      return;
-    }
-
-    startOverlay(24, Math.max(120, insets.top + 180), Math.max(200, windowWidth - 48));
+        }
+      );
+    });
   }, [
     insets.top,
     searchBarEndW,
     searchBarEndX,
     searchBarEndY,
-    searchBarHomeW,
-    searchBarHomeX,
-    searchBarHomeY,
     searchOverlayProgress,
     windowWidth,
   ]);
@@ -1655,7 +1615,7 @@ export default function HomeScreen() {
     voiceResultOrderRef.current = null;
   }, []);
 
-  // Map mode → search / home: reopen overlay; optionally morph back to home bar.
+  // Map mode → search: reopen the search overlay with the carried query.
   useFocusEffect(
     useCallback(() => {
       const pending = consumeOpenHomeSearch();
@@ -1663,57 +1623,14 @@ export default function HomeScreen() {
       clearVoiceSearchOwnership();
       setSearchCommitted(false);
       setSearchQuery(pending.query);
-
-      const measureHomeBar = (
-        cb: (x: number, y: number, w: number) => void
-      ) => {
-        const node = homeSearchBarRef.current as
-          | (View & {
-              measureInWindow?: (
-                cb: (x: number, y: number, w: number, h: number) => void
-              ) => void;
-            })
-          | null;
-        if (node?.measureInWindow) {
-          node.measureInWindow((x, y, w) => cb(x, y, w));
-          return;
-        }
-        cb(24, Math.max(120, insets.top + 180), Math.max(200, windowWidth - 48));
-      };
-
-      const openThenMaybeDismiss = () => {
-        openSearchDropdown({
-          instant: pending.fromMap,
-          forDismiss: pending.dismissAfterOpen,
-        });
-        if (!pending.dismissAfterOpen) return;
-        // Morph from overlay rest position back to the home search bar.
-        requestAnimationFrame(() => {
-          measureHomeBar((x, y, w) => {
-            searchBarHomeX.value = Math.max(0, x);
-            searchBarHomeY.value = Math.max(0, y);
-            searchBarHomeW.value = Math.max(160, w);
-            closeSearchOverlay();
-          });
-        });
-      };
-
+      const open = () => openSearchDropdown({ instant: true });
       if (pending.fromMap) {
-        requestAnimationFrame(openThenMaybeDismiss);
+        requestAnimationFrame(open);
         return;
       }
-      const task = InteractionManager.runAfterInteractions(openThenMaybeDismiss);
+      const task = InteractionManager.runAfterInteractions(open);
       return () => task.cancel();
-    }, [
-      clearVoiceSearchOwnership,
-      closeSearchOverlay,
-      insets.top,
-      openSearchDropdown,
-      searchBarHomeW,
-      searchBarHomeX,
-      searchBarHomeY,
-      windowWidth,
-    ])
+    }, [clearVoiceSearchOwnership, openSearchDropdown])
   );
 
   const lockVoiceResultOrder = useCallback((cards: CardItem[]) => {
@@ -2502,7 +2419,7 @@ export default function HomeScreen() {
     snapCloseSearchOverlay();
     router.push({
       pathname: BUSINESS_MAP_PATH,
-      params: q ? { q, fromSearch: '1' } : { fromSearch: '1' },
+      params: q ? { q } : undefined,
     });
   }, [router, searchQuery, snapCloseSearchOverlay]);
 
@@ -2577,38 +2494,19 @@ export default function HomeScreen() {
   }));
 
   const searchOverlayHeaderStyle = useAnimatedStyle(() => {
-    const progress = searchOverlayProgress.value;
-    // Transform-only (no top/left/width layout thrash). Fixed end width.
     const endW = Math.max(1, searchBarEndW.value);
     return {
-      position: 'absolute',
-      left: 0,
-      top: 0,
+      position: 'absolute' as const,
+      left: searchBarEndX.value,
+      top: searchBarEndY.value,
       width: endW,
       zIndex: 20,
-      transform: [
-        {
-          translateX: interpolate(
-            progress,
-            [0, 1],
-            [searchBarHomeX.value, searchBarEndX.value],
-            'clamp'
-          ),
-        },
-        {
-          translateY: interpolate(
-            progress,
-            [0, 1],
-            [searchBarHomeY.value, searchBarEndY.value],
-            'clamp'
-          ),
-        },
-      ],
+      opacity: interpolate(searchOverlayProgress.value, [0, 0.35], [0, 1], 'clamp'),
     };
   });
 
   const searchOverlayContentStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(searchOverlayProgress.value, [0.55, 1], [0, 1], 'clamp'),
+    opacity: interpolate(searchOverlayProgress.value, [0.2, 1], [0, 1], 'clamp'),
   }));
 
   const renderSearchTipRows = (tips: SearchTipItem[]) =>

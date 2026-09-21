@@ -215,11 +215,25 @@ function upsertRouteLayer(
   }
 }
 
+function routeSignature(
+  driving: RouteCoords | null | undefined,
+  walking: RouteCoords | null | undefined
+) {
+  const d = driving?.length
+    ? `${driving.length}:${driving[0].latitude},${driving[0].longitude}:${driving[driving.length - 1].latitude},${driving[driving.length - 1].longitude}`
+    : '';
+  const w = walking?.length
+    ? `${walking.length}:${walking[0].latitude},${walking[0].longitude}:${walking[walking.length - 1].latitude},${walking[walking.length - 1].longitude}`
+    : '';
+  return `${d}|${w}`;
+}
+
 function syncRouteLines(
   map: MlMap,
   ml: MapLibreGl,
   driving: RouteCoords | null | undefined,
-  walking: RouteCoords | null | undefined
+  walking: RouteCoords | null | undefined,
+  fittedSigRef?: { current: string }
 ) {
   if (!map.isStyleLoaded?.()) return;
 
@@ -227,7 +241,16 @@ function syncRouteLines(
   upsertRouteLayer(map, walking, WALKING_ROUTE);
 
   const boundsPoints = [...(driving ?? []), ...(walking ?? [])];
-  if (!boundsPoints.length) return;
+  // Clearing routes must not move the camera.
+  if (!boundsPoints.length) {
+    if (fittedSigRef) fittedSigRef.current = '';
+    return;
+  }
+
+  const sig = routeSignature(driving, walking);
+  // Avoid re-fitting the same route (e.g. pin sync while a route is visible).
+  if (fittedSigRef && fittedSigRef.current === sig) return;
+  if (fittedSigRef) fittedSigRef.current = sig;
 
   const bounds = new ml.LngLatBounds();
   boundsPoints.forEach((p) => bounds.extend([p.longitude, p.latitude]));
@@ -270,6 +293,7 @@ export function MapLibreMapView({
   routeRef.current = routeLine;
   const walkingRouteRef = useRef(walkingRouteLine);
   walkingRouteRef.current = walkingRouteLine;
+  const routeFitSigRef = useRef('');
   const userLocationRef = useRef(showUserLocation);
   userLocationRef.current = showUserLocation;
   const badgeBgRef = useRef(theme.screenBg);
@@ -335,7 +359,7 @@ export function MapLibreMapView({
     }
 
     if (routeRef.current?.length || walkingRouteRef.current?.length) {
-      syncRouteLines(map, ml, routeRef.current, walkingRouteRef.current);
+      syncRouteLines(map, ml, routeRef.current, walkingRouteRef.current, routeFitSigRef);
       return;
     }
     if (fitPinsRef.current && pinsRef.current.length > 0) {
@@ -387,7 +411,7 @@ export function MapLibreMapView({
         map.on('load', () => {
           map.resize();
           syncPins(map, ml);
-          syncRouteLines(map, ml, routeRef.current, walkingRouteRef.current);
+          syncRouteLines(map, ml, routeRef.current, walkingRouteRef.current, routeFitSigRef);
           syncUserLocation(map, ml);
           emitViewport();
         });
@@ -427,16 +451,18 @@ export function MapLibreMapView({
     const map = mapRef.current;
     const ml = mlRef.current;
     if (!map || !ml) return;
-    syncRouteLines(map, ml, routeLine, walkingRouteLine);
+    syncRouteLines(map, ml, routeLine, walkingRouteLine, routeFitSigRef);
   }, [routeLine, walkingRouteLine]);
 
+  // Only follow center/zoom prop changes — never reset the camera just because
+  // route lines were cleared (deselect on the explore map).
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (routeLine?.length || walkingRouteLine?.length) return;
+    if (routeRef.current?.length || walkingRouteRef.current?.length) return;
     map.setCenter([center.longitude, center.latitude]);
     map.setZoom(zoom);
-  }, [center.latitude, center.longitude, zoom, routeLine, walkingRouteLine]);
+  }, [center.latitude, center.longitude, zoom]);
 
   useEffect(() => {
     const map = mapRef.current;

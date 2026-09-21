@@ -117,6 +117,7 @@ export default function BusinessMapScreen() {
   const [searchQuery, setSearchQuery] = useState(() => paramString(params.q));
   const [routes, setRoutes] = useState<TravelRoutes | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
+  const routeRequestRef = useRef(0);
   const tileUrl = mapTileUrlForMode(mode);
   const shellBg = mapShellBackground(mode);
   const bottomPad = getFloatingTabBarScrollPadding(insets.bottom);
@@ -157,7 +158,7 @@ export default function BusinessMapScreen() {
   );
 
   useEffect(() => {
-    let cancelled = false;
+    const requestId = ++routeRequestRef.current;
     if (!selected || !userCoords) {
       setRoutes(null);
       setRouteLoading(false);
@@ -169,28 +170,31 @@ export default function BusinessMapScreen() {
       { lat: userCoords.lat, lng: userCoords.lng },
       { lat: selected.latitude, lng: selected.longitude }
     ).then((result) => {
-      if (!cancelled) {
-        setRoutes(result);
-        setRouteLoading(false);
-      }
+      if (routeRequestRef.current !== requestId) return;
+      setRoutes(result);
+      setRouteLoading(false);
     });
-    return () => {
-      cancelled = true;
-    };
   }, [selected, userCoords]);
 
+  const fittedRouteKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!mapRef.current || !routes) return;
+    if (!mapRef.current || !routes) {
+      fittedRouteKeyRef.current = null;
+      return;
+    }
     const coords = [
       ...(routes.driving?.coordinates ?? []),
       ...(routes.walking?.coordinates ?? []),
     ];
     if (coords.length === 0) return;
+    const key = selectedId ?? '';
+    if (fittedRouteKeyRef.current === key) return;
+    fittedRouteKeyRef.current = key;
     mapRef.current.fitToCoordinates(coords, {
       edgePadding: { top: 120, right: 40, bottom: bottomPad + 140, left: 40 },
       animated: true,
     });
-  }, [bottomPad, routes]);
+  }, [bottomPad, routes, selectedId]);
 
   const matchedBusinesses = useMemo(
     () => filterBusinessesByQuery(businesses, searchQuery),
@@ -214,6 +218,13 @@ export default function BusinessMapScreen() {
 
   const drivingLine = routes?.driving?.coordinates ?? null;
   const walkingLine = routes?.walking?.coordinates ?? null;
+
+  const clearSelection = useCallback(() => {
+    routeRequestRef.current += 1;
+    setSelectedId(null);
+    setRoutes(null);
+    setRouteLoading(false);
+  }, []);
 
   const openCompany = useCallback(
     (company: MapBusiness) => {
@@ -367,7 +378,7 @@ export default function BusinessMapScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Avmarkera företag"
-              onPress={() => setSelectedId(null)}
+              onPress={clearSelection}
               hitSlop={8}
               style={[
                 styles.deselectButton,

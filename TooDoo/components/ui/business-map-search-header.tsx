@@ -7,7 +7,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter, useSegments } from 'expo-router';
+import { useRouter, useSegments } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
 
@@ -25,11 +25,6 @@ type BusinessMapSearchHeaderProps = {
   onChangeText: (text: string) => void;
 };
 
-function paramFlag(value: string | string[] | undefined): boolean {
-  if (Array.isArray(value)) return value[0] === '1' || value[0] === 'true';
-  return value === '1' || value === 'true';
-}
-
 /**
  * Same header chrome as the home search overlay: back, search field, map button.
  */
@@ -40,16 +35,12 @@ export function BusinessMapSearchHeader({
   const router = useRouter();
   const segments = useSegments();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ fromSearch?: string | string[] }>();
-  const cameFromSearch = paramFlag(params.fromSearch);
   const trimmed = value.trim();
 
   const leaveMap = useCallback(
     (mode: 'home' | 'search') => {
-      if (mode === 'home' && cameFromSearch) {
-        // Land on home with overlay at rest, then morph the bar back into place.
-        requestOpenHomeSearch(value, { fromMap: true, dismissAfterOpen: true });
-      } else if (mode === 'search') {
+      // Map button returns to search mode; back goes home without reopening search.
+      if (mode === 'search') {
         requestOpenHomeSearch(value, { fromMap: true });
       }
 
@@ -71,7 +62,7 @@ export function BusinessMapSearchHeader({
         router.replace('/');
       }
     },
-    [cameFromSearch, router, segments, value]
+    [router, segments, value]
   );
 
   return (

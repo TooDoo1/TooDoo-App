@@ -133,9 +133,10 @@ export default function BusinessMapScreen() {
 
   const [routes, setRoutes] = useState<TravelRoutes | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
+  const routeRequestRef = useRef(0);
 
   useEffect(() => {
-    let cancelled = false;
+    const requestId = ++routeRequestRef.current;
     if (!selected || !userCoords) {
       setRoutes(null);
       setRouteLoading(false);
@@ -147,14 +148,10 @@ export default function BusinessMapScreen() {
       { lat: userCoords.lat, lng: userCoords.lng },
       { lat: selected.latitude, lng: selected.longitude }
     ).then((result) => {
-      if (!cancelled) {
-        setRoutes(result);
-        setRouteLoading(false);
-      }
+      if (routeRequestRef.current !== requestId) return;
+      setRoutes(result);
+      setRouteLoading(false);
     });
-    return () => {
-      cancelled = true;
-    };
   }, [selected, userCoords]);
 
   const drivingLine = routes?.driving?.coordinates ?? null;
@@ -199,6 +196,13 @@ export default function BusinessMapScreen() {
       })),
     [visibleBusinesses, selectedId]
   );
+
+  const clearSelection = useCallback(() => {
+    routeRequestRef.current += 1;
+    setSelectedId(null);
+    setRoutes(null);
+    setRouteLoading(false);
+  }, []);
 
   const openCompany = useCallback(
     (company: MapBusiness) => {
@@ -307,7 +311,7 @@ export default function BusinessMapScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Avmarkera företag"
-              onPress={() => setSelectedId(null)}
+              onPress={clearSelection}
               hitSlop={8}
               style={[
                 styles.deselectButton,
