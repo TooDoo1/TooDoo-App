@@ -5,6 +5,7 @@ import { useThemePreference } from '@/context/theme-preference-context';
 import { loadTooDooMapStyle, MAP_PAINT_VERSION } from '@/lib/maplibre-brand';
 import { createBusinessPinElement, businessPinMarkerOffset } from '@/lib/map-business-pin';
 import { MAP_ATTRIBUTION, mapShellBackground } from '@/lib/map-style';
+import { createUserLocationArrowElement } from '@/lib/map-user-location';
 import { uiTheme } from '@/lib/ui-theme';
 
 export type MapLibrePin = {
@@ -248,8 +249,24 @@ export function MapLibreMapView({
   routeRef.current = routeLine;
   const walkingRouteRef = useRef(walkingRouteLine);
   walkingRouteRef.current = walkingRouteLine;
+  const userLocationRef = useRef(showUserLocation);
+  userLocationRef.current = showUserLocation;
   const badgeBgRef = useRef(theme.screenBg);
   badgeBgRef.current = theme.cardBg;
+
+  const syncUserLocation = (map: MlMap, ml: MapLibreGl) => {
+    userMarkerRef.current?.remove();
+    userMarkerRef.current = null;
+    const loc = userLocationRef.current;
+    if (!loc) return;
+    const el = createUserLocationArrowElement();
+    userMarkerRef.current = new ml.Marker({
+      element: el,
+      anchor: 'center',
+    })
+      .setLngLat([loc.longitude, loc.latitude])
+      .addTo(map);
+  };
 
   const syncPins = (map: MlMap, ml: MapLibreGl) => {
     markersRef.current.forEach((m) => m.remove());
@@ -269,6 +286,7 @@ export function MapLibreMapView({
         .addTo(map);
       markersRef.current.push(marker);
     }
+    syncUserLocation(map, ml);
     if (routeRef.current?.length || walkingRouteRef.current?.length) {
       syncRouteLines(map, ml, routeRef.current, walkingRouteRef.current);
       return;
@@ -309,6 +327,7 @@ export function MapLibreMapView({
           map.resize();
           syncPins(map, ml);
           syncRouteLines(map, ml, routeRef.current, walkingRouteRef.current);
+          syncUserLocation(map, ml);
         });
 
         const onWinResize = () => map.resize();
@@ -367,15 +386,7 @@ export function MapLibreMapView({
     const map = mapRef.current;
     const ml = mlRef.current;
     if (!map || !ml) return;
-    userMarkerRef.current?.remove();
-    userMarkerRef.current = null;
-    if (!showUserLocation) return;
-    const el = document.createElement('div');
-    el.style.cssText =
-      'width:14px;height:14px;border-radius:50%;background:#3b82f6;border:2px solid #fff;box-shadow:0 0 0 4px rgba(59,130,246,0.25)';
-    userMarkerRef.current = new ml.Marker({ element: el })
-      .setLngLat([showUserLocation.longitude, showUserLocation.latitude])
-      .addTo(map);
+    syncUserLocation(map, ml);
   }, [showUserLocation]);
 
   return (

@@ -9,6 +9,7 @@ import MapView, { Marker, Polyline, UrlTile } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 
 import { BusinessMapPin } from './business-map-pin';
+import { UserLocationArrow } from './user-location-arrow';
 import type { OfferMapProps } from './offer-map.types';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { getCategoryAccentColor } from '@/lib/category-colors';
@@ -140,7 +141,7 @@ function OfferMapComponent({
         pitchEnabled={false}
         rotateEnabled={false}
         toolbarEnabled={false}
-        showsUserLocation={hasOrigin}
+        showsUserLocation={false}
       >
         <UrlTile urlTemplate={tileUrl} maximumZ={19} flipY={false} />
         {walkingLine?.length ? (
@@ -153,6 +154,18 @@ function OfferMapComponent({
         ) : null}
         {drivingLine?.length ? (
           <Polyline coordinates={drivingLine} strokeColor="#0a84ff" strokeWidth={4} />
+        ) : null}
+        {hasOrigin ? (
+          <Marker
+            coordinate={{
+              latitude: originLatitude as number,
+              longitude: originLongitude as number,
+            }}
+            anchor={{ x: 0.5, y: 0.5 }}
+            tracksViewChanges={false}
+          >
+            <UserLocationArrow />
+          </Marker>
         ) : null}
         <Marker
           coordinate={{ latitude, longitude }}

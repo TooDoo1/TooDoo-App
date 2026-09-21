@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ScreenBackButton } from '@/components/ui/screen-back-button';
 import { BusinessMapPin } from '@/components/ui/business-map-pin';
+import { UserLocationArrow } from '@/components/ui/user-location-arrow';
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
 import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
 import { getFloatingTabBarScrollPadding } from '@/components/floating-tab-bar';
@@ -143,11 +144,23 @@ export default function BusinessMapScreen() {
             style={[StyleSheet.absoluteFill, { backgroundColor: shellBg }]}
             initialRegion={initialRegion}
             mapType="none"
-            showsUserLocation={Boolean(userCoords)}
+            showsUserLocation={false}
             showsMyLocationButton={Platform.OS === 'android'}
             mapPadding={{ top: insets.top + 56, right: 0, bottom: bottomPad, left: 0 }}
           >
             <UrlTile urlTemplate={tileUrl} maximumZ={19} flipY={false} />
+            {userCoords ? (
+              <Marker
+                coordinate={{
+                  latitude: userCoords.lat,
+                  longitude: userCoords.lng,
+                }}
+                anchor={{ x: 0.5, y: 0.5 }}
+                tracksViewChanges={false}
+              >
+                <UserLocationArrow />
+              </Marker>
+            ) : null}
             {businesses.map((company) => {
               const color = getCategoryAccentColor(company.categoryName);
               return (
