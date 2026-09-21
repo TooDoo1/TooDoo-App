@@ -32,7 +32,7 @@ import {
 	markLegalConsentAccepted,
 } from '@/lib/legal-consent-storage';
 import { hasSeenOnboarding, markOnboardingSeen } from '@/lib/onboarding-storage';
-import { getSwipeableStackScreenOptions } from '@/lib/stack-navigation';
+import { getStackScreenOptionsWithoutSwipeBack, getSwipeableStackScreenOptions } from '@/lib/stack-navigation';
 import { uiTheme } from '@/lib/ui-theme';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -78,6 +78,10 @@ function AppShell() {
 	const { isDataReady, markDataReady } = useAppReady();
 	const swipeableStackScreenOptions = useMemo(
 		() => getSwipeableStackScreenOptions(windowWidth),
+		[windowWidth]
+	);
+	const businessMapScreenOptions = useMemo(
+		() => getStackScreenOptionsWithoutSwipeBack(windowWidth),
 		[windowWidth]
 	);
 	const skipStartupSplash = shouldSkipStartupSplash();
@@ -212,7 +216,7 @@ function AppShell() {
 							<Stack.Screen name="(tabs)" options={{ headerShown: false }} />
 							<Stack.Screen name="company-detail" options={swipeableStackScreenOptions} />
 							<Stack.Screen name="nara-dig" options={swipeableStackScreenOptions} />
-							<Stack.Screen name="business-map" options={swipeableStackScreenOptions} />
+							<Stack.Screen name="business-map" options={businessMapScreenOptions} />
 							<Stack.Screen name="heta-erbjudanden" options={swipeableStackScreenOptions} />
 							<Stack.Screen name="slutar-snart" options={swipeableStackScreenOptions} />
 							<Stack.Screen name="evenemang" options={swipeableStackScreenOptions} />

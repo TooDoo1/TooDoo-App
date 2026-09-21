@@ -280,3 +280,12 @@ export async function loadMapBusinesses(coords: Coords | null): Promise<MapBusin
       hasOffer: item.hasOffer ?? offerIds.has(item.id),
     }));
 }
+
+/** Sync snapshot from home nearby cache — used so the map can mount with pins immediately. */
+export function peekCachedMapBusinesses(): MapBusiness[] {
+  const cached =
+    getHomeNearbyBusinessesCache() ?? peekHomeNearbyBusinessesCache() ?? [];
+  return cached
+    .map(cardToMapBusiness)
+    .filter((item): item is MapBusiness => Boolean(item));
+}

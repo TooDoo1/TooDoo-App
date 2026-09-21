@@ -31,6 +31,26 @@ export function getSwipeableStackScreenOptions(windowWidth?: number) {
   };
 }
 
+/** Stack screens that keep header/back buttons but block edge swipe-back (map pan needs the edge). */
+export const STACK_SEGMENTS_WITHOUT_SWIPE_BACK = ['business-map'] as const;
+
+export function isStackSwipeBackDisabled(segment: string | undefined) {
+  return (
+    !!segment &&
+    STACK_SEGMENTS_WITHOUT_SWIPE_BACK.includes(
+      segment as (typeof STACK_SEGMENTS_WITHOUT_SWIPE_BACK)[number]
+    )
+  );
+}
+
+export function getStackScreenOptionsWithoutSwipeBack(windowWidth?: number) {
+  return {
+    ...getSwipeableStackScreenOptions(windowWidth),
+    gestureEnabled: false,
+    fullScreenGestureEnabled: false,
+  };
+}
+
 export const FULL_SCREEN_STACK_SEGMENTS = [
   'company-detail',
   'nara-dig',

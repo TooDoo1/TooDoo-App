@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Platform,
   Pressable,
   RefreshControl,
   Text,
@@ -472,7 +473,14 @@ export default function NaraDigScreen() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Visa på karta"
-            onPress={() => router.push(BUSINESS_MAP_PATH)}
+            onPress={() => {
+              if (Platform.OS === 'web') {
+                void import('@/components/ui/maplibre-map.web').then((mod) => {
+                  mod.prefetchBusinessMapAssets();
+                });
+              }
+              router.push(BUSINESS_MAP_PATH);
+            }}
             className="ml-3 flex-row items-center rounded-full px-3 py-2"
             style={{
               backgroundColor: theme.cardBg,

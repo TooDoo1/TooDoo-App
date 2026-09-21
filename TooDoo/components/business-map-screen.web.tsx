@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Image,
   Pressable,
   StyleSheet,
@@ -26,6 +25,7 @@ import {
   filterBusinessesForViewport,
   loadMapBusinesses,
   MAP_DEFAULT_CENTER,
+  peekCachedMapBusinesses,
   type MapBusiness,
 } from '@/lib/business-map-data';
 import { getCategoryAccentColor, OFFERS_CATEGORY_ACCENT } from '@/lib/category-colors';
@@ -54,9 +54,11 @@ export default function BusinessMapScreen() {
   const shellBg = mapShellBackground(mode);
   const bottomPad = getFloatingTabBarScrollPadding(insets.bottom);
 
-  const [isLoading, setIsLoading] = useState(true);
+  const [pinsLoading, setPinsLoading] = useState(true);
   const [userCoords, setUserCoords] = useState<Coords | null>(null);
-  const [businesses, setBusinesses] = useState<MapBusiness[]>([]);
+  const [businesses, setBusinesses] = useState<MapBusiness[]>(() =>
+    peekCachedMapBusinesses()
+  );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [viewBounds, setViewBounds] = useState<MapViewportBounds | null>(null);
   const [searchQuery, setSearchQuery] = useState(() => paramString(params.q));
@@ -64,7 +66,6 @@ export default function BusinessMapScreen() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      setIsLoading(true);
       const coords = await getUserCoords().catch(() => null);
       if (cancelled) return;
       setUserCoords(coords);
@@ -72,14 +73,16 @@ export default function BusinessMapScreen() {
         const mapped = await loadMapBusinesses(coords);
         if (!cancelled) setBusinesses(mapped);
       } catch {
-        if (!cancelled) setBusinesses([]);
+        if (!cancelled && businesses.length === 0) setBusinesses([]);
       } finally {
-        if (!cancelled) setIsLoading(false);
+        if (!cancelled) setPinsLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
+    // Intentionally once on mount — seed from cache, then refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const selected = useMemo(
@@ -151,30 +154,24 @@ export default function BusinessMapScreen() {
         <StackScreenTabBarSync />
         <BusinessMapSearchHeader value={searchQuery} onChangeText={setSearchQuery} />
 
-        {isLoading ? (
-          <View style={styles.centered}>
-            <ActivityIndicator color={theme.text} />
-          </View>
-        ) : (
-          <MapLibreMapView
-            key={`explore-${MAP_PAINT_VERSION}`}
-            center={HELSINGBORG}
-            zoom={12.6}
-            pins={pins}
-            fitPins={false}
-            interactive
-            showUserLocation={
-              userCoords
-                ? { latitude: userCoords.lat, longitude: userCoords.lng }
-                : null
-            }
-            onPinPress={setSelectedId}
-            onViewportChange={setViewBounds}
-            style={StyleSheet.absoluteFillObject}
-          />
-        )}
+        <MapLibreMapView
+          key={`explore-${MAP_PAINT_VERSION}`}
+          center={HELSINGBORG}
+          zoom={12.6}
+          pins={pins}
+          fitPins={false}
+          interactive
+          showUserLocation={
+            userCoords
+              ? { latitude: userCoords.lat, longitude: userCoords.lng }
+              : null
+          }
+          onPinPress={setSelectedId}
+          onViewportChange={setViewBounds}
+          style={StyleSheet.absoluteFillObject}
+        />
 
-        {!isLoading && matchedBusinesses.length === 0 ? (
+        {!pinsLoading && matchedBusinesses.length === 0 ? (
           <View style={[styles.emptyBanner, { bottom: bottomPad + 16 }]}>
             <Text style={{ color: theme.text, textAlign: 'center' }}>
               {searchQuery.trim()
@@ -245,7 +242,6 @@ export default function BusinessMapScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   emptyBanner: {
     position: 'absolute',
     left: 24,

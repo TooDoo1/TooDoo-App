@@ -1516,6 +1516,11 @@ export default function HomeScreen() {
   }, []);
 
   const openSearchDropdown = useCallback(() => {
+    if (Platform.OS === 'web') {
+      void import('@/components/ui/maplibre-map.web').then((mod) => {
+        mod.prefetchBusinessMapAssets();
+      });
+    }
     if (searchBlurTimerRef.current) {
       clearTimeout(searchBlurTimerRef.current);
       searchBlurTimerRef.current = null;
@@ -2402,6 +2407,11 @@ export default function HomeScreen() {
   );
 
   const openBusinessMapFromSearch = useCallback(() => {
+    if (Platform.OS === 'web') {
+      void import('@/components/ui/maplibre-map.web').then((mod) => {
+        mod.prefetchBusinessMapAssets();
+      });
+    }
     const q = searchQuery.trim();
     closeSearchOverlay();
     router.push({

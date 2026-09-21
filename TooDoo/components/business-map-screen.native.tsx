@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Platform,
   StyleSheet,
   Text,
@@ -22,6 +21,7 @@ import {
   filterBusinessesForViewport,
   loadMapBusinesses,
   MAP_DEFAULT_CENTER,
+  peekCachedMapBusinesses,
   type MapBusiness,
   type MapViewBounds,
 } from '@/lib/business-map-data';
@@ -63,9 +63,11 @@ export default function BusinessMapScreen() {
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
   const mapRef = useRef<MapView | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [pinsLoading, setPinsLoading] = useState(true);
   const [userCoords, setUserCoords] = useState<Coords | null>(null);
-  const [businesses, setBusinesses] = useState<MapBusiness[]>([]);
+  const [businesses, setBusinesses] = useState<MapBusiness[]>(() =>
+    peekCachedMapBusinesses()
+  );
   const [viewBounds, setViewBounds] = useState<MapViewBounds | null>(null);
   const [searchQuery, setSearchQuery] = useState(() => paramString(params.q));
   const tileUrl = mapTileUrlForMode(mode);
@@ -74,21 +76,22 @@ export default function BusinessMapScreen() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      setIsLoading(true);
       const coords = await getUserCoords().catch(() => null);
       if (!cancelled) setUserCoords(coords);
       try {
         const mapped = await loadMapBusinesses(coords);
         if (!cancelled) setBusinesses(mapped);
       } catch {
-        if (!cancelled) setBusinesses([]);
+        if (!cancelled && businesses.length === 0) setBusinesses([]);
       } finally {
-        if (!cancelled) setIsLoading(false);
+        if (!cancelled) setPinsLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
+    // Intentionally once on mount — seed from cache, then refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const initialRegion = useMemo(
@@ -149,76 +152,68 @@ export default function BusinessMapScreen() {
         <StackScreenTabBarSync />
         <BusinessMapSearchHeader value={searchQuery} onChangeText={setSearchQuery} />
 
-        {isLoading ? (
-          <View style={styles.centered}>
-            <ActivityIndicator color={theme.text} />
-          </View>
-        ) : (
-          <MapView
-            ref={mapRef}
-            style={[StyleSheet.absoluteFill, { backgroundColor: shellBg }]}
-            initialRegion={initialRegion}
-            mapType="none"
-            showsUserLocation={false}
-            showsMyLocationButton={Platform.OS === 'android'}
-            mapPadding={{ top: insets.top + 56, right: 0, bottom: bottomPad, left: 0 }}
-            onRegionChangeComplete={handleRegionChange}
-          >
-            <UrlTile urlTemplate={tileUrl} maximumZ={19} flipY={false} />
-            {userCoords ? (
+        <MapView
+          ref={mapRef}
+          style={[StyleSheet.absoluteFill, { backgroundColor: shellBg }]}
+          initialRegion={initialRegion}
+          mapType="none"
+          showsUserLocation={false}
+          showsMyLocationButton={Platform.OS === 'android'}
+          mapPadding={{ top: insets.top + 56, right: 0, bottom: bottomPad, left: 0 }}
+          onRegionChangeComplete={handleRegionChange}
+        >
+          <UrlTile urlTemplate={tileUrl} maximumZ={19} flipY={false} />
+          {userCoords ? (
+            <Marker
+              coordinate={{
+                latitude: userCoords.lat,
+                longitude: userCoords.lng,
+              }}
+              anchor={{ x: 0.5, y: 0.5 }}
+              tracksViewChanges={false}
+            >
+              <UserLocationArrow />
+            </Marker>
+          ) : null}
+          {visibleBusinesses.map((company) => {
+            const color = getCategoryAccentColor(company.categoryName);
+            return (
               <Marker
+                key={company.id}
                 coordinate={{
-                  latitude: userCoords.lat,
-                  longitude: userCoords.lng,
+                  latitude: company.latitude,
+                  longitude: company.longitude,
                 }}
+                title={company.name}
+                description={company.address || undefined}
                 anchor={{ x: 0.5, y: 0.5 }}
                 tracksViewChanges={false}
+                onCalloutPress={() => openCompany(company)}
+                onPress={() => openCompany(company)}
               >
-                <UserLocationArrow />
-              </Marker>
-            ) : null}
-            {visibleBusinesses.map((company) => {
-              const color = getCategoryAccentColor(company.categoryName);
-              return (
-                <Marker
-                  key={company.id}
-                  coordinate={{
-                    latitude: company.latitude,
-                    longitude: company.longitude,
-                  }}
+                <BusinessMapPin
+                  color={color}
                   title={company.name}
-                  description={company.address || undefined}
-                  anchor={{ x: 0.5, y: 0.5 }}
-                  tracksViewChanges={false}
-                  onCalloutPress={() => openCompany(company)}
-                  onPress={() => openCompany(company)}
-                >
-                  <BusinessMapPin
-                    color={color}
-                    title={company.name}
-                    imageUri={company.imageUri}
-                    hasEvent={Boolean(company.hasEvent)}
-                    hasOffer={Boolean(company.hasOffer)}
-                  />
-                </Marker>
-              );
-            })}
-          </MapView>
-        )}
+                  imageUri={company.imageUri}
+                  hasEvent={Boolean(company.hasEvent)}
+                  hasOffer={Boolean(company.hasOffer)}
+                />
+              </Marker>
+            );
+          })}
+        </MapView>
 
-        {!isLoading ? (
-          <Text
-            style={[
-              styles.attribution,
-              mode === 'dark' ? styles.attributionDark : styles.attributionLight,
-              { bottom: bottomPad + 8 },
-            ]}
-          >
-            {MAP_ATTRIBUTION}
-          </Text>
-        ) : null}
+        <Text
+          style={[
+            styles.attribution,
+            mode === 'dark' ? styles.attributionDark : styles.attributionLight,
+            { bottom: bottomPad + 8 },
+          ]}
+        >
+          {MAP_ATTRIBUTION}
+        </Text>
 
-        {!isLoading && matchedBusinesses.length === 0 ? (
+        {!pinsLoading && matchedBusinesses.length === 0 ? (
           <View style={[styles.emptyBanner, { bottom: bottomPad + 16 }]}>
             <Text style={{ color: theme.text, textAlign: 'center' }}>
               {searchQuery.trim()
@@ -234,7 +229,6 @@ export default function BusinessMapScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   emptyBanner: {
     position: 'absolute',
     left: 24,

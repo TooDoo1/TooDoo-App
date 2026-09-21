@@ -126,6 +126,13 @@ function loadMapLibre(): Promise<MapLibreGl> {
   return mapLibrePromise;
 }
 
+/** Warm MapLibre JS/CSS + TooDoo style so the explore map can paint immediately. */
+export function prefetchBusinessMapAssets(): void {
+  if (typeof window === 'undefined') return;
+  void loadMapLibre().catch(() => {});
+  void loadTooDooMapStyle().catch(() => {});
+}
+
 function createPinElement(pin: MapLibrePin, badgeBg?: string) {
   return createBusinessPinElement({
     color: pin.color,

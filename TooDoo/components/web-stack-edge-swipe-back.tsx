@@ -19,6 +19,7 @@ import { performWebStackBack } from '@/lib/web-stack-navigation';
 import { BrandColors } from '@/lib/brand-colors';
 import {
   FULL_SCREEN_STACK_SEGMENTS,
+  isStackSwipeBackDisabled,
   shouldRevealTabBarOnStackSwipeBack,
   SWIPE_BACK_EDGE_FRACTION,
 } from '@/lib/stack-navigation';
@@ -48,6 +49,7 @@ export function WebStackEdgeSwipeBack() {
 
   const isOnStackScreen = segments.some(isFullScreenStackSegment);
   const topSegment = segments[segments.length - 1];
+  const swipeBackDisabled = isStackSwipeBackDisabled(topSegment);
   const revealTabBarOnBack = shouldRevealTabBarOnStackSwipeBack(topSegment, params.returnTo);
 
   const performBack = useCallback(() => {
@@ -60,7 +62,12 @@ export function WebStackEdgeSwipeBack() {
   }, [router]);
 
   useEffect(() => {
-    if (Platform.OS !== 'web' || !isOnStackScreen || typeof window === 'undefined') {
+    if (
+      Platform.OS !== 'web' ||
+      !isOnStackScreen ||
+      swipeBackDisabled ||
+      typeof window === 'undefined'
+    ) {
       if (!navigatingBackRef.current) {
         translateX.value = 0;
       }
@@ -189,6 +196,7 @@ export function WebStackEdgeSwipeBack() {
     performBack,
     revealTabBarOnBack,
     stackHideProgress,
+    swipeBackDisabled,
     translateX,
     windowWidth,
   ]);

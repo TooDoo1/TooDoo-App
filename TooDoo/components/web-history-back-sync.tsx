@@ -3,7 +3,10 @@ import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 
 import { performWebStackBack, shouldIgnoreWebPopState } from '@/lib/web-stack-navigation';
-import { FULL_SCREEN_STACK_SEGMENTS } from '@/lib/stack-navigation';
+import {
+  FULL_SCREEN_STACK_SEGMENTS,
+  isStackSwipeBackDisabled,
+} from '@/lib/stack-navigation';
 
 function isFullScreenStackSegment(segment: string) {
   return FULL_SCREEN_STACK_SEGMENTS.includes(
@@ -44,6 +47,13 @@ export function WebHistoryBackSync() {
 
       const currentSegments = segmentsRef.current;
       const topSegment = currentSegments[currentSegments.length - 1];
+      // Map mode: ignore browser/Safari edge-swipe back; keep the trap.
+      if (isStackSwipeBackDisabled(topSegment)) {
+        trapPushedRef.current = false;
+        history.pushState({ toodooBackTrap: true }, '');
+        trapPushedRef.current = true;
+        return;
+      }
       performWebStackBack(router, {
         returnTo: paramsRef.current.returnTo,
         isCompanyDetail: topSegment === 'company-detail',
