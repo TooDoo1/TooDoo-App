@@ -58,6 +58,13 @@ export function createBusinessPinElement(options: BusinessPinOptions = {}): HTML
   el.type = 'button';
   el.title = title;
   el.setAttribute('aria-label', title);
+  // Notes:
+  // - never set inline `position` here — it would override MapLibre's
+  //   .maplibregl-marker { position:absolute; top:0; left:0 } and make pins
+  //   drift when zooming.
+  // - no `filter: drop-shadow(...)` — filters re-rasterize on every frame
+  //   while the map pans/zooms and make the whole map laggy. The circle
+  //   below uses box-shadow instead.
   el.style.cssText = [
     `width:${size}px`,
     `height:${size}px`,
@@ -67,14 +74,10 @@ export function createBusinessPinElement(options: BusinessPinOptions = {}): HTML
     'cursor:pointer',
     'appearance:none',
     'display:block',
-    'position:relative',
-    selected
-      ? 'filter:drop-shadow(0 3px 8px rgba(0,0,0,0.35))'
-      : 'filter:drop-shadow(0 2px 5px rgba(0,0,0,0.28))',
   ].join(';');
 
   const content = hasImage
-    ? `<img src="${escapeXml(options.imageUri!)}" alt="" style="width:100%;height:100%;object-fit:cover;display:block;" />`
+    ? `<img src="${escapeXml(options.imageUri!)}" alt="" decoding="async" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block;" onerror="this.style.display='none';this.parentElement&&(this.parentElement.textContent='${initial}');" />`
     : `<span style="font-family:system-ui,-apple-system,sans-serif;font-size:${selected ? 15 : 13}px;font-weight:700;color:${safeColor};line-height:1;">${initial}</span>`;
 
   el.innerHTML = `
@@ -89,6 +92,7 @@ export function createBusinessPinElement(options: BusinessPinOptions = {}): HTML
       background:#ffffff;
       overflow:hidden;
       box-sizing:border-box;
+      box-shadow:0 2px 5px rgba(0,0,0,0.28);
     " title="${safeTitle}">
       <span style="
         width:${inner}px;

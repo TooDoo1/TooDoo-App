@@ -64,6 +64,7 @@ import { fetchEventFeed, type EventFeedItem } from '@/lib/events-feed';
 import { openEventFeedItem } from '@/lib/open-event-feed';
 import { openOfferDetail } from '@/lib/open-offer-detail';
 import {
+  BUSINESS_MAP_PATH,
   EVENEMANG_PATH,
   HETA_ERBJUDANDEN_PATH,
   NARA_DIG_PATH,
@@ -102,6 +103,7 @@ import {
   setHomeSearchCache,
 } from '@/lib/home-list-cache';
 import { blurActiveElementOnWeb } from '@/lib/web-focus';
+import { consumeOpenHomeSearch } from '@/lib/home-search-handoff';
 import {
   searchCatalog,
   searchNatural,
@@ -132,6 +134,9 @@ const SEARCH_DROPDOWN_OPEN_MS = 220;
 const SEARCH_DROPDOWN_CLOSE_MS = 240;
 const SEARCH_TIPS_DEBOUNCE_MS = 120;
 const SEARCH_BAR_HEIGHT = 44;
+/** Gap + map button reserved on the right of the search overlay bar. */
+const SEARCH_OVERLAY_MAP_BUTTON_GAP = 8;
+const SEARCH_OVERLAY_MAP_BUTTON_SIZE = SEARCH_BAR_HEIGHT;
 const SEARCH_PANEL_BOTTOM_RADIUS = 12;
 const SEARCH_DROPDOWN_MAX_HEIGHT = 380;
 /** 0–1: where on the search bar the fade begins (0.5 = halfway down the bar). */
@@ -1520,7 +1525,9 @@ export default function HomeScreen() {
       cancelAnimation(searchOverlayProgress);
       const endY = insets.top + 8;
       const endX = 48; // room for fixed back chevron
-      const endW = Math.max(160, windowWidth - endX - 12);
+      const endRightReserve =
+        12 + SEARCH_OVERLAY_MAP_BUTTON_SIZE + SEARCH_OVERLAY_MAP_BUTTON_GAP;
+      const endW = Math.max(160, windowWidth - endX - endRightReserve);
       searchBarHomeX.value = Math.max(0, x);
       searchBarHomeY.value = Math.max(0, y);
       searchBarHomeW.value = Math.max(160, w);
@@ -1603,6 +1610,21 @@ export default function HomeScreen() {
     voiceQueryRef.current = null;
     voiceResultOrderRef.current = null;
   }, []);
+
+  // Map mode → search mode: reopen the search overlay with the carried query.
+  useFocusEffect(
+    useCallback(() => {
+      const pending = consumeOpenHomeSearch();
+      if (!pending) return;
+      clearVoiceSearchOwnership();
+      setSearchCommitted(false);
+      setSearchQuery(pending.query);
+      const task = InteractionManager.runAfterInteractions(() => {
+        openSearchDropdown();
+      });
+      return () => task.cancel();
+    }, [clearVoiceSearchOwnership, openSearchDropdown])
+  );
 
   const lockVoiceResultOrder = useCallback((cards: CardItem[]) => {
     voiceResultOrderRef.current = cards.map((card) => card.id);
@@ -2379,6 +2401,15 @@ export default function HomeScreen() {
     [router, searchResults, trimmedSearchQuery]
   );
 
+  const openBusinessMapFromSearch = useCallback(() => {
+    const q = searchQuery.trim();
+    closeSearchOverlay();
+    router.push({
+      pathname: BUSINESS_MAP_PATH,
+      params: q ? { q } : undefined,
+    });
+  }, [closeSearchOverlay, router, searchQuery]);
+
   // Voice-search hero needs room for headline + orb + copy.
   const heroContentHeight = isLoggedIn ? 268 : HERO_HEIGHT;
   const heroBlockHeight = heroContentHeight + heroTopInset;
@@ -2767,6 +2798,40 @@ export default function HomeScreen() {
             <Ionicons name="chevron-back" size={28} color={theme.text} />
           </Pressable>
         </View>
+
+        <Reanimated.View
+          pointerEvents="auto"
+          style={[
+            {
+              position: 'absolute',
+              top: insets.top + 8,
+              right: 12,
+              zIndex: 100,
+              elevation: 100,
+              width: SEARCH_OVERLAY_MAP_BUTTON_SIZE,
+              height: SEARCH_OVERLAY_MAP_BUTTON_SIZE,
+            },
+            searchOverlayContentStyle,
+          ]}
+        >
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Visa på karta"
+            onPress={openBusinessMapFromSearch}
+            style={[
+              filterSurfaceStyle,
+              {
+                width: SEARCH_OVERLAY_MAP_BUTTON_SIZE,
+                height: SEARCH_OVERLAY_MAP_BUTTON_SIZE,
+                borderRadius: 999,
+                alignItems: 'center',
+                justifyContent: 'center',
+              },
+            ]}
+          >
+            <Ionicons name="map-outline" size={20} color={FilterChipTheme.text} />
+          </Pressable>
+        </Reanimated.View>
 
         <Reanimated.View style={searchOverlayHeaderStyle} pointerEvents="box-none">
           <View

@@ -20,6 +20,13 @@ export type MapLibrePin = {
   hasOffer?: boolean;
 };
 
+export type MapViewportBounds = {
+  west: number;
+  south: number;
+  east: number;
+  north: number;
+};
+
 type Props = {
   center: { latitude: number; longitude: number };
   zoom?: number;
@@ -32,6 +39,8 @@ type Props = {
   walkingRouteLine?: Array<{ latitude: number; longitude: number }> | null;
   fitPins?: boolean;
   onPinPress?: (id: string) => void;
+  /** Fires with visible bounds after each pan/zoom settles (and once on load). */
+  onViewportChange?: (bounds: MapViewportBounds) => void;
   style?: ViewStyle;
 };
 
@@ -41,6 +50,7 @@ type MlMap = {
   setCenter: (c: [number, number]) => void;
   setZoom: (z: number) => void;
   fitBounds: (b: unknown, o?: object) => void;
+  getBounds: () => { toArray: () => [[number, number], [number, number]] };
   on: (event: string, cb: () => void) => void;
   getSource: (id: string) => { setData?: (data: unknown) => void } | undefined;
   getLayer: (id: string) => unknown;
@@ -63,6 +73,8 @@ type MapLibreGl = {
     element?: HTMLElement;
     anchor?: string;
     offset?: [number, number];
+    /** Skip pixel rounding — smoother marker motion while zooming. */
+    subpixelPositioning?: boolean;
   }) => MlMarker;
   LngLatBounds: new () => { extend: (ll: [number, number]) => void };
 };
@@ -229,6 +241,7 @@ export function MapLibreMapView({
   walkingRouteLine = null,
   fitPins = false,
   onPinPress,
+  onViewportChange,
   style,
 }: Props) {
   const { mode } = useThemePreference();
@@ -237,10 +250,11 @@ export function MapLibreMapView({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
   const mlRef = useRef<MapLibreGl | null>(null);
-  const markersRef = useRef<MlMarker[]>([]);
   const userMarkerRef = useRef<MlMarker | null>(null);
   const onPinPressRef = useRef(onPinPress);
   onPinPressRef.current = onPinPress;
+  const onViewportChangeRef = useRef(onViewportChange);
+  onViewportChangeRef.current = onViewportChange;
   const pinsRef = useRef(pins);
   pinsRef.current = pins;
   const fitPinsRef = useRef(fitPins);
@@ -263,15 +277,40 @@ export function MapLibreMapView({
     userMarkerRef.current = new ml.Marker({
       element: el,
       anchor: 'center',
+      subpixelPositioning: true,
     })
       .setLngLat([loc.longitude, loc.latitude])
       .addTo(map);
   };
 
+  const pinSignature = (p: MapLibrePin) =>
+    `${p.latitude.toFixed(5)}:${p.longitude.toFixed(5)}:${p.selected ? 1 : 0}:${p.color}:${p.imageUri ?? ''}:${p.hasEvent ? 1 : 0}:${p.hasOffer ? 1 : 0}`;
+
+  // Diff markers by id — recreating every marker on each pins change causes
+  // image reloads and layout churn that make panning laggy.
+  const markerByIdRef = useRef(
+    new Map<string, { marker: MlMarker; sig: string }>()
+  );
+
   const syncPins = (map: MlMap, ml: MapLibreGl) => {
-    markersRef.current.forEach((m) => m.remove());
-    markersRef.current = [];
+    const markerById = markerByIdRef.current;
+    const nextIds = new Set(pinsRef.current.map((p) => p.id));
+
+    for (const [id, entry] of markerById) {
+      if (!nextIds.has(id)) {
+        entry.marker.remove();
+        markerById.delete(id);
+      }
+    }
+
     for (const pin of pinsRef.current) {
+      const sig = pinSignature(pin);
+      const existing = markerById.get(pin.id);
+      if (existing) {
+        if (existing.sig === sig) continue;
+        existing.marker.remove();
+        markerById.delete(pin.id);
+      }
       const el = createPinElement(pin, badgeBgRef.current);
       el.addEventListener('click', (event) => {
         event.stopPropagation();
@@ -281,12 +320,13 @@ export function MapLibreMapView({
         element: el,
         anchor: 'center',
         offset: businessPinMarkerOffset(pin.selected),
+        subpixelPositioning: true,
       })
         .setLngLat([pin.longitude, pin.latitude])
         .addTo(map);
-      markersRef.current.push(marker);
+      markerById.set(pin.id, { marker, sig });
     }
-    syncUserLocation(map, ml);
+
     if (routeRef.current?.length || walkingRouteRef.current?.length) {
       syncRouteLines(map, ml, routeRef.current, walkingRouteRef.current);
       return;
@@ -320,15 +360,31 @@ export function MapLibreMapView({
           zoom,
           interactive,
           attributionControl: false,
+          // High-DPR screens (and DPR-3 device emulation) explode the WebGL
+          // framebuffer size — cap it, the map still looks sharp at 2x.
+          pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+          // Skip raster/symbol fade-in animations.
+          fadeDuration: 0,
         });
         mapRef.current = map;
+
+        const emitViewport = () => {
+          try {
+            const [[west, south], [east, north]] = map.getBounds().toArray();
+            onViewportChangeRef.current?.({ west, south, east, north });
+          } catch {
+            // Bounds unavailable before first render.
+          }
+        };
 
         map.on('load', () => {
           map.resize();
           syncPins(map, ml);
           syncRouteLines(map, ml, routeRef.current, walkingRouteRef.current);
           syncUserLocation(map, ml);
+          emitViewport();
         });
+        map.on('moveend', emitViewport);
 
         const onWinResize = () => map.resize();
         window.addEventListener('resize', onWinResize);
@@ -350,8 +406,8 @@ export function MapLibreMapView({
       resizeObserver?.disconnect();
       const map = mapRef.current as (MlMap & { __cleanup?: () => void }) | null;
       map?.__cleanup?.();
-      markersRef.current.forEach((m) => m.remove());
-      markersRef.current = [];
+      markerByIdRef.current.forEach((entry) => entry.marker.remove());
+      markerByIdRef.current.clear();
       userMarkerRef.current?.remove();
       userMarkerRef.current = null;
       map?.remove();

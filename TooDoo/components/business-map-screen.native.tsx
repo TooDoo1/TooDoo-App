@@ -7,10 +7,10 @@ import {
   View,
 } from 'react-native';
 import MapView, { Marker, UrlTile, type Region } from 'react-native-maps';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ScreenBackButton } from '@/components/ui/screen-back-button';
+import { BusinessMapSearchHeader } from '@/components/ui/business-map-search-header';
 import { BusinessMapPin } from '@/components/ui/business-map-pin';
 import { UserLocationArrow } from '@/components/ui/user-location-arrow';
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
@@ -18,8 +18,12 @@ import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
 import { getFloatingTabBarScrollPadding } from '@/components/floating-tab-bar';
 import { useThemePreference } from '@/context/theme-preference-context';
 import {
+  filterBusinessesByQuery,
+  filterBusinessesForViewport,
   loadMapBusinesses,
+  MAP_DEFAULT_CENTER,
   type MapBusiness,
+  type MapViewBounds,
 } from '@/lib/business-map-data';
 import { getCategoryAccentColor } from '@/lib/category-colors';
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
@@ -28,6 +32,11 @@ import { MAP_ATTRIBUTION, mapShellBackground, mapTileUrlForMode } from '@/lib/ma
 import { uiTheme } from '@/lib/ui-theme';
 
 const DEFAULT_DELTA = 0.06;
+
+function paramString(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) return value[0] ?? '';
+  return value ?? '';
+}
 
 function regionAround(coords: Coords, delta = DEFAULT_DELTA): Region {
   return {
@@ -38,8 +47,18 @@ function regionAround(coords: Coords, delta = DEFAULT_DELTA): Region {
   };
 }
 
+function regionToBounds(region: Region): MapViewBounds {
+  return {
+    west: region.longitude - region.longitudeDelta / 2,
+    east: region.longitude + region.longitudeDelta / 2,
+    south: region.latitude - region.latitudeDelta / 2,
+    north: region.latitude + region.latitudeDelta / 2,
+  };
+}
+
 export default function BusinessMapScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ q?: string | string[] }>();
   const insets = useSafeAreaInsets();
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
@@ -47,6 +66,8 @@ export default function BusinessMapScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [userCoords, setUserCoords] = useState<Coords | null>(null);
   const [businesses, setBusinesses] = useState<MapBusiness[]>([]);
+  const [viewBounds, setViewBounds] = useState<MapViewBounds | null>(null);
+  const [searchQuery, setSearchQuery] = useState(() => paramString(params.q));
   const tileUrl = mapTileUrlForMode(mode);
   const shellBg = mapShellBackground(mode);
 
@@ -70,31 +91,32 @@ export default function BusinessMapScreen() {
     };
   }, []);
 
-  useEffect(() => {
-    if (businesses.length === 0 || !mapRef.current) return;
-    const coordinates = businesses.map((b) => ({
-      latitude: b.latitude,
-      longitude: b.longitude,
-    }));
-    const timer = setTimeout(() => {
-      mapRef.current?.fitToCoordinates(coordinates, {
-        edgePadding: { top: 80, right: 40, bottom: 100, left: 40 },
-        animated: true,
-      });
-    }, 120);
-    return () => clearTimeout(timer);
-  }, [businesses]);
+  const initialRegion = useMemo(
+    () => regionAround(MAP_DEFAULT_CENTER, DEFAULT_DELTA),
+    []
+  );
 
-  const initialRegion = useMemo(() => {
-    if (userCoords) return regionAround(userCoords);
-    if (businesses[0]) {
-      return regionAround(
-        { lat: businesses[0].latitude, lng: businesses[0].longitude },
-        0.08
-      );
-    }
-    return regionAround({ lat: 56.0465, lng: 12.6945 }, 0.12);
-  }, [businesses, userCoords]);
+  const handleRegionChange = useCallback((region: Region) => {
+    setViewBounds(regionToBounds(region));
+  }, []);
+
+  // Businesses load once; markers swap in and out as the viewport moves.
+  // Previously shown pins keep their slot while in view (less marker churn).
+  const matchedBusinesses = useMemo(
+    () => filterBusinessesByQuery(businesses, searchQuery),
+    [businesses, searchQuery]
+  );
+  const shownIdsRef = useRef<Set<string>>(new Set());
+  const visibleBusinesses = useMemo(() => {
+    const next = filterBusinessesForViewport(
+      matchedBusinesses,
+      viewBounds,
+      undefined,
+      shownIdsRef.current
+    );
+    shownIdsRef.current = new Set(next.map((b) => b.id));
+    return next;
+  }, [matchedBusinesses, viewBounds]);
 
   const openCompany = useCallback(
     (company: MapBusiness) => {
@@ -125,14 +147,7 @@ export default function BusinessMapScreen() {
     <WebStackSwipeContainer>
       <View style={[styles.root, { backgroundColor: shellBg }]}>
         <StackScreenTabBarSync />
-        <ScreenBackButton />
-
-        <View pointerEvents="none" style={[styles.titleWrap, { top: insets.top + 10 }]}>
-          <Text style={[styles.title, { color: theme.text }]}>Karta</Text>
-          <Text style={[styles.subtitle, { color: theme.textMuted }]}>
-            Företag nära dig
-          </Text>
-        </View>
+        <BusinessMapSearchHeader value={searchQuery} onChangeText={setSearchQuery} />
 
         {isLoading ? (
           <View style={styles.centered}>
@@ -147,6 +162,7 @@ export default function BusinessMapScreen() {
             showsUserLocation={false}
             showsMyLocationButton={Platform.OS === 'android'}
             mapPadding={{ top: insets.top + 56, right: 0, bottom: bottomPad, left: 0 }}
+            onRegionChangeComplete={handleRegionChange}
           >
             <UrlTile urlTemplate={tileUrl} maximumZ={19} flipY={false} />
             {userCoords ? (
@@ -161,7 +177,7 @@ export default function BusinessMapScreen() {
                 <UserLocationArrow />
               </Marker>
             ) : null}
-            {businesses.map((company) => {
+            {visibleBusinesses.map((company) => {
               const color = getCategoryAccentColor(company.categoryName);
               return (
                 <Marker
@@ -173,7 +189,7 @@ export default function BusinessMapScreen() {
                   title={company.name}
                   description={company.address || undefined}
                   anchor={{ x: 0.5, y: 0.5 }}
-                  tracksViewChanges={Boolean(company.imageUri)}
+                  tracksViewChanges={false}
                   onCalloutPress={() => openCompany(company)}
                   onPress={() => openCompany(company)}
                 >
@@ -202,10 +218,12 @@ export default function BusinessMapScreen() {
           </Text>
         ) : null}
 
-        {!isLoading && businesses.length === 0 ? (
+        {!isLoading && matchedBusinesses.length === 0 ? (
           <View style={[styles.emptyBanner, { bottom: bottomPad + 16 }]}>
             <Text style={{ color: theme.text, textAlign: 'center' }}>
-              Inga företag med plats att visa just nu.
+              {searchQuery.trim()
+                ? 'Inga företag matchar sökningen.'
+                : 'Inga företag med plats att visa just nu.'}
             </Text>
           </View>
         ) : null}
@@ -217,14 +235,6 @@ export default function BusinessMapScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  titleWrap: {
-    position: 'absolute',
-    left: 64,
-    right: 24,
-    zIndex: 20,
-  },
-  title: { fontSize: 22, fontWeight: '600' },
-  subtitle: { marginTop: 2, fontSize: 13 },
   emptyBanner: {
     position: 'absolute',
     left: 24,

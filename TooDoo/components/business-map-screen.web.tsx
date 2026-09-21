@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -7,17 +7,25 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ScreenBackButton } from '@/components/ui/screen-back-button';
+import { BusinessMapSearchHeader } from '@/components/ui/business-map-search-header';
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
 import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
-import { MapLibreMapView, type MapLibrePin } from '@/components/ui/maplibre-map.web';
+import {
+  MapLibreMapView,
+  type MapLibrePin,
+  type MapViewportBounds,
+} from '@/components/ui/maplibre-map.web';
 import { getFloatingTabBarScrollPadding } from '@/components/floating-tab-bar';
 import { useThemePreference } from '@/context/theme-preference-context';
 import {
+  filterBusinessesByQuery,
+  filterBusinessesForViewport,
   loadMapBusinesses,
+  MAP_DEFAULT_CENTER,
   type MapBusiness,
 } from '@/lib/business-map-data';
 import { getCategoryAccentColor, OFFERS_CATEGORY_ACCENT } from '@/lib/category-colors';
@@ -27,10 +35,19 @@ import { MAP_PAINT_VERSION } from '@/lib/maplibre-brand';
 import { mapShellBackground } from '@/lib/map-style';
 import { uiTheme } from '@/lib/ui-theme';
 
-const HELSINGBORG = { latitude: 56.0465, longitude: 12.6945 };
+function paramString(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) return value[0] ?? '';
+  return value ?? '';
+}
+
+const HELSINGBORG = {
+  latitude: MAP_DEFAULT_CENTER.lat,
+  longitude: MAP_DEFAULT_CENTER.lng,
+};
 
 export default function BusinessMapScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ q?: string | string[] }>();
   const insets = useSafeAreaInsets();
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
@@ -41,6 +58,8 @@ export default function BusinessMapScreen() {
   const [userCoords, setUserCoords] = useState<Coords | null>(null);
   const [businesses, setBusinesses] = useState<MapBusiness[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [viewBounds, setViewBounds] = useState<MapViewportBounds | null>(null);
+  const [searchQuery, setSearchQuery] = useState(() => paramString(params.q));
 
   useEffect(() => {
     let cancelled = false;
@@ -68,17 +87,28 @@ export default function BusinessMapScreen() {
     [businesses, selectedId]
   );
 
-  const center = useMemo(() => {
-    if (userCoords) return { latitude: userCoords.lat, longitude: userCoords.lng };
-    if (businesses[0]) {
-      return { latitude: businesses[0].latitude, longitude: businesses[0].longitude };
-    }
-    return HELSINGBORG;
-  }, [businesses, userCoords]);
+  const matchedBusinesses = useMemo(
+    () => filterBusinessesByQuery(businesses, searchQuery),
+    [businesses, searchQuery]
+  );
+
+  // Businesses load once; pins swap in and out as the viewport moves.
+  // Previously shown pins keep their slot while in view (less marker churn).
+  const shownIdsRef = useRef<Set<string>>(new Set());
+  const visibleBusinesses = useMemo(() => {
+    const next = filterBusinessesForViewport(
+      matchedBusinesses,
+      viewBounds,
+      undefined,
+      shownIdsRef.current
+    );
+    shownIdsRef.current = new Set(next.map((b) => b.id));
+    return next;
+  }, [matchedBusinesses, viewBounds]);
 
   const pins: MapLibrePin[] = useMemo(
     () =>
-      businesses.map((b) => ({
+      visibleBusinesses.map((b) => ({
         id: b.id,
         latitude: b.latitude,
         longitude: b.longitude,
@@ -89,7 +119,7 @@ export default function BusinessMapScreen() {
         hasOffer: Boolean(b.hasOffer),
         color: getCategoryAccentColor(b.categoryName),
       })),
-    [businesses, selectedId]
+    [visibleBusinesses, selectedId]
   );
 
   const openCompany = useCallback(
@@ -119,14 +149,7 @@ export default function BusinessMapScreen() {
     <WebStackSwipeContainer>
       <View style={[styles.root, { backgroundColor: shellBg }]}>
         <StackScreenTabBarSync />
-        <ScreenBackButton />
-
-        <View pointerEvents="none" style={[styles.titleWrap, { top: insets.top + 10 }]}>
-          <Text style={[styles.title, { color: theme.text }]}>Karta</Text>
-          <Text style={[styles.subtitle, { color: theme.textMuted }]}>
-            Företag nära dig
-          </Text>
-        </View>
+        <BusinessMapSearchHeader value={searchQuery} onChangeText={setSearchQuery} />
 
         {isLoading ? (
           <View style={styles.centered}>
@@ -135,10 +158,10 @@ export default function BusinessMapScreen() {
         ) : (
           <MapLibreMapView
             key={`explore-${MAP_PAINT_VERSION}`}
-            center={center}
-            zoom={12.5}
+            center={HELSINGBORG}
+            zoom={12.6}
             pins={pins}
-            fitPins
+            fitPins={false}
             interactive
             showUserLocation={
               userCoords
@@ -146,23 +169,23 @@ export default function BusinessMapScreen() {
                 : null
             }
             onPinPress={setSelectedId}
+            onViewportChange={setViewBounds}
             style={StyleSheet.absoluteFillObject}
           />
         )}
 
-        {!isLoading && businesses.length === 0 ? (
+        {!isLoading && matchedBusinesses.length === 0 ? (
           <View style={[styles.emptyBanner, { bottom: bottomPad + 16 }]}>
             <Text style={{ color: theme.text, textAlign: 'center' }}>
-              Inga företag med plats att visa just nu.
+              {searchQuery.trim()
+                ? 'Inga företag matchar sökningen.'
+                : 'Inga företag med plats att visa just nu.'}
             </Text>
           </View>
         ) : null}
 
         {selected ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Öppna ${selected.name}`}
-            onPress={() => openCompany(selected)}
+          <View
             style={[
               styles.card,
               {
@@ -172,25 +195,48 @@ export default function BusinessMapScreen() {
               },
             ]}
           >
-            {selected.imageUri ? (
-              <Image source={{ uri: selected.imageUri }} style={styles.cardImage} />
-            ) : (
-              <View style={[styles.cardImage, { backgroundColor: theme.border }]} />
-            )}
-            <View style={styles.cardBody}>
-              <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={1}>
-                {selected.name}
-              </Text>
-              {selected.address ? (
-                <Text style={{ color: theme.textMuted, fontSize: 13 }} numberOfLines={2}>
-                  {selected.address}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Avmarkera företag"
+              onPress={() => setSelectedId(null)}
+              hitSlop={8}
+              style={[
+                styles.deselectButton,
+                {
+                  backgroundColor: theme.isDark
+                    ? 'rgba(255,255,255,0.12)'
+                    : 'rgba(0,0,0,0.06)',
+                },
+              ]}
+            >
+              <Ionicons name="close" size={18} color={theme.textMuted} />
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Öppna ${selected.name}`}
+              onPress={() => openCompany(selected)}
+              style={styles.cardPressable}
+            >
+              {selected.imageUri ? (
+                <Image source={{ uri: selected.imageUri }} style={styles.cardImage} />
+              ) : (
+                <View style={[styles.cardImage, { backgroundColor: theme.border }]} />
+              )}
+              <View style={styles.cardBody}>
+                <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={1}>
+                  {selected.name}
                 </Text>
-              ) : null}
-              <Text style={[styles.cardCta, { color: OFFERS_CATEGORY_ACCENT }]}>
-                Visa företag
-              </Text>
-            </View>
-          </Pressable>
+                {selected.address ? (
+                  <Text style={{ color: theme.textMuted, fontSize: 13 }} numberOfLines={2}>
+                    {selected.address}
+                  </Text>
+                ) : null}
+                <Text style={[styles.cardCta, { color: OFFERS_CATEGORY_ACCENT }]}>
+                  Visa företag
+                </Text>
+              </View>
+            </Pressable>
+          </View>
         ) : null}
       </View>
     </WebStackSwipeContainer>
@@ -200,14 +246,6 @@ export default function BusinessMapScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  titleWrap: {
-    position: 'absolute',
-    left: 64,
-    right: 24,
-    zIndex: 20,
-  },
-  title: { fontSize: 22, fontWeight: '600' },
-  subtitle: { marginTop: 2, fontSize: 13 },
   emptyBanner: {
     position: 'absolute',
     left: 24,
@@ -241,11 +279,30 @@ const styles = StyleSheet.create({
     right: 16,
     zIndex: 30,
     flexDirection: 'row',
-    gap: 12,
+    alignItems: 'flex-start',
+    gap: 8,
     padding: 12,
+    paddingRight: 10,
     borderRadius: 16,
     borderWidth: 1,
+  },
+  deselectButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    zIndex: 2,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardPressable: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingRight: 28,
   },
   cardImage: {
     width: 64,
