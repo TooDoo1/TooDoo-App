@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Image,
   Pressable,
   StyleSheet,
@@ -33,6 +34,12 @@ import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
 import { getUserCoords, type Coords } from '@/lib/geo';
 import { MAP_PAINT_VERSION } from '@/lib/maplibre-brand';
 import { mapShellBackground } from '@/lib/map-style';
+import {
+  fetchTravelRoutes,
+  formatRouteSummary,
+  type DrivingRoute,
+  type TravelRoutes,
+} from '@/lib/osrm-route';
 import { uiTheme } from '@/lib/ui-theme';
 
 function paramString(value: string | string[] | undefined): string {
@@ -44,6 +51,40 @@ const HELSINGBORG = {
   latitude: MAP_DEFAULT_CENTER.lat,
   longitude: MAP_DEFAULT_CENTER.lng,
 };
+
+function RouteChip({
+  route,
+  backgroundColor,
+  color,
+}: {
+  route: DrivingRoute;
+  backgroundColor: string;
+  color: string;
+}) {
+  const accent = route.mode === 'walking' ? '#30d158' : '#0a84ff';
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 999,
+        backgroundColor,
+      }}
+    >
+      <Ionicons
+        name={route.mode === 'walking' ? 'walk' : 'car'}
+        size={14}
+        color={accent}
+      />
+      <Text style={{ fontSize: 12, fontWeight: '600', color }}>
+        {formatRouteSummary(route)}
+      </Text>
+    </View>
+  );
+}
 
 export default function BusinessMapScreen() {
   const router = useRouter();
@@ -90,6 +131,35 @@ export default function BusinessMapScreen() {
     [businesses, selectedId]
   );
 
+  const [routes, setRoutes] = useState<TravelRoutes | null>(null);
+  const [routeLoading, setRouteLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selected || !userCoords) {
+      setRoutes(null);
+      setRouteLoading(false);
+      return;
+    }
+    setRouteLoading(true);
+    setRoutes(null);
+    void fetchTravelRoutes(
+      { lat: userCoords.lat, lng: userCoords.lng },
+      { lat: selected.latitude, lng: selected.longitude }
+    ).then((result) => {
+      if (!cancelled) {
+        setRoutes(result);
+        setRouteLoading(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected, userCoords]);
+
+  const drivingLine = routes?.driving?.coordinates ?? null;
+  const walkingLine = routes?.walking?.coordinates ?? null;
+
   const matchedBusinesses = useMemo(
     () => filterBusinessesByQuery(businesses, searchQuery),
     [businesses, searchQuery]
@@ -105,9 +175,14 @@ export default function BusinessMapScreen() {
       undefined,
       shownIdsRef.current
     );
-    shownIdsRef.current = new Set(next.map((b) => b.id));
-    return next;
-  }, [matchedBusinesses, viewBounds]);
+    // Keep the selected pin visible even if it's outside the current top-10.
+    const withSelected =
+      selected && !next.some((b) => b.id === selected.id)
+        ? [...next, selected]
+        : next;
+    shownIdsRef.current = new Set(withSelected.map((b) => b.id));
+    return withSelected;
+  }, [matchedBusinesses, selected, viewBounds]);
 
   const pins: MapLibrePin[] = useMemo(
     () =>
@@ -166,10 +241,47 @@ export default function BusinessMapScreen() {
               ? { latitude: userCoords.lat, longitude: userCoords.lng }
               : null
           }
+          routeLine={drivingLine}
+          walkingRouteLine={walkingLine}
           onPinPress={setSelectedId}
           onViewportChange={setViewBounds}
           style={StyleSheet.absoluteFillObject}
         />
+
+        {selected && userCoords && (routeLoading || routes?.driving || routes?.walking) ? (
+          <View
+            pointerEvents="none"
+            style={[styles.routeChips, { top: insets.top + 64 }]}
+          >
+            {routeLoading ? (
+              <View
+                style={[
+                  styles.routeChipShell,
+                  { backgroundColor: theme.cardBg },
+                ]}
+              >
+                <ActivityIndicator size="small" color={theme.text} />
+              </View>
+            ) : (
+              <>
+                {routes?.driving ? (
+                  <RouteChip
+                    route={routes.driving}
+                    backgroundColor={theme.cardBg}
+                    color={theme.isDark ? '#ffffff' : theme.text}
+                  />
+                ) : null}
+                {routes?.walking ? (
+                  <RouteChip
+                    route={routes.walking}
+                    backgroundColor={theme.cardBg}
+                    color={theme.isDark ? '#ffffff' : theme.text}
+                  />
+                ) : null}
+              </>
+            )}
+          </View>
+        ) : null}
 
         {!pinsLoading && matchedBusinesses.length === 0 ? (
           <View style={[styles.emptyBanner, { bottom: bottomPad + 16 }]}>
@@ -242,6 +354,18 @@ export default function BusinessMapScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  routeChips: {
+    position: 'absolute',
+    left: 16,
+    zIndex: 25,
+    gap: 8,
+    alignItems: 'flex-start',
+  },
+  routeChipShell: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
   emptyBanner: {
     position: 'absolute',
     left: 24,

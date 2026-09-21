@@ -134,9 +134,11 @@ const SEARCH_DROPDOWN_OPEN_MS = 220;
 const SEARCH_DROPDOWN_CLOSE_MS = 240;
 const SEARCH_TIPS_DEBOUNCE_MS = 120;
 const SEARCH_BAR_HEIGHT = 44;
-/** Gap + map button reserved on the right of the search overlay bar. */
+/** Shared header chrome: back | search | map — equal side padding + gaps so the trio is centered. */
+const SEARCH_OVERLAY_SIDE_PAD = 12;
 const SEARCH_OVERLAY_MAP_BUTTON_GAP = 8;
 const SEARCH_OVERLAY_MAP_BUTTON_SIZE = SEARCH_BAR_HEIGHT;
+const SEARCH_OVERLAY_BACK_SIZE = SEARCH_BAR_HEIGHT;
 const SEARCH_PANEL_BOTTOM_RADIUS = 12;
 const SEARCH_DROPDOWN_MAX_HEIGHT = 380;
 /** 0–1: where on the search bar the fade begins (0.5 = halfway down the bar). */
@@ -1515,7 +1517,7 @@ export default function HomeScreen() {
     };
   }, []);
 
-  const openSearchDropdown = useCallback(() => {
+  const openSearchDropdown = useCallback((options?: { instant?: boolean; forDismiss?: boolean }) => {
     if (Platform.OS === 'web') {
       void import('@/components/ui/maplibre-map.web').then((mod) => {
         mod.prefetchBusinessMapAssets();
@@ -1526,13 +1528,36 @@ export default function HomeScreen() {
       searchBlurTimerRef.current = null;
     }
 
+    const endY = insets.top + 8;
+    const endX =
+      SEARCH_OVERLAY_SIDE_PAD +
+      SEARCH_OVERLAY_BACK_SIZE +
+      SEARCH_OVERLAY_MAP_BUTTON_GAP;
+    const endRightReserve =
+      SEARCH_OVERLAY_SIDE_PAD +
+      SEARCH_OVERLAY_MAP_BUTTON_SIZE +
+      SEARCH_OVERLAY_MAP_BUTTON_GAP;
+    const endW = Math.max(160, windowWidth - endX - endRightReserve);
+
+    // Returning from map: same header chrome — open already at rest (no fly morph).
+    if (options?.instant) {
+      cancelAnimation(searchOverlayProgress);
+      searchBarHomeX.value = endX;
+      searchBarHomeY.value = endY;
+      searchBarHomeW.value = endW;
+      searchBarEndY.value = endY;
+      searchBarEndX.value = endX;
+      searchBarEndW.value = endW;
+      searchOverlayProgress.value = 1;
+      setIsSearchFocused(true);
+      setIsSearchOverlayMounted(true);
+      // Skip autofocus when this open only exists to morph back to home.
+      setSearchInputReady(!options.forDismiss);
+      return;
+    }
+
     const startOverlay = (x: number, y: number, w: number) => {
       cancelAnimation(searchOverlayProgress);
-      const endY = insets.top + 8;
-      const endX = 48; // room for fixed back chevron
-      const endRightReserve =
-        12 + SEARCH_OVERLAY_MAP_BUTTON_SIZE + SEARCH_OVERLAY_MAP_BUTTON_GAP;
-      const endW = Math.max(160, windowWidth - endX - endRightReserve);
       searchBarHomeX.value = Math.max(0, x);
       searchBarHomeY.value = Math.max(0, y);
       searchBarHomeW.value = Math.max(160, w);
@@ -1606,6 +1631,20 @@ export default function HomeScreen() {
     );
   }, [searchOverlayProgress]);
 
+  /** Instant dismiss — used when crossfading into map mode. */
+  const snapCloseSearchOverlay = useCallback(() => {
+    if (searchBlurTimerRef.current) {
+      clearTimeout(searchBlurTimerRef.current);
+      searchBlurTimerRef.current = null;
+    }
+    setSearchInputReady(false);
+    blurActiveElementOnWeb();
+    cancelAnimation(searchOverlayProgress);
+    searchOverlayProgress.value = 0;
+    setIsSearchFocused(false);
+    setIsSearchOverlayMounted(false);
+  }, [searchOverlayProgress]);
+
   /** Kept for any remaining blur hooks — overlay closes only via back / explicit dismiss. */
   const closeSearchDropdown = useCallback(() => {
     // no-op: full-screen search stays open until the user taps back
@@ -1616,7 +1655,7 @@ export default function HomeScreen() {
     voiceResultOrderRef.current = null;
   }, []);
 
-  // Map mode → search mode: reopen the search overlay with the carried query.
+  // Map mode → search / home: reopen overlay; optionally morph back to home bar.
   useFocusEffect(
     useCallback(() => {
       const pending = consumeOpenHomeSearch();
@@ -1624,11 +1663,57 @@ export default function HomeScreen() {
       clearVoiceSearchOwnership();
       setSearchCommitted(false);
       setSearchQuery(pending.query);
-      const task = InteractionManager.runAfterInteractions(() => {
-        openSearchDropdown();
-      });
+
+      const measureHomeBar = (
+        cb: (x: number, y: number, w: number) => void
+      ) => {
+        const node = homeSearchBarRef.current as
+          | (View & {
+              measureInWindow?: (
+                cb: (x: number, y: number, w: number, h: number) => void
+              ) => void;
+            })
+          | null;
+        if (node?.measureInWindow) {
+          node.measureInWindow((x, y, w) => cb(x, y, w));
+          return;
+        }
+        cb(24, Math.max(120, insets.top + 180), Math.max(200, windowWidth - 48));
+      };
+
+      const openThenMaybeDismiss = () => {
+        openSearchDropdown({
+          instant: pending.fromMap,
+          forDismiss: pending.dismissAfterOpen,
+        });
+        if (!pending.dismissAfterOpen) return;
+        // Morph from overlay rest position back to the home search bar.
+        requestAnimationFrame(() => {
+          measureHomeBar((x, y, w) => {
+            searchBarHomeX.value = Math.max(0, x);
+            searchBarHomeY.value = Math.max(0, y);
+            searchBarHomeW.value = Math.max(160, w);
+            closeSearchOverlay();
+          });
+        });
+      };
+
+      if (pending.fromMap) {
+        requestAnimationFrame(openThenMaybeDismiss);
+        return;
+      }
+      const task = InteractionManager.runAfterInteractions(openThenMaybeDismiss);
       return () => task.cancel();
-    }, [clearVoiceSearchOwnership, openSearchDropdown])
+    }, [
+      clearVoiceSearchOwnership,
+      closeSearchOverlay,
+      insets.top,
+      openSearchDropdown,
+      searchBarHomeW,
+      searchBarHomeX,
+      searchBarHomeY,
+      windowWidth,
+    ])
   );
 
   const lockVoiceResultOrder = useCallback((cards: CardItem[]) => {
@@ -2413,12 +2498,13 @@ export default function HomeScreen() {
       });
     }
     const q = searchQuery.trim();
-    closeSearchOverlay();
+    // Snap overlay away — reverse morph fights the map fade and feels laggy.
+    snapCloseSearchOverlay();
     router.push({
       pathname: BUSINESS_MAP_PATH,
-      params: q ? { q } : undefined,
+      params: q ? { q, fromSearch: '1' } : { fromSearch: '1' },
     });
-  }, [closeSearchOverlay, router, searchQuery]);
+  }, [router, searchQuery, snapCloseSearchOverlay]);
 
   // Voice-search hero needs room for headline + orb + copy.
   const heroContentHeight = isLoggedIn ? 268 : HERO_HEIGHT;
@@ -2672,7 +2758,7 @@ export default function HomeScreen() {
           <Pressable
             accessibilityRole="search"
             accessibilityLabel="Öppna sök"
-            onPress={openSearchDropdown}
+            onPress={() => openSearchDropdown()}
             style={[
               filterSurfaceStyle,
               styles.searchBarRow,
@@ -2784,11 +2870,11 @@ export default function HomeScreen() {
           style={{
             position: 'absolute',
             top: insets.top + 8,
-            left: 4,
+            left: SEARCH_OVERLAY_SIDE_PAD,
             zIndex: 100,
             elevation: 100,
-            width: 44,
-            height: SEARCH_BAR_HEIGHT,
+            width: SEARCH_OVERLAY_BACK_SIZE,
+            height: SEARCH_OVERLAY_BACK_SIZE,
             justifyContent: 'center',
             alignItems: 'center',
           }}
@@ -2798,14 +2884,18 @@ export default function HomeScreen() {
             accessibilityLabel="Stäng sök"
             onPress={closeSearchOverlay}
             hitSlop={12}
-            style={{
-              width: 44,
-              height: SEARCH_BAR_HEIGHT,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
+            style={[
+              filterSurfaceStyle,
+              {
+                width: SEARCH_OVERLAY_BACK_SIZE,
+                height: SEARCH_OVERLAY_BACK_SIZE,
+                borderRadius: 999,
+                alignItems: 'center',
+                justifyContent: 'center',
+              },
+            ]}
           >
-            <Ionicons name="chevron-back" size={28} color={theme.text} />
+            <Ionicons name="chevron-back" size={28} color={FilterChipTheme.text} />
           </Pressable>
         </View>
 
@@ -2815,7 +2905,7 @@ export default function HomeScreen() {
             {
               position: 'absolute',
               top: insets.top + 8,
-              right: 12,
+              right: SEARCH_OVERLAY_SIDE_PAD,
               zIndex: 100,
               elevation: 100,
               width: SEARCH_OVERLAY_MAP_BUTTON_SIZE,

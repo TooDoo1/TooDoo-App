@@ -48,6 +48,9 @@ export function getStackScreenOptionsWithoutSwipeBack(windowWidth?: number) {
     ...getSwipeableStackScreenOptions(windowWidth),
     gestureEnabled: false,
     fullScreenGestureEnabled: false,
+    // Fade keeps the search ↔ map header chrome continuous.
+    animation: 'fade' as const,
+    animationDuration: 220,
   };
 }
 

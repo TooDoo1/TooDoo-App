@@ -7,14 +7,16 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter, useSegments } from 'expo-router';
+import { useLocalSearchParams, useRouter, useSegments } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeIn } from 'react-native-reanimated';
 
 import { FilterChipTheme } from '@/lib/brand-colors';
 import { requestOpenHomeSearch } from '@/lib/home-search-handoff';
 import { performWebStackBack } from '@/lib/web-stack-navigation';
 
 const SEARCH_BAR_HEIGHT = 44;
+const SIDE_PAD = 12;
 const MAP_BUTTON_SIZE = SEARCH_BAR_HEIGHT;
 const MAP_BUTTON_GAP = 8;
 
@@ -22,6 +24,11 @@ type BusinessMapSearchHeaderProps = {
   value: string;
   onChangeText: (text: string) => void;
 };
+
+function paramFlag(value: string | string[] | undefined): boolean {
+  if (Array.isArray(value)) return value[0] === '1' || value[0] === 'true';
+  return value === '1' || value === 'true';
+}
 
 /**
  * Same header chrome as the home search overlay: back, search field, map button.
@@ -33,38 +40,50 @@ export function BusinessMapSearchHeader({
   const router = useRouter();
   const segments = useSegments();
   const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ fromSearch?: string | string[] }>();
+  const cameFromSearch = paramFlag(params.fromSearch);
   const trimmed = value.trim();
 
-  const goBack = useCallback(() => {
-    if (Platform.OS === 'web') {
-      const topSegment = segments[segments.length - 1];
-      performWebStackBack(router, {
-        isCompanyDetail: topSegment === 'company-detail',
-        topSegment,
-      });
-      return;
-    }
-    router.back();
-  }, [router, segments]);
+  const leaveMap = useCallback(
+    (mode: 'home' | 'search') => {
+      if (mode === 'home' && cameFromSearch) {
+        // Land on home with overlay at rest, then morph the bar back into place.
+        requestOpenHomeSearch(value, { fromMap: true, dismissAfterOpen: true });
+      } else if (mode === 'search') {
+        requestOpenHomeSearch(value, { fromMap: true });
+      }
 
-  const exitToSearchMode = useCallback(() => {
-    requestOpenHomeSearch(value);
-    try {
-      router.dismissTo('/');
-    } catch {
-      router.replace('/');
-    }
-  }, [router, value]);
+      if (router.canGoBack()) {
+        router.back();
+        return;
+      }
+      if (Platform.OS === 'web') {
+        const topSegment = segments[segments.length - 1];
+        performWebStackBack(router, {
+          isCompanyDetail: topSegment === 'company-detail',
+          topSegment,
+        });
+        return;
+      }
+      try {
+        router.dismissTo('/');
+      } catch {
+        router.replace('/');
+      }
+    },
+    [cameFromSearch, router, segments, value]
+  );
 
   return (
-    <View
+    <Animated.View
+      entering={FadeIn.duration(180)}
       pointerEvents="box-none"
       style={[styles.root, { paddingTop: insets.top + 8 }]}
     >
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Tillbaka"
-        onPress={goBack}
+        onPress={() => leaveMap('home')}
         hitSlop={12}
         style={[FilterChipTheme.surface, styles.backButton]}
       >
@@ -112,7 +131,7 @@ export function BusinessMapSearchHeader({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Visa sök"
-        onPress={exitToSearchMode}
+        onPress={() => leaveMap('search')}
         style={[
           FilterChipTheme.surface,
           styles.mapButton,
@@ -124,7 +143,7 @@ export function BusinessMapSearchHeader({
       >
         <Ionicons name="map" size={20} color={FilterChipTheme.text} />
       </Pressable>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -137,8 +156,8 @@ const styles = StyleSheet.create({
     zIndex: 40,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingLeft: 4,
-    paddingRight: 12,
+    paddingLeft: SIDE_PAD,
+    paddingRight: SIDE_PAD,
     gap: MAP_BUTTON_GAP,
   },
   backButton: {
