@@ -19,6 +19,9 @@ export type NearbyBusinessCard = {
   latitude?: number;
   longitude?: number;
   distanceKm?: number;
+  categoryName?: string;
+  hasEvent?: boolean;
+  hasOffer?: boolean;
 };
 
 let nearbyBusinessesCache: CacheEntry<NearbyBusinessCard[]> | null = null;
@@ -36,6 +39,11 @@ export function setHomeNearbyBusinessesCache(data: NearbyBusinessCard[]) {
 
 export function getHomeNearbyBusinessesCache(): NearbyBusinessCard[] | null {
   return isFresh(nearbyBusinessesCache) ? nearbyBusinessesCache.data : null;
+}
+
+/** Returns nearby cache even if TTL expired (useful for map while refreshing). */
+export function peekHomeNearbyBusinessesCache(): NearbyBusinessCard[] | null {
+  return nearbyBusinessesCache?.data ?? null;
 }
 
 export function hasFreshHomeNearbyBusinessesCache(): boolean {

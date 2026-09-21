@@ -88,6 +88,9 @@ Create `TooDoo/.env` (or set in your host/CI):
 
 ```bash
 EXPO_PUBLIC_API_URL=https://your-backend.example.com
+# Android MapView (react-native-maps) — required for release/dev builds on Android.
+# iOS uses Apple Maps by default and does not need this key.
+GOOGLE_MAPS_API_KEY=your-google-maps-sdk-key
 ```
 
 If unset, the app defaults to:
@@ -98,6 +101,8 @@ https://toodoo-backend-production-10ee.up.railway.app
 
 Production web builds use [`TooDoo/.env.production`](TooDoo/.env.production) when configured for deploy.
 
+**Maps:** OpenStreetMap data via **MapLibre + OpenFreeMap** on web (TooDoo pins/cards/categories on top). Native explore map uses Carto raster + the same pin data until MapLibre Native. Customize basemap in [Maputnik](https://maputnik.github.io/) — see [`TooDoo/public/map-styles/README.md`](TooDoo/public/map-styles/README.md). No Google.
+
 **Image URLs:** API responses often return root-relative `publicUrl` paths (e.g. `/images/...`). On web, concatenate your API origin with that path when the SPA runs on a different host.
 
 ## Project structure (TooDoo)
@@ -107,6 +112,7 @@ TooDoo/
   app/                      Expo Router screens
     (tabs)/                 Main tab flows (Upptäck, Favoriter, Erbjudanden, Logga in, Profil, …)
     company-detail.tsx      Business / offer detail stack screen
+    business-map.tsx        Nearby businesses map (native MapView)
     sokresultat.tsx         Search results
     profile-*.tsx           Profile sub-screens
     _layout.tsx             Root stack + providers

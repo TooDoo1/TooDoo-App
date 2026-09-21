@@ -5,6 +5,9 @@ import { brandInkRgba } from '@/lib/brand-colors';
 /** Orange dot for companies with an active erbjudande. */
 export const OFFER_ACTIVITY_COLOR = '#ff9500';
 
+/** Blue dot for companies with an active event (matches theme.eventColor). */
+export const EVENT_ACTIVITY_COLOR = '#478beb';
+
 /** Same as the Nära dig / distance pill background. */
 const RING_COLOR = brandInkRgba(0.75);
 

@@ -19,6 +19,7 @@ import { Button } from "@react-navigation/elements";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { OfferMap } from "@/components/ui/offer-map";
+import { buildGoogleMapsDirectionsUrl, buildGoogleMapsSearchUrl } from "@/lib/osrm-route";
 import { useAuth } from "@/context/auth-context";
 import { useFavorites } from "@/context/favorites-context";
 import { useRealtimeSubscription } from "@/hooks/use-realtime-subscription";
@@ -757,11 +758,11 @@ export default function CompanyDetailScreen() {
   }, [businessCoordinate, paramCoordinate]);
 
   const mapCoordinate = geocodedCoordinate ?? fallbackCoordinate;
-  const mapsUrl = addressText
-    ? mapOriginCoords
-      ? `https://www.google.com/maps/dir/?api=1&origin=${mapOriginCoords.latitude},${mapOriginCoords.longitude}&destination=${encodeURIComponent(addressText)}&travelmode=driving`
-      : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressText)}`
-    : undefined;
+  const mapsUrl = mapCoordinate
+    ? buildGoogleMapsDirectionsUrl(mapCoordinate, mapOriginCoords)
+    : addressText
+      ? buildGoogleMapsSearchUrl(addressText)
+      : undefined;
   const mapResetKey = `${id ?? "no-id"}-${addressText ?? "no-address"}-${resetNonceText ?? "no-reset"}-${mapOriginCoords ? `${mapOriginCoords.latitude},${mapOriginCoords.longitude}` : "no-origin"}`;
 
   const isFocused = useIsFocused();
@@ -1447,9 +1448,20 @@ export default function CompanyDetailScreen() {
               latitude={mapCoordinate?.latitude ?? fallbackCoordinate?.latitude ?? Number.NaN}
               longitude={mapCoordinate?.longitude ?? fallbackCoordinate?.longitude ?? Number.NaN}
               title={displayTitle || "Erbjudande"}
+              imageUri={typeof imageUri === "string" ? imageUri : undefined}
+              categoryName={
+                (typeof hydratedBusiness?.categoryName === "string" &&
+                  hydratedBusiness.categoryName) ||
+                (typeof hydratedBusiness?.category?.name === "string" &&
+                  hydratedBusiness.category.name) ||
+                undefined
+              }
+              hasEvent={events.length > 0}
+              hasOffer={offers.length > 0}
               addressText={addressText}
               originLatitude={mapOriginCoords?.latitude}
               originLongitude={mapOriginCoords?.longitude}
+              chipBackgroundColor={theme.cardBg}
             />
           </View>
         </View>

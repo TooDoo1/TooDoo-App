@@ -1,6 +1,7 @@
 import { Dimensions, Platform } from 'react-native';
 
 export const NARA_DIG_PATH = '/nara-dig' as const;
+export const BUSINESS_MAP_PATH = '/business-map' as const;
 export const HETA_ERBJUDANDEN_PATH = '/heta-erbjudanden' as const;
 export const SLUTAR_SNART_PATH = '/slutar-snart' as const;
 export const EVENEMANG_PATH = '/evenemang' as const;
@@ -33,6 +34,7 @@ export function getSwipeableStackScreenOptions(windowWidth?: number) {
 export const FULL_SCREEN_STACK_SEGMENTS = [
   'company-detail',
   'nara-dig',
+  'business-map',
   'heta-erbjudanden',
   'slutar-snart',
   'evenemang',

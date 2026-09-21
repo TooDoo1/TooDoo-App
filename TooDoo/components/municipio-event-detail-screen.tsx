@@ -23,6 +23,7 @@ import { useThemePreference } from '@/context/theme-preference-context';
 import { navigateBackFromDetail } from '@/lib/detail-navigation';
 import { BrandColors, brandInkRgba, brandNavyRgba } from '@/lib/brand-colors';
 import { resolveMapOriginCoords, isPlausibleSwedenCoordinate } from '@/lib/geo';
+import { buildGoogleMapsDirectionsUrl, buildGoogleMapsSearchUrl } from '@/lib/osrm-route';
 import {
   fetchMunicipioEventById,
   formatMunicipioEventDateRange,
@@ -152,11 +153,9 @@ export function MunicipioEventDetailScreen() {
   const eventRemainingMs = event ? getEventRemainingMs(event, nowMs) : null;
 
   const mapsUrl = mapCoordinate
-    ? mapOriginCoords
-      ? `https://www.google.com/maps/dir/?api=1&origin=${mapOriginCoords.latitude},${mapOriginCoords.longitude}&destination=${mapCoordinate.latitude},${mapCoordinate.longitude}&travelmode=driving`
-      : `https://www.google.com/maps/search/?api=1&query=${mapCoordinate.latitude},${mapCoordinate.longitude}`
+    ? buildGoogleMapsDirectionsUrl(mapCoordinate, mapOriginCoords)
     : addressText
-      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressText)}`
+      ? buildGoogleMapsSearchUrl(addressText)
       : undefined;
 
   const mapResetKey = `${eventId ?? 'no-id'}-${mapCoordinate?.latitude ?? 'no-lat'}-${mapCoordinate?.longitude ?? 'no-lng'}-${mapOriginCoords ? `${mapOriginCoords.latitude},${mapOriginCoords.longitude}` : 'no-origin'}`;
@@ -409,6 +408,7 @@ export function MunicipioEventDetailScreen() {
                   addressText={addressText}
                   originLatitude={mapOriginCoords?.latitude}
                   originLongitude={mapOriginCoords?.longitude}
+                  chipBackgroundColor={theme.cardBg}
                 />
               </View>
             </View>

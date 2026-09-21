@@ -12,7 +12,7 @@ export const OFFERS_CATEGORY_ACCENT = '#ff3b30';
 export function getCategoryIconName(label: string): ComponentProps<typeof Ionicons>['name'] {
   const name = label.toLowerCase();
   if (name.includes('erbjud')) return 'pricetag-outline';
-  if (name.includes('mat') || name.includes('food') || name.includes('restaur')) return 'restaurant-outline';
+  if (name.includes('mat') || name.includes('food') || name.includes('restaur') || name.includes('kiosk') || name.includes('café') || name.includes('cafe') || name.includes('fika') || name.includes('pizza') || name.includes('gatukök') || name.includes('gatukok') || name.includes('bager')) return 'restaurant-outline';
   if (name.includes('event') || name.includes('evenemang')) return 'calendar-outline';
   if (name.includes('familj') || name.includes('family') || name.includes('barn')) return 'people-outline';
   if (name.includes('sport') || name.includes('träning') || name.includes('fitness')) return 'football-outline';

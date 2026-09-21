@@ -212,6 +212,7 @@ function AppShell() {
 							<Stack.Screen name="(tabs)" options={{ headerShown: false }} />
 							<Stack.Screen name="company-detail" options={swipeableStackScreenOptions} />
 							<Stack.Screen name="nara-dig" options={swipeableStackScreenOptions} />
+							<Stack.Screen name="business-map" options={swipeableStackScreenOptions} />
 							<Stack.Screen name="heta-erbjudanden" options={swipeableStackScreenOptions} />
 							<Stack.Screen name="slutar-snart" options={swipeableStackScreenOptions} />
 							<Stack.Screen name="evenemang" options={swipeableStackScreenOptions} />

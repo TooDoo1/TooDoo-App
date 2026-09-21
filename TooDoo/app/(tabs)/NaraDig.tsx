@@ -37,6 +37,7 @@ import {
   haversineKm,
 } from '@/lib/geo';
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
+import { BUSINESS_MAP_PATH } from '@/lib/stack-navigation';
 import { usePaginatedList, SEE_ALL_PAGE_SIZE } from '@/lib/paginated-list';
 import { schedulePrefetchImageUris, usePrefetchPageImages } from '@/lib/image-prefetch';
 import { IMAGE_DISPLAY_WIDTH } from '@/lib/image-url';
@@ -461,18 +462,36 @@ export default function NaraDigScreen() {
   const listHeader = useMemo(
     () => (
       <View className="mb-5">
-        <View className="flex-row items-center">
-          <Ionicons name="navigate" size={22} color="#ff3b30" />
-          <Text className="ml-2 text-2xl font-semibold" style={{ color: theme.text }}>
-            Nära dig
-          </Text>
+        <View className="flex-row items-center justify-between">
+          <View className="min-w-0 flex-1 flex-row items-center">
+            <Ionicons name="navigate" size={22} color="#ff3b30" />
+            <Text className="ml-2 text-2xl font-semibold" style={{ color: theme.text }}>
+              Nära dig
+            </Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Visa på karta"
+            onPress={() => router.push(BUSINESS_MAP_PATH)}
+            className="ml-3 flex-row items-center rounded-full px-3 py-2"
+            style={{
+              backgroundColor: theme.cardBg,
+              borderWidth: 1,
+              borderColor: theme.border,
+            }}
+          >
+            <Ionicons name="map-outline" size={16} color={theme.text} />
+            <Text className="ml-1.5 text-xs font-semibold" style={{ color: theme.text }}>
+              Karta
+            </Text>
+          </Pressable>
         </View>
         <Text className="mt-1 text-sm" style={{ color: theme.textMuted }}>
           {headerNote}
         </Text>
       </View>
     ),
-    [headerNote, theme.text, theme.textMuted]
+    [headerNote, router, theme.border, theme.cardBg, theme.text, theme.textMuted]
   );
 
   const pagination = usePaginatedList(companies, refreshNonce);
