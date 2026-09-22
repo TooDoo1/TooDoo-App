@@ -104,7 +104,15 @@ export function formatRouteModeLabel(mode: RouteMode): string {
 }
 
 export function formatRouteSummary(route: DrivingRoute): string {
-  const minutes = Math.max(1, Math.round(route.durationSeconds / 60));
+  const totalMinutes = Math.max(1, Math.round(route.durationSeconds / 60));
+  const timeLabel =
+    totalMinutes >= 60
+      ? (() => {
+          const hours = Math.floor(totalMinutes / 60);
+          const minutes = totalMinutes % 60;
+          return minutes > 0 ? `${hours} h ${minutes} min` : `${hours} h`;
+        })()
+      : `${totalMinutes} min`;
   const km = route.distanceMeters / 1000;
   const distance =
     km < 1
@@ -112,7 +120,7 @@ export function formatRouteSummary(route: DrivingRoute): string {
       : km < 10
         ? `${km.toFixed(1)} km`
         : `${Math.round(km)} km`;
-  return `${minutes} min · ${distance}`;
+  return `${timeLabel} · ${distance}`;
 }
 
 /** OpenStreetMap directions — car or foot engine. */
