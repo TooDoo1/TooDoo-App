@@ -54,7 +54,7 @@ import { CompanyActivityDots } from '@/components/ui/company-activity-dots';
 import {
   fillMissingDistancesFromAddresses,
   formatDistanceKm,
-  getUserCoords,
+  getEffectiveUserCoords,
 } from '@/lib/geo';
 import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
 import { IMAGE_DISPLAY_WIDTH } from '@/lib/image-url';
@@ -1402,7 +1402,7 @@ export default function HomeScreen() {
     let cancelled = false;
 
     (async () => {
-      const resolved = await getUserCoords();
+      const resolved = await getEffectiveUserCoords();
       if (!cancelled && resolved) {
         setCoords(resolved);
       }

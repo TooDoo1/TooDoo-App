@@ -33,7 +33,7 @@ import {
 import {
   fillMissingDistancesFromAddresses,
   formatDistanceKm,
-  getUserCoords,
+  getEffectiveUserCoords,
   resolveUserCityFromDevice,
 } from '@/lib/geo';
 import { openOfferDetail } from '@/lib/open-offer-detail';
@@ -170,7 +170,7 @@ export function SearchResultsScreen() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const resolved = await getUserCoords();
+      const resolved = await getEffectiveUserCoords();
       if (!cancelled && resolved) {
         setCoords(resolved);
       }

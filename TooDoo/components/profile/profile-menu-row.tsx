@@ -8,12 +8,14 @@ export function ProfileMenuRow({
   label,
   description,
   icon,
+  iconColor,
   onPress,
   isLast = false,
 }: {
   label: string;
   description?: string;
   icon: keyof typeof Ionicons.glyphMap;
+  iconColor?: string;
   onPress: () => void;
   isLast?: boolean;
 }) {
@@ -33,7 +35,7 @@ export function ProfileMenuRow({
         className="mr-3 h-9 w-9 items-center justify-center rounded-full"
         style={{ backgroundColor: theme.cardBgMuted }}
       >
-        <Ionicons name={icon} size={18} color={theme.text} />
+        <Ionicons name={icon} size={18} color={iconColor ?? theme.text} />
       </View>
       <View className="flex-1 pr-2">
         <Text className="text-base font-medium" style={{ color: theme.text }}>

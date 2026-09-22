@@ -31,7 +31,7 @@ import {
 } from '@/lib/business-map-data';
 import { getCategoryAccentColor, OFFERS_CATEGORY_ACCENT } from '@/lib/category-colors';
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
-import { getUserCoords, type Coords } from '@/lib/geo';
+import { getEffectiveUserCoords, type Coords } from '@/lib/geo';
 import { MAP_ATTRIBUTION, mapShellBackground, mapTileUrlForMode } from '@/lib/map-style';
 import {
   fetchTravelRoutes,
@@ -125,7 +125,7 @@ export default function BusinessMapScreen() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const coords = await getUserCoords().catch(() => null);
+      const coords = await getEffectiveUserCoords().catch(() => null);
       if (!cancelled) setUserCoords(coords);
       try {
         const mapped = await loadMapBusinesses(coords);

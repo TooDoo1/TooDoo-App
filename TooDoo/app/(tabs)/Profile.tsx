@@ -120,6 +120,13 @@ export default function ProfileScreen() {
                 onPress={() => router.push('/profile-konto')}
               />
               <ProfileMenuRow
+                label="Plats"
+                description="Egna platser utan GPS"
+                icon="location"
+                iconColor="#ff3b30"
+                onPress={() => router.push('/profile-plats')}
+              />
+              <ProfileMenuRow
                 label="Säkerhet"
                 description="Byt lösenord"
                 icon="lock-closed-outline"

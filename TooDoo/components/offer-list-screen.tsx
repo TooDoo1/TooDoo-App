@@ -29,7 +29,7 @@ import {
   getEndingDateParts,
   type OfferCardItem,
 } from '@/lib/home-offers';
-import { getUserCoords } from '@/lib/geo';
+import { getEffectiveUserCoords } from '@/lib/geo';
 import { getHomeEndingSoonCache, getHomeHotOffersCache } from '@/lib/home-list-cache';
 import { openOfferDetail } from '@/lib/open-offer-detail';
 import { shareOfferFromCard } from '@/lib/share-offer';
@@ -269,7 +269,7 @@ export function OfferListScreen({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const resolved = await getUserCoords();
+      const resolved = await getEffectiveUserCoords();
       if (!cancelled && resolved) setCoords(resolved);
     })();
     return () => {

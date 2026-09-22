@@ -34,7 +34,7 @@ import {
   type Coords,
   formatDistanceKm,
   geocodeAddressCached,
-  getUserCoords,
+  getEffectiveUserCoords,
   haversineKm,
 } from '@/lib/geo';
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
@@ -267,7 +267,7 @@ export default function NaraDigScreen() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const resolved = await getUserCoords();
+      const resolved = await getEffectiveUserCoords();
       if (!cancelled && resolved) setCoords(resolved);
     })();
     return () => {

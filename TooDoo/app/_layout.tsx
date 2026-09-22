@@ -223,6 +223,7 @@ function AppShell() {
 							<Stack.Screen name="municipio-event-detail" options={swipeableStackScreenOptions} />
 							<Stack.Screen name="sokresultat" options={swipeableStackScreenOptions} />
 							<Stack.Screen name="profile-konto" options={swipeableStackScreenOptions} />
+							<Stack.Screen name="profile-plats" options={swipeableStackScreenOptions} />
 							<Stack.Screen name="profile-security" options={swipeableStackScreenOptions} />
 							<Stack.Screen name="profile-policy" options={swipeableStackScreenOptions} />
 							<Stack.Screen name="profile-support" options={swipeableStackScreenOptions} />

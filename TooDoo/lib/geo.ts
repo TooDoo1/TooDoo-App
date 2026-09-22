@@ -11,14 +11,53 @@ export function isPlausibleSwedenCoordinate(lat: number, lng: number) {
 
 const NOMINATIM_USER_AGENT = 'TooDooApp/1.0 (contact: support@toodoo.app)';
 
-/** Geocode a postal address via Nominatim (works on web and native). */
-export async function geocodeAddressNominatim(address: string): Promise<Coords | null> {
-  const trimmed = address.trim();
-  if (!trimmed) return null;
+function withSwedenHint(address: string): string {
+  const lower = address.toLowerCase();
+  if (
+    lower.includes('sverige') ||
+    lower.includes('sweden') ||
+    /,?\s*se\s*$/i.test(address)
+  ) {
+    return address;
+  }
+  return `${address}, Sverige`;
+}
 
+/** Photon (Komoot) — CORS-friendly and reliable from web browsers. */
+async function geocodeAddressPhoton(address: string): Promise<Coords | null> {
   try {
     const response = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=se&q=${encodeURIComponent(trimmed)}`,
+      `https://photon.komoot.io/api/?q=${encodeURIComponent(address)}&limit=5&lang=default`,
+      { headers: { Accept: 'application/json' } }
+    );
+    if (!response.ok) return null;
+    const json = (await response.json()) as {
+      features?: Array<{
+        properties?: { countrycode?: string };
+        geometry?: { coordinates?: [number, number] };
+      }>;
+    };
+    const features = Array.isArray(json.features) ? json.features : [];
+    const preferred =
+      features.find((f) => f.properties?.countrycode?.toUpperCase() === 'SE') ??
+      features[0];
+    const pair = preferred?.geometry?.coordinates;
+    if (!pair || pair.length < 2) return null;
+    const [lng, lat] = pair;
+    if (isPlausibleSwedenCoordinate(lat, lng)) {
+      return { lat, lng };
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+/** Nominatim raw lookup (often blocked/rate-limited in browsers). */
+async function geocodeAddressNominatimRaw(address: string): Promise<Coords | null> {
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=se&q=${encodeURIComponent(address)}`,
       {
         headers: {
           Accept: 'application/json',
@@ -26,6 +65,9 @@ export async function geocodeAddressNominatim(address: string): Promise<Coords |
         },
       }
     );
+    if (!response.ok) return null;
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!contentType.includes('json')) return null;
     const results: Array<{ lat: string; lon: string }> = await response.json();
     const firstResult = results?.[0];
     const lat = Number(firstResult?.lat);
@@ -36,7 +78,21 @@ export async function geocodeAddressNominatim(address: string): Promise<Coords |
   } catch {
     // ignore
   }
+  return null;
+}
 
+/** Try Photon first (web-friendly), then Nominatim; retry with a Sweden hint. */
+export async function geocodeAddressNominatim(address: string): Promise<Coords | null> {
+  const trimmed = address.trim();
+  if (!trimmed) return null;
+
+  const attempts = [trimmed, withSwedenHint(trimmed)];
+  for (const query of attempts) {
+    const photon = await geocodeAddressPhoton(query);
+    if (photon) return photon;
+    const nominatim = await geocodeAddressNominatimRaw(query);
+    if (nominatim) return nominatim;
+  }
   return null;
 }
 
@@ -80,11 +136,13 @@ export async function geocodeAddressCached(address: string): Promise<Coords | nu
   const cacheKey = trimmed.toLowerCase();
 
   if (Platform.OS === 'web') {
+    // Don't cache misses — CORS/rate-limit failures would lock out retries.
     if (webGeocodeCache.has(cacheKey)) {
-      return webGeocodeCache.get(cacheKey) ?? null;
+      const hit = webGeocodeCache.get(cacheKey);
+      if (hit) return hit;
     }
     const result = await geocodeAddressNominatim(trimmed);
-    webGeocodeCache.set(cacheKey, result);
+    if (result) webGeocodeCache.set(cacheKey, result);
     return result;
   }
 
@@ -97,8 +155,7 @@ export async function geocodeAddressCached(address: string): Promise<Coords | nu
       if (parsed && typeof parsed.lat === 'number' && typeof parsed.lng === 'number') {
         return parsed;
       }
-      // Cached "no result" marker — don't retry.
-      return null;
+      // Ignore cached misses so a previous Nominatim failure can recover via Photon.
     }
   } catch {
     // ignore cache read errors
@@ -120,7 +177,9 @@ export async function geocodeAddressCached(address: string): Promise<Coords | nu
   }
 
   const fallback = await geocodeAddressNominatim(trimmed);
-  await cacheNativeGeocodeResult(key, fallback);
+  if (fallback) {
+    await cacheNativeGeocodeResult(key, fallback);
+  }
   return fallback;
 }
 
@@ -290,20 +349,6 @@ export async function getUserCoordsIfGranted(): Promise<Coords | null> {
   }
 }
 
-/** Resolve the user's position for map directions (reuse grant or ask once on web). */
-export async function resolveMapOriginCoords(): Promise<Coords | null> {
-  const grantedCoords = await getUserCoordsIfGranted();
-  if (grantedCoords) return grantedCoords;
-
-  if (Platform.OS === 'web') {
-    const permission = await queryBrowserGeolocationPermission();
-    if (permission === 'denied') return null;
-    return getUserCoords();
-  }
-
-  return null;
-}
-
 /** Request foreground location permission and resolve the user's coordinates (or null). */
 export async function getUserCoords(): Promise<Coords | null> {
   if (Platform.OS === 'web') return readCoordsFromBrowser();
@@ -314,6 +359,43 @@ export async function getUserCoords(): Promise<Coords | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Preferred app location: selected custom place, otherwise device GPS.
+ * Use this for distances, map origin, and “near you” sorting.
+ */
+export async function getEffectiveUserCoords(): Promise<Coords | null> {
+  const { getActiveCustomLocationCoords } = await import('@/lib/custom-locations');
+  const custom = await getActiveCustomLocationCoords();
+  if (custom) return custom;
+  return getUserCoords();
+}
+
+/** Like getUserCoordsIfGranted, but honors an active custom location first. */
+export async function getEffectiveUserCoordsIfGranted(): Promise<Coords | null> {
+  const { getActiveCustomLocationCoords } = await import('@/lib/custom-locations');
+  const custom = await getActiveCustomLocationCoords();
+  if (custom) return custom;
+  return getUserCoordsIfGranted();
+}
+
+/** Resolve the user's position for map directions (reuse grant or ask once on web). */
+export async function resolveMapOriginCoords(): Promise<Coords | null> {
+  const { getActiveCustomLocationCoords } = await import('@/lib/custom-locations');
+  const custom = await getActiveCustomLocationCoords();
+  if (custom) return custom;
+
+  const grantedCoords = await getUserCoordsIfGranted();
+  if (grantedCoords) return grantedCoords;
+
+  if (Platform.OS === 'web') {
+    const permission = await queryBrowserGeolocationPermission();
+    if (permission === 'denied') return null;
+    return getUserCoords();
+  }
+
+  return null;
 }
 
 export type ResolvedUserLocation = {
@@ -329,7 +411,9 @@ export async function resolveUserCityFromDevice(options?: {
   requestPermission?: boolean;
 }): Promise<ResolvedUserLocation | null> {
   const requestPermission = options?.requestPermission ?? false;
-  const coords = requestPermission ? await getUserCoords() : await getUserCoordsIfGranted();
+  const coords = requestPermission
+    ? await getEffectiveUserCoords()
+    : await getEffectiveUserCoordsIfGranted();
   if (!coords) return null;
   const city = await reverseGeocodeCity(coords);
   if (!city) return null;
