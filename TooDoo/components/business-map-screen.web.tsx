@@ -32,6 +32,7 @@ import {
 import { getCategoryAccentColor, OFFERS_CATEGORY_ACCENT } from '@/lib/category-colors';
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
 import { getEffectiveUserCoords, type Coords } from '@/lib/geo';
+import { warmMapPinImages } from '@/lib/map-business-pin';
 import { MAP_PAINT_VERSION } from '@/lib/maplibre-brand';
 import { mapShellBackground } from '@/lib/map-style';
 import {
@@ -161,6 +162,12 @@ export default function BusinessMapScreen() {
     () => filterBusinessesByQuery(businesses, searchQuery),
     [businesses, searchQuery]
   );
+
+  // Decode nearby pin avatars ahead of time — panning swaps pins in from this
+  // pool, so their images should already sit in the HTTP + decode cache.
+  useEffect(() => {
+    warmMapPinImages(matchedBusinesses.map((b) => b.imageUri), 40);
+  }, [matchedBusinesses]);
 
   // Businesses load once; pins swap in and out as the viewport moves.
   // Previously shown pins keep their slot while in view (less marker churn).

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { StyleSheet, Text, View, type ViewStyle } from 'react-native';
 
 import { useThemePreference } from '@/context/theme-preference-context';
+import { MAP_DEFAULT_CENTER } from '@/lib/business-map-data';
 import { loadTooDooMapStyle, MAP_PAINT_VERSION } from '@/lib/maplibre-brand';
 import { createBusinessPinElement, businessPinMarkerOffset } from '@/lib/map-business-pin';
 import { MAP_ATTRIBUTION, mapShellBackground } from '@/lib/map-style';
@@ -131,6 +132,53 @@ export function prefetchBusinessMapAssets(): void {
   if (typeof window === 'undefined') return;
   void loadMapLibre().catch(() => {});
   void loadTooDooMapStyle().catch(() => {});
+}
+
+let tileWarmupStarted = false;
+
+/**
+ * Spin up a hidden MapLibre instance over Helsingborg so vector tiles land in
+ * the browser cache while the splash is still covering the UI.
+ */
+export function warmBusinessMapTiles(): void {
+  if (typeof window === 'undefined' || tileWarmupStarted) return;
+  tileWarmupStarted = true;
+
+  void (async () => {
+    try {
+      const [ml, mapStyle] = await Promise.all([loadMapLibre(), loadTooDooMapStyle()]);
+      const host = document.createElement('div');
+      host.setAttribute('aria-hidden', 'true');
+      host.style.cssText =
+        'position:fixed;left:-9999px;top:0;width:390px;height:720px;opacity:0;pointer-events:none;';
+      document.body.appendChild(host);
+
+      const map = new ml.Map({
+        container: host,
+        style: mapStyle,
+        center: [MAP_DEFAULT_CENTER.lng, MAP_DEFAULT_CENTER.lat],
+        zoom: 13,
+        interactive: false,
+        attributionControl: false,
+        fadeDuration: 0,
+        pixelRatio: 1,
+      });
+
+      const teardown = () => {
+        try {
+          map.remove();
+        } catch {
+          // ignore
+        }
+        host.remove();
+      };
+
+      map.once('idle', teardown);
+      window.setTimeout(teardown, 8000);
+    } catch {
+      // Splash warmup is best-effort.
+    }
+  })();
 }
 
 function createPinElement(pin: MapLibrePin, badgeBg?: string) {

@@ -1,7 +1,8 @@
 import { apiUrl, normalizeImageUrl } from '@/lib/api';
-import { fetchApprovedBusinessesCatalog } from '@/lib/catalog-cache';
+import { fetchApprovedBusinessesCatalog, fetchCategoriesCatalog } from '@/lib/catalog-cache';
 import { fetchBusinessEvents } from '@/lib/business-events';
 import { haversineKm, isPlausibleSwedenCoordinate, type Coords } from '@/lib/geo';
+import { resolveBusinessCategoryIds } from '@/lib/home-offers';
 import {
   getHomeNearbyBusinessesCache,
   peekHomeNearbyBusinessesCache,
@@ -208,9 +209,22 @@ export async function loadMapBusinesses(coords: Coords | null): Promise<MapBusin
   const activityPromise = loadActivitySets();
 
   try {
-    const json = await fetchApprovedBusinessesCatalog();
+    const [json, categoriesRaw] = await Promise.all([
+      fetchApprovedBusinessesCatalog(),
+      fetchCategoriesCatalog().catch(() => [] as unknown[]),
+    ]);
     const { eventIds, offerIds } = await activityPromise;
     const raw = parseBusinesses(json);
+
+    // Businesses store category ids — resolve names via the categories catalog
+    // (same as the home screen) so pin colors match the category chips.
+    const categoryNameById = new Map<string, string>();
+    (categoriesRaw as any[]).forEach((category) => {
+      const id = category?.id ?? category?._id;
+      if (id && typeof category?.name === 'string' && category.name.trim()) {
+        categoryNameById.set(String(id), category.name.trim());
+      }
+    });
     const nextCards: NearbyBusinessCard[] = [];
     const mapped: MapBusiness[] = [];
 
@@ -223,7 +237,9 @@ export async function loadMapBusinesses(coords: Coords | null): Promise<MapBusin
       const name = String(b?.name ?? b?.title ?? 'Företag').trim() || 'Företag';
       const address = [b?.address, b?.city].filter(Boolean).join(', ') || '';
       const description = typeof b?.description === 'string' ? b.description : '';
-      const categoryName = pickCategoryName(b);
+      const categoryName =
+        pickCategoryName(b) ??
+        categoryNameById.get(resolveBusinessCategoryIds(b)[0] ?? '');
       const distanceKm =
         coords != null ? haversineKm(coords.lat, coords.lng, lat, lng) : undefined;
       const imageUri = pickImageUri(b);

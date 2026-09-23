@@ -1,8 +1,39 @@
 import { OFFER_ACTIVITY_COLOR, EVENT_ACTIVITY_COLOR } from '@/components/ui/company-activity-dots';
 import { BrandColors } from '@/lib/brand-colors';
 import { OFFERS_CATEGORY_ACCENT } from '@/lib/category-colors';
+import { sizedImageUrl } from '@/lib/image-url';
 
 export { EVENT_ACTIVITY_COLOR, OFFER_ACTIVITY_COLOR };
+
+/** Largest pin diameter — request CDN variants at this display size. */
+const PIN_IMAGE_DISPLAY_WIDTH = 44;
+
+/** Pin-sized variant of a business image URL (Unsplash etc. get tiny files). */
+export function pinSizedImageUrl(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  return sizedImageUrl(raw, PIN_IMAGE_DISPLAY_WIDTH);
+}
+
+const warmedPinImages = new Set<string>();
+
+/**
+ * Decode pin images ahead of marker creation so pins paint instantly.
+ * Uses the same sized URL as the marker <img>, so the HTTP cache is shared.
+ */
+export function warmMapPinImages(uris: Array<string | undefined>, max = 30): void {
+  if (typeof window === 'undefined' || typeof window.Image === 'undefined') return;
+  let count = 0;
+  for (const raw of uris) {
+    if (count >= max) break;
+    const sized = pinSizedImageUrl(raw);
+    if (!sized || !/^https?:\/\//i.test(sized) || warmedPinImages.has(sized)) continue;
+    warmedPinImages.add(sized);
+    count += 1;
+    const img = new window.Image();
+    img.decoding = 'async';
+    img.src = sized;
+  }
+}
 
 export type BusinessPinOptions = {
   color?: string;
@@ -50,7 +81,8 @@ export function createBusinessPinElement(options: BusinessPinOptions = {}): HTML
   const badgeBg = escapeXml(options.badgeBg ?? BrandColors.dark.card);
   const border = selected ? 3.5 : 3;
   const inner = size - border * 2;
-  const hasImage = Boolean(options.imageUri && /^https?:\/\//i.test(options.imageUri ?? ''));
+  const pinImageUri = pinSizedImageUrl(options.imageUri);
+  const hasImage = Boolean(pinImageUri && /^https?:\/\//i.test(pinImageUri));
   const hasEvent = Boolean(options.hasEvent);
   const hasOffer = Boolean(options.hasOffer);
 
@@ -76,8 +108,10 @@ export function createBusinessPinElement(options: BusinessPinOptions = {}): HTML
     'display:block',
   ].join(';');
 
+  // Eager + high priority: only ~10 pins render at once and they're the main
+  // content of the map — lazy loading just delayed them until after layout.
   const content = hasImage
-    ? `<img src="${escapeXml(options.imageUri!)}" alt="" decoding="async" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block;" onerror="this.style.display='none';this.parentElement&&(this.parentElement.textContent='${initial}');" />`
+    ? `<img src="${escapeXml(pinImageUri!)}" alt="" decoding="async" loading="eager" fetchpriority="high" style="width:100%;height:100%;object-fit:cover;display:block;" onerror="this.style.display='none';this.parentElement&&(this.parentElement.textContent='${initial}');" />`
     : `<span style="font-family:system-ui,-apple-system,sans-serif;font-size:${selected ? 15 : 13}px;font-weight:700;color:${safeColor};line-height:1;">${initial}</span>`;
 
   el.innerHTML = `

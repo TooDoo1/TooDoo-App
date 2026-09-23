@@ -24,12 +24,14 @@
       position: relative;
     }
     #center-wrap {
-      position: relative;
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
       z-index: 10;
       display: flex;
-      flex-direction: column;
       align-items: center;
-      gap: 22px;
+      justify-content: center;
     }
     #logo-wrap {
       position: relative;
@@ -61,16 +63,6 @@
       transform: scale(0.85);
       transform-origin: center center;
     }
-    #brand-text {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      font-size: 38px;
-      font-weight: 700;
-      letter-spacing: 3px;
-      color: #fff;
-      opacity: 0;
-      transform: translateY(10px);
-      text-shadow: 0 0 30px rgba(255,220,80,0);
-    }
   </style>
 </head>
 <body>
@@ -78,9 +70,8 @@
     <div id="center-wrap">
       <div id="logo-wrap">
         <div id="logo-glow"></div>
-        <img id="logo-img" src="/icon-192.png" alt="TooDoo" />
+        <img id="logo-img" src="/icon-192.png" alt="" />
       </div>
-      <div id="brand-text">TooDoo</div>
     </div>
   </div>
   <script>
@@ -103,7 +94,6 @@
 
     const logoImg = document.getElementById('logo-img');
     const logoGlow = document.getElementById('logo-glow');
-    const brandText = document.getElementById('brand-text');
 
     function applyLogoGlow(intensity) {
       const gs = Math.round(8 + intensity * 16);
@@ -176,31 +166,10 @@
       requestAnimationFrame(step);
     }
 
-    function showText(onDone) {
-      let p = 0;
-      const dur = 600;
-      const start = performance.now();
-      function step(now) {
-        p = Math.min(1, (now - start) / dur);
-        const ease = p < 0.5 ? 2 * p * p : -1 + (4 - 2 * p) * p;
-        brandText.style.opacity = ease.toFixed(3);
-        brandText.style.transform = 'translateY(' + (10 - 10 * ease).toFixed(1) + 'px)';
-        const glow = Math.round(ease * 24);
-        const glowA = (ease * 0.6).toFixed(2);
-        brandText.style.textShadow =
-          '0 0 ' + glow + 'px rgba(255,220,80,' + glowA + '), 0 0 ' + (glow * 2) + 'px rgba(255,180,20,' + (ease * 0.25).toFixed(2) + ')';
-        if (p < 1) requestAnimationFrame(step);
-        else onDone();
-      }
-      requestAnimationFrame(step);
-    }
-
     function playIntro() {
       signalComplete();
       revealLogo(function () {
-        showText(function () {
-          setTimeout(startWaitingPulse, 300);
-        });
+        setTimeout(startWaitingPulse, 300);
       });
     }
 

@@ -34,7 +34,6 @@ import Reanimated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAppReady } from '@/context/app-ready-context';
-import { hydrateOfferCardImages } from '@/lib/business-image';
 import { invalidateCatalogCache } from '@/lib/catalog-cache';
 import { apiUrl } from '@/lib/api';
 import { useAuth } from '@/context/auth-context';
@@ -55,8 +54,8 @@ import {
   fillMissingDistancesFromAddresses,
   formatDistanceKm,
   getEffectiveUserCoords,
+  getEffectiveUserCoordsIfGranted,
 } from '@/lib/geo';
-import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
 import { IMAGE_DISPLAY_WIDTH } from '@/lib/image-url';
 import { useFavorites } from '@/context/favorites-context';
 import { EventsPortraitRow } from '@/components/events-portrait-row';
@@ -70,6 +69,7 @@ import {
   NARA_DIG_PATH,
   SEARCH_RESULTS_PATH,
 } from '@/lib/stack-navigation';
+import { settleHomeScreenAssetsWithinBudget } from '@/lib/warm-home-screen';
 import { FAVORITE_HEART_COLOR } from '@/lib/tab-colors';
 import {
   darkenHexColor,
@@ -1270,7 +1270,7 @@ export default function HomeScreen() {
   searchQueryRef.current = searchQuery;
   searchResultsRef.current = searchResults;
   const router = useRouter();
-  const { markDataReady } = useAppReady();
+  const { markDataReady, isDataReady } = useAppReady();
   const { token, authFetch, isLoggedIn } = useAuth();
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
@@ -1401,10 +1401,11 @@ export default function HomeScreen() {
   useEffect(() => {
     let cancelled = false;
 
-    (async () => {
-      const resolved = await getEffectiveUserCoords();
-      if (!cancelled && resolved) {
-        setCoords(resolved);
+    // Never open the GPS prompt during splash — that left sections stuck on Laddar.
+    void (async () => {
+      const granted = await getEffectiveUserCoordsIfGranted().catch(() => null);
+      if (!cancelled && granted) {
+        setCoords(granted);
       }
     })();
 
@@ -1412,6 +1413,22 @@ export default function HomeScreen() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isDataReady || coords) return;
+    let cancelled = false;
+
+    void (async () => {
+      const prompted = await getEffectiveUserCoords().catch(() => null);
+      if (!cancelled && prompted) {
+        setCoords(prompted);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isDataReady, coords]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2010,46 +2027,82 @@ export default function HomeScreen() {
 
   useEffect(() => {
     let cancelled = false;
+    let requestId = 0;
 
-    const loadHomeData = async (background = false) => {
+    const loadHomeData = async (
+      background = false,
+      loadCoords: { lat: number; lng: number } | null = coords
+    ) => {
+      const thisRequest = ++requestId;
+
       if (hasFreshHomeScreenSnapshot() && refreshNonce === 0 && !background) {
-        markDataReady();
+        const snapshot = getHomeScreenSnapshot();
+        const cachedEvents = getHomeEventsCache() ?? [];
+        if (snapshot) {
+          setCategoryFilters(snapshot.categoryFilters as FilterCategory[]);
+          setDeals(snapshot.deals as OfferCardItem[]);
+          setNearYouCards(snapshot.nearYouCards as OfferCardItem[]);
+          setHotOfferCards(snapshot.hotOfferCards as OfferCardItem[]);
+          setEventCards(cachedEvents);
+          setIsLoadingData(false);
+          setIsLoadingEvents(false);
+
+          try {
+            const settled = await settleHomeScreenAssetsWithinBudget({
+              deals: snapshot.deals as OfferCardItem[],
+              nearYouCards: snapshot.nearYouCards as OfferCardItem[],
+              hotOfferCards: snapshot.hotOfferCards as OfferCardItem[],
+              events: cachedEvents,
+            });
+            if (cancelled || thisRequest !== requestId) return;
+            setDeals(settled.deals);
+            setNearYouCards(settled.nearYouCards);
+            setHotOfferCards(settled.hotOfferCards);
+          } catch {
+            // Content is already visible from the snapshot.
+          }
+        }
+        if (!cancelled && thisRequest === requestId) markDataReady();
         setTimeout(() => {
           if (!cancelled && !hasFreshHomeScreenSnapshot(60_000)) {
-            void loadHomeData(true);
+            void loadHomeData(true, loadCoords);
           }
         }, 2000);
         return;
       }
 
-      if (!getHomeScreenSnapshot() && !background) {
+      if (!background && !getHomeScreenSnapshot()) {
         setIsLoadingData(true);
       }
-      if (!getHomeEventsCache() && !background) {
+      if (!background && !getHomeEventsCache()) {
         setIsLoadingEvents(true);
       }
 
       try {
         const [data, events] = await Promise.all([
-          fetchHomeScreenData({ token, coords }),
+          fetchHomeScreenData({ token, coords: loadCoords }),
           fetchEventFeed({
             limit: 12,
             city: userCityRef.current ?? undefined,
           }).catch(() => [] as EventFeedItem[]),
         ]);
 
-        if (cancelled) return;
+        if (cancelled || thisRequest !== requestId) return;
 
         const dealsList = data.deals;
         const nearYouFromApi = data.nearYouCards;
         const hotFromApi = data.hotOfferCards;
 
+        // Paint content immediately — don't wait for image settle to clear Laddar.
         setCategoryFilters(data.categoryFilters);
-          setDeals(dealsList);
-          setNearYouCards(nearYouFromApi);
-          setHotOfferCards(hotFromApi);
+        setDeals(dealsList);
+        setNearYouCards(nearYouFromApi);
+        setHotOfferCards(hotFromApi);
         setEventCards(events);
         setHomeEventsCache(events);
+        setIsLoadingData(false);
+        setIsLoadingEvents(false);
+        setIsRefreshing(false);
 
         setHomeScreenSnapshot({
           categoryFilters: data.categoryFilters,
@@ -2083,40 +2136,27 @@ export default function HomeScreen() {
         setHomeHotOffersCache(hotFromApi);
         setHomeEndingSoonCache(nearYouFromApi);
 
-        schedulePrefetchImageUris(
-            [
-              ...dealsList.slice(0, 12).map((c) => c.image),
-              ...nearYouFromApi.slice(0, 6).map((c) => c.image),
-              ...hotFromApi.slice(0, 6).map((c) => c.image),
-            ...events.slice(0, 6).map((event) => event.image),
-            ],
-            24
-          );
+        const settled = await settleHomeScreenAssetsWithinBudget({
+          deals: dealsList,
+          nearYouCards: nearYouFromApi,
+          hotOfferCards: hotFromApi,
+          events,
+        });
+        if (cancelled || thisRequest !== requestId) return;
 
-          void (async () => {
-          const knownCards = [...dealsList, ...hotFromApi, ...nearYouFromApi];
-          const [hydratedDeals, hydratedHot, hydratedNear] = await Promise.all([
-            hydrateOfferCardImages(dealsList, { knownCards }),
-            hydrateOfferCardImages(hotFromApi, { knownCards }),
-            hydrateOfferCardImages(nearYouFromApi, { knownCards }),
-          ]);
-              if (cancelled) return;
-          setDeals(hydratedDeals);
-          setHotOfferCards(hydratedHot);
-          setNearYouCards(hydratedNear);
-          setHomeHotOffersCache(hydratedHot);
-          setHomeEndingSoonCache(hydratedNear);
-          schedulePrefetchImageUris(
-            [
-              ...hydratedDeals.slice(0, 12).map((card) => card.image),
-              ...hydratedNear.slice(0, 6).map((card) => card.image),
-              ...hydratedHot.slice(0, 6).map((card) => card.image),
-            ],
-            24
-          );
-        })();
+        setDeals(settled.deals);
+        setHotOfferCards(settled.hotOfferCards);
+        setNearYouCards(settled.nearYouCards);
+        setHomeHotOffersCache(settled.hotOfferCards);
+        setHomeEndingSoonCache(settled.nearYouCards);
+        setHomeScreenSnapshot({
+          categoryFilters: data.categoryFilters,
+          deals: settled.deals,
+          nearYouCards: settled.nearYouCards,
+          hotOfferCards: settled.hotOfferCards,
+        });
       } catch {
-        if (!cancelled) {
+        if (!cancelled && thisRequest === requestId) {
           setCategoryFilters([]);
           setDeals([]);
           setNearYouCards([]);
@@ -2125,7 +2165,7 @@ export default function HomeScreen() {
           Alert.alert('Fel', 'Kunde inte ladda startsidan just nu.');
         }
       } finally {
-        if (!cancelled) {
+        if (!cancelled && thisRequest === requestId) {
           setIsLoadingData(false);
           setIsLoadingEvents(false);
           setIsRefreshing(false);
@@ -2134,12 +2174,62 @@ export default function HomeScreen() {
       }
     };
 
-    void loadHomeData();
+    void loadHomeData(false, coords);
 
     return () => {
       cancelled = true;
     };
-  }, [markDataReady, refreshNonce, token, coords?.lat, coords?.lng]);
+    // Coords are applied via a separate soft-refresh effect so GPS permission
+    // cannot cancel the first paint and leave sections stuck on "Laddar...".
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [markDataReady, refreshNonce, token]);
+
+  useEffect(() => {
+    if (!coords) return;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const [data, events] = await Promise.all([
+          fetchHomeScreenData({ token, coords }),
+          fetchEventFeed({
+            limit: 12,
+            city: userCityRef.current ?? undefined,
+          }).catch(() => [] as EventFeedItem[]),
+        ]);
+        if (cancelled) return;
+
+        const settled = await settleHomeScreenAssetsWithinBudget({
+          deals: data.deals,
+          nearYouCards: data.nearYouCards,
+          hotOfferCards: data.hotOfferCards,
+          events,
+        });
+        if (cancelled) return;
+
+        setCategoryFilters(data.categoryFilters);
+        setDeals(settled.deals);
+        setNearYouCards(settled.nearYouCards);
+        setHotOfferCards(settled.hotOfferCards);
+        setEventCards(events);
+        setHomeEventsCache(events);
+        setHomeScreenSnapshot({
+          categoryFilters: data.categoryFilters,
+          deals: settled.deals,
+          nearYouCards: settled.nearYouCards,
+          hotOfferCards: settled.hotOfferCards,
+        });
+        setHomeHotOffersCache(settled.hotOfferCards);
+        setHomeEndingSoonCache(settled.nearYouCards);
+      } catch {
+        // Keep whatever the first load already painted.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [coords?.lat, coords?.lng, token]);
 
   const filteredDeals = useMemo(
     () => filterCardsByActiveCategory(deals, activeCategory),

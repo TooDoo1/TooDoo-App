@@ -26,7 +26,6 @@ import LightningIntroSplash, { SPLASH_EXIT_DURATION_MS } from '@/components/ui/l
 import { LegalConsentOverlay } from '@/components/ui/legal-consent-overlay';
 import { OnboardingOverlay } from '@/components/ui/onboarding-overlay';
 import { WebStackSwipeProvider } from '@/context/web-stack-swipe-context';
-import { getHomeScreenSnapshot } from '@/lib/home-list-cache';
 import {
 	hasAcceptedLegalConsent,
 	markLegalConsentAccepted,
@@ -34,6 +33,8 @@ import {
 import { hasSeenOnboarding, markOnboardingSeen } from '@/lib/onboarding-storage';
 import { getStackScreenOptionsWithoutSwipeBack, getSwipeableStackScreenOptions } from '@/lib/stack-navigation';
 import { uiTheme } from '@/lib/ui-theme';
+import { warmBusinessMapDuringStartup } from '@/lib/warm-business-map';
+import { warmHomeScreenDuringStartup } from '@/lib/warm-home-screen';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -54,8 +55,7 @@ function markWebSplashSeen() {
 }
 
 function shouldSkipStartupSplash() {
-	if (hasWebSplashBeenSeen()) return true;
-	return Boolean(getHomeScreenSnapshot());
+	return hasWebSplashBeenSeen();
 }
 
 export const unstable_settings = {
@@ -127,6 +127,9 @@ function AppShell() {
 
 	useEffect(() => {
 		SplashScreen.hideAsync().catch(() => {});
+		// Load map + frontpage under the splash so both are warm when it exits.
+		warmBusinessMapDuringStartup();
+		warmHomeScreenDuringStartup();
 
 		const maxTimer = setTimeout(() => {
 			setHasMaxElapsed(true);

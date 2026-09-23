@@ -124,10 +124,17 @@ export default memo(LightningIntroSplash);
 const styles = StyleSheet.create({
 	container: {
 		flex: 1,
+		width: '100%',
+		height: '100%',
 		backgroundColor: '#0e1325',
+		justifyContent: 'center',
+		alignItems: 'center',
+		overflow: 'hidden',
 	},
 	webview: {
 		flex: 1,
+		width: '100%',
+		height: '100%',
 		backgroundColor: '#0e1325',
 	},
 });

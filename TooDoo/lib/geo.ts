@@ -333,13 +333,15 @@ export async function hasForegroundLocationPermission(): Promise<boolean> {
 export async function getUserCoordsIfGranted(): Promise<Coords | null> {
   if (Platform.OS === 'web') {
     const permission = await queryBrowserGeolocationPermission();
-    if (permission === 'denied') return null;
+    if (permission === 'denied' || permission === 'prompt') return null;
     if (permission === 'granted') {
       return readCoordsFromBrowser();
     }
 
-    // Safari often lacks the Permissions API — try a cached position from an earlier grant.
-    return readCoordsFromBrowser({ timeout: 2500, maximumAge: 600_000 });
+    // Safari often lacks the Permissions API — try a cached position only.
+    // A short timeout still can prompt on some browsers, so keep maximumAge high
+    // and treat failure as "not granted yet".
+    return readCoordsFromBrowser({ timeout: 800, maximumAge: 600_000 });
   }
   try {
     if (!(await hasForegroundLocationPermission())) return null;
