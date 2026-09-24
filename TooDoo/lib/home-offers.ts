@@ -5,6 +5,7 @@ import { apiUrl, normalizeImageUrl } from '@/lib/api';
 import { businessImageCacheKey, extractOrderImageUrl } from '@/lib/business-image';
 import { fetchApprovedBusinessesCatalog, fetchCategoriesCatalog } from '@/lib/catalog-cache';
 import { getCategoryAccentForItem } from '@/lib/category-colors';
+import { applyHaversineDistances } from '@/lib/geo';
 import { isWithinOrderPublishWindow } from '@/lib/order-claim-window';
 
 export type OfferCardItem = {
@@ -639,9 +640,17 @@ function sortHomeDeals(
   cards: OfferCardItem[],
   coords?: { lat: number; lng: number } | null
 ): OfferCardItem[] {
-  void coords;
-  // Distance badges are resolved client-side from geocoded addresses.
-  return [...cards].sort((a, b) => Number(b.deal) - Number(a.deal));
+  const withDistance =
+    coords != null
+      ? applyHaversineDistances(cards, coords)
+      : cards;
+
+  return [...withDistance].sort((a, b) => {
+    const da = typeof a.distanceKm === 'number' ? a.distanceKm : Number.POSITIVE_INFINITY;
+    const db = typeof b.distanceKm === 'number' ? b.distanceKm : Number.POSITIVE_INFINITY;
+    if (da !== db) return da - db;
+    return Number(b.deal) - Number(a.deal);
+  });
 }
 
 /** Parses the { businesses: [...] } payload from GET /business/popular. */

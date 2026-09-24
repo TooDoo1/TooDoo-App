@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
 import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
@@ -30,12 +31,16 @@ import { getOrderBusinessId, isActiveOffer, parseOrdersList } from '@/lib/offers
 import { useAuth } from '@/context/auth-context';
 import { useRealtimeSubscription } from '@/hooks/use-realtime-subscription';
 import { useFavorites } from '@/context/favorites-context';
+import { subscribeCustomLocations } from '@/lib/custom-locations';
 import {
   type Coords,
   formatDistanceKm,
   geocodeAddressCached,
-  getEffectiveUserCoords,
+  getEffectiveUserCoordsIfGranted,
+  getUserCoords,
+  getUserCoordsIfGranted,
   haversineKm,
+  isPlausibleSwedenCoordinate,
 } from '@/lib/geo';
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
 import { BUSINESS_MAP_PATH } from '@/lib/stack-navigation';
@@ -91,6 +96,32 @@ function sortByDistance(list: NearbyCompany[]) {
     if (da !== db) return da - db;
     return a.name.localeCompare(b.name, 'sv');
   });
+}
+
+function sameCoords(a: Coords | null | undefined, b: Coords | null | undefined) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return Math.abs(a.lat - b.lat) < 1e-7 && Math.abs(a.lng - b.lng) < 1e-7;
+}
+
+function withHaversineDistances(companies: NearbyCompany[], coords: Coords): NearbyCompany[] {
+  return sortByDistance(
+    companies.map((company) => {
+      const lat = company.latitude;
+      const lng = company.longitude;
+      if (
+        typeof lat === 'number' &&
+        typeof lng === 'number' &&
+        isPlausibleSwedenCoordinate(lat, lng)
+      ) {
+        return {
+          ...company,
+          distanceKm: haversineKm(coords.lat, coords.lng, lat, lng),
+        };
+      }
+      return company;
+    })
+  );
 }
 
 function cacheToNearbyCompany(card: NearbyBusinessCard): NearbyCompany {
@@ -266,14 +297,63 @@ export default function NaraDigScreen() {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      const resolved = await getEffectiveUserCoords();
-      if (!cancelled && resolved) setCoords(resolved);
+    void (async () => {
+      const resolved = await getEffectiveUserCoordsIfGranted().catch(() => null);
+      if (!cancelled) {
+        setCoords((prev) => (sameCoords(prev, resolved) ? prev : resolved));
+      }
     })();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  const refreshEffectiveCoords = useCallback(async () => {
+    const next = await getEffectiveUserCoordsIfGranted().catch(() => null);
+    // Never wipe a known position with null.
+    if (!next) return;
+    setCoords((prev) => (sameCoords(prev, next) ? prev : next));
+  }, []);
+
+  useEffect(
+    () =>
+      subscribeCustomLocations((state) => {
+        void (async () => {
+          if (state.activeId) {
+            const active = state.locations.find((item) => item.id === state.activeId);
+            if (active) {
+              const next = { lat: active.lat, lng: active.lng };
+              setCoords((prev) => (sameCoords(prev, next) ? prev : next));
+              return;
+            }
+          }
+          // Left custom place → device GPS (may prompt). Don't keep stale custom coords.
+          const gps =
+            (await getUserCoordsIfGranted().catch(() => null)) ??
+            (await getUserCoords().catch(() => null));
+          if (gps) {
+            setCoords((prev) => (sameCoords(prev, gps) ? prev : gps));
+          }
+        })();
+      }),
+    []
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshEffectiveCoords();
+    }, [refreshEffectiveCoords])
+  );
+
+  useEffect(() => {
+    if (!coords) return;
+    setCompanies((prev) => {
+      if (prev.length === 0) return prev;
+      const next = withHaversineDistances(prev, coords);
+      setHomeNearbyBusinessesCache(next.map(nearbyToCacheItem));
+      return next;
+    });
+  }, [coords?.lat, coords?.lng]);
 
   useEffect(() => {
     let cancelled = false;
@@ -308,6 +388,13 @@ export default function NaraDigScreen() {
 
     (async () => {
       if (refreshNonce === 0 && hasFreshHomeNearbyBusinessesCache()) {
+        if (coords) {
+          setCompanies((prev) => {
+            const next = withHaversineDistances(prev, coords);
+            setHomeNearbyBusinessesCache(next.map(nearbyToCacheItem));
+            return next;
+          });
+        }
         setIsLoading(false);
         setIsRefreshing(false);
         return;
@@ -340,7 +427,7 @@ export default function NaraDigScreen() {
           return company;
         });
 
-        const sorted = sortByDistance(mapped);
+        const sorted = coords ? withHaversineDistances(mapped, coords) : sortByDistance(mapped);
         if (!cancelled) {
           setCompanies(sorted);
           setHomeNearbyBusinessesCache(sorted.map(nearbyToCacheItem));

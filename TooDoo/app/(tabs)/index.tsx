@@ -51,11 +51,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CardMedia } from '@/components/ui/card-media';
 import { CompanyActivityDots } from '@/components/ui/company-activity-dots';
 import {
+  applyHaversineDistances,
   fillMissingDistancesFromAddresses,
   formatDistanceKm,
   getEffectiveUserCoords,
   getEffectiveUserCoordsIfGranted,
+  getUserCoords,
+  getUserCoordsIfGranted,
 } from '@/lib/geo';
+import { subscribeCustomLocations } from '@/lib/custom-locations';
 import { IMAGE_DISPLAY_WIDTH } from '@/lib/image-url';
 import { useFavorites } from '@/context/favorites-context';
 import { EventsPortraitRow } from '@/components/events-portrait-row';
@@ -245,6 +249,15 @@ function matchCardsToSearchTip(
   }
 
   return matched.slice(0, SEARCH_TIP_PREVIEW_LIMIT);
+}
+
+function sameCoords(
+  a: { lat: number; lng: number } | null | undefined,
+  b: { lat: number; lng: number } | null | undefined
+) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return Math.abs(a.lat - b.lat) < 1e-7 && Math.abs(a.lng - b.lng) < 1e-7;
 }
 
 function sortDealsByDistance(deals: CardItem[]): CardItem[] {
@@ -1385,6 +1398,9 @@ export default function HomeScreen() {
   useEffect(() => {
     if (!coords || deals.length === 0) return;
 
+    // Instant re-rank from lat/lng so meter badges update as soon as GPS/place changes.
+    setDeals((prev) => sortDealsByDistance(applyHaversineDistances(prev, coords)));
+
     let cancelled = false;
     void (async () => {
       const enriched = await fillMissingDistancesFromAddresses(deals, coords, { maxGeocode: 24 });
@@ -1396,7 +1412,16 @@ export default function HomeScreen() {
     return () => {
       cancelled = true;
     };
-  }, [coords, deals.length, refreshNonce]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- recompute when place or list size changes
+  }, [coords?.lat, coords?.lng, deals.length, refreshNonce]);
+
+  const refreshEffectiveCoords = useCallback(async () => {
+    // Prefer custom place / already-granted GPS — never re-prompt just to refresh distances.
+    const next = await getEffectiveUserCoordsIfGranted().catch(() => null);
+    // Never wipe a known position with null (IfGranted fails while GPS was already set).
+    if (!next) return;
+    setCoords((prev) => (sameCoords(prev, next) ? prev : next));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1429,6 +1454,38 @@ export default function HomeScreen() {
       cancelled = true;
     };
   }, [isDataReady, coords]);
+
+  // Re-read place when user changes Plats (or returns to Upptäck) so distances refresh.
+  useEffect(
+    () =>
+      subscribeCustomLocations((state) => {
+        void (async () => {
+          if (state.activeId) {
+            const active = state.locations.find((item) => item.id === state.activeId);
+            if (active) {
+              const next = { lat: active.lat, lng: active.lng };
+              setCoords((prev) => (sameCoords(prev, next) ? prev : next));
+              return;
+            }
+          }
+          // Switched to "nuvarande plats" — must read device GPS (may prompt).
+          // Do not keep the previous custom coords if GPS isn't ready yet.
+          const gps =
+            (await getUserCoordsIfGranted().catch(() => null)) ??
+            (await getUserCoords().catch(() => null));
+          if (gps) {
+            setCoords((prev) => (sameCoords(prev, gps) ? prev : gps));
+          }
+        })();
+      }),
+    []
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshEffectiveCoords();
+    }, [refreshEffectiveCoords])
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -2039,25 +2096,59 @@ export default function HomeScreen() {
         const snapshot = getHomeScreenSnapshot();
         const cachedEvents = getHomeEventsCache() ?? [];
         if (snapshot) {
+          const snapDeals = snapshot.deals as OfferCardItem[];
+          const snapNear = snapshot.nearYouCards as OfferCardItem[];
+          const snapHot = snapshot.hotOfferCards as OfferCardItem[];
+          const withDistDeals = loadCoords
+            ? sortDealsByDistance(applyHaversineDistances(snapDeals, loadCoords))
+            : snapDeals;
+          const withDistNear = loadCoords
+            ? applyHaversineDistances(snapNear, loadCoords)
+            : snapNear;
+          const withDistHot = loadCoords
+            ? applyHaversineDistances(snapHot, loadCoords)
+            : snapHot;
+
           setCategoryFilters(snapshot.categoryFilters as FilterCategory[]);
-          setDeals(snapshot.deals as OfferCardItem[]);
-          setNearYouCards(snapshot.nearYouCards as OfferCardItem[]);
-          setHotOfferCards(snapshot.hotOfferCards as OfferCardItem[]);
+          setDeals(withDistDeals);
+          setNearYouCards(withDistNear);
+          setHotOfferCards(withDistHot);
           setEventCards(cachedEvents);
           setIsLoadingData(false);
           setIsLoadingEvents(false);
 
           try {
             const settled = await settleHomeScreenAssetsWithinBudget({
-              deals: snapshot.deals as OfferCardItem[],
-              nearYouCards: snapshot.nearYouCards as OfferCardItem[],
-              hotOfferCards: snapshot.hotOfferCards as OfferCardItem[],
+              deals: withDistDeals,
+              nearYouCards: withDistNear,
+              hotOfferCards: withDistHot,
               events: cachedEvents,
             });
             if (cancelled || thisRequest !== requestId) return;
-            setDeals(settled.deals);
-            setNearYouCards(settled.nearYouCards);
-            setHotOfferCards(settled.hotOfferCards);
+            setDeals(
+              loadCoords
+                ? sortDealsByDistance(applyHaversineDistances(settled.deals, loadCoords))
+                : settled.deals
+            );
+            setNearYouCards(
+              loadCoords
+                ? applyHaversineDistances(settled.nearYouCards, loadCoords)
+                : settled.nearYouCards
+            );
+            setHotOfferCards(
+              loadCoords
+                ? applyHaversineDistances(settled.hotOfferCards, loadCoords)
+                : settled.hotOfferCards
+            );
+            if (loadCoords) {
+              const enriched = await fillMissingDistancesFromAddresses(
+                settled.deals,
+                loadCoords,
+                { maxGeocode: 24 }
+              );
+              if (cancelled || thisRequest !== requestId) return;
+              setDeals(sortDealsByDistance(applyHaversineDistances(enriched, loadCoords)));
+            }
           } catch {
             // Content is already visible from the snapshot.
           }
@@ -2089,9 +2180,15 @@ export default function HomeScreen() {
 
         if (cancelled || thisRequest !== requestId) return;
 
-        const dealsList = data.deals;
-        const nearYouFromApi = data.nearYouCards;
-        const hotFromApi = data.hotOfferCards;
+        const dealsList = loadCoords
+          ? sortDealsByDistance(applyHaversineDistances(data.deals, loadCoords))
+          : data.deals;
+        const nearYouFromApi = loadCoords
+          ? applyHaversineDistances(data.nearYouCards, loadCoords)
+          : data.nearYouCards;
+        const hotFromApi = loadCoords
+          ? applyHaversineDistances(data.hotOfferCards, loadCoords)
+          : data.hotOfferCards;
 
         // Paint content immediately — don't wait for image settle to clear Laddar.
         setCategoryFilters(data.categoryFilters);
@@ -2144,17 +2241,35 @@ export default function HomeScreen() {
         });
         if (cancelled || thisRequest !== requestId) return;
 
-        setDeals(settled.deals);
-        setHotOfferCards(settled.hotOfferCards);
-        setNearYouCards(settled.nearYouCards);
-        setHomeHotOffersCache(settled.hotOfferCards);
-        setHomeEndingSoonCache(settled.nearYouCards);
+        const settledDeals = loadCoords
+          ? sortDealsByDistance(applyHaversineDistances(settled.deals, loadCoords))
+          : settled.deals;
+        const settledNear = loadCoords
+          ? applyHaversineDistances(settled.nearYouCards, loadCoords)
+          : settled.nearYouCards;
+        const settledHot = loadCoords
+          ? applyHaversineDistances(settled.hotOfferCards, loadCoords)
+          : settled.hotOfferCards;
+
+        setDeals(settledDeals);
+        setHotOfferCards(settledHot);
+        setNearYouCards(settledNear);
+        setHomeHotOffersCache(settledHot);
+        setHomeEndingSoonCache(settledNear);
         setHomeScreenSnapshot({
           categoryFilters: data.categoryFilters,
-          deals: settled.deals,
-          nearYouCards: settled.nearYouCards,
-          hotOfferCards: settled.hotOfferCards,
+          deals: settledDeals,
+          nearYouCards: settledNear,
+          hotOfferCards: settledHot,
         });
+
+        if (loadCoords) {
+          const enriched = await fillMissingDistancesFromAddresses(settledDeals, loadCoords, {
+            maxGeocode: 24,
+          });
+          if (cancelled || thisRequest !== requestId) return;
+          setDeals(sortDealsByDistance(enriched));
+        }
       } catch {
         if (!cancelled && thisRequest === requestId) {
           setCategoryFilters([]);
@@ -2199,28 +2314,50 @@ export default function HomeScreen() {
         ]);
         if (cancelled) return;
 
+        // API deals don't include distanceKm — compute before paint so badges
+        // don't flash back to "Nära dig" after a soft refresh.
+        const dealsWithDistance = sortDealsByDistance(
+          applyHaversineDistances(data.deals, coords)
+        );
+        const nearWithDistance = applyHaversineDistances(data.nearYouCards, coords);
+        const hotWithDistance = applyHaversineDistances(data.hotOfferCards, coords);
+
         const settled = await settleHomeScreenAssetsWithinBudget({
-          deals: data.deals,
-          nearYouCards: data.nearYouCards,
-          hotOfferCards: data.hotOfferCards,
+          deals: dealsWithDistance,
+          nearYouCards: nearWithDistance,
+          hotOfferCards: hotWithDistance,
           events,
         });
         if (cancelled) return;
 
+        // Settle can return the same cards; re-apply distances in case hydration
+        // dropped them, then refine with geocoded addresses.
+        const paintedDeals = sortDealsByDistance(
+          applyHaversineDistances(settled.deals, coords)
+        );
+        const paintedNear = applyHaversineDistances(settled.nearYouCards, coords);
+        const paintedHot = applyHaversineDistances(settled.hotOfferCards, coords);
+
         setCategoryFilters(data.categoryFilters);
-        setDeals(settled.deals);
-        setNearYouCards(settled.nearYouCards);
-        setHotOfferCards(settled.hotOfferCards);
+        setDeals(paintedDeals);
+        setNearYouCards(paintedNear);
+        setHotOfferCards(paintedHot);
         setEventCards(events);
         setHomeEventsCache(events);
         setHomeScreenSnapshot({
           categoryFilters: data.categoryFilters,
-          deals: settled.deals,
-          nearYouCards: settled.nearYouCards,
-          hotOfferCards: settled.hotOfferCards,
+          deals: paintedDeals,
+          nearYouCards: paintedNear,
+          hotOfferCards: paintedHot,
         });
-        setHomeHotOffersCache(settled.hotOfferCards);
-        setHomeEndingSoonCache(settled.nearYouCards);
+        setHomeHotOffersCache(paintedHot);
+        setHomeEndingSoonCache(paintedNear);
+
+        const enriched = await fillMissingDistancesFromAddresses(paintedDeals, coords, {
+          maxGeocode: 24,
+        });
+        if (cancelled) return;
+        setDeals(sortDealsByDistance(enriched));
       } catch {
         // Keep whatever the first load already painted.
       }

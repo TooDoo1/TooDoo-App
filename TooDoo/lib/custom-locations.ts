@@ -13,7 +13,7 @@ export type CustomLocation = {
   lng: number;
 };
 
-type CustomLocationsState = {
+export type CustomLocationsState = {
   locations: CustomLocation[];
   /** When set, app uses this spot instead of device GPS. */
   activeId: string | null;
@@ -23,6 +23,27 @@ const EMPTY_STATE: CustomLocationsState = {
   locations: [],
   activeId: null,
 };
+
+type Listener = (state: CustomLocationsState) => void;
+const listeners = new Set<Listener>();
+
+function notify(state: CustomLocationsState) {
+  listeners.forEach((listener) => {
+    try {
+      listener(state);
+    } catch {
+      // ignore subscriber errors
+    }
+  });
+}
+
+/** Subscribe to custom-location changes (active place, add/remove). */
+export function subscribeCustomLocations(listener: Listener): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
 
 function newId() {
   return `loc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -58,6 +79,7 @@ async function readState(): Promise<CustomLocationsState> {
 
 async function writeState(state: CustomLocationsState): Promise<void> {
   await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  notify(state);
 }
 
 export async function loadCustomLocationsState(): Promise<CustomLocationsState> {
