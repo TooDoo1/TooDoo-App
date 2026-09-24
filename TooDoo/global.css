@@ -131,6 +131,8 @@ body {
   overflow: hidden;
   position: relative;
   touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .hero-carousel-web-slider {
@@ -139,6 +141,10 @@ body {
   height: 100%;
   transition: transform 520ms ease;
   will-change: transform;
+}
+
+.hero-carousel-web-slider.is-instant {
+  transition: none !important;
 }
 
 .hero-carousel-web-slide {

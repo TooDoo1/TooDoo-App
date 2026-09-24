@@ -4,6 +4,9 @@ import * as Location from 'expo-location';
 
 export type Coords = { lat: number; lng: number };
 
+/** Default place when GPS isn't shared and no custom Plats is selected. */
+export const HELSINGBORG_COORDS: Coords = { lat: 56.0465, lng: 12.715 };
+
 /** Rough bounds for southern Sweden — rejects null island and obvious bad data. */
 export function isPlausibleSwedenCoordinate(lat: number, lng: number) {
   return Number.isFinite(lat) && Number.isFinite(lng) && lat >= 54 && lat <= 70 && lng >= 10 && lng <= 26;
@@ -335,7 +338,8 @@ export async function getUserCoordsIfGranted(): Promise<Coords | null> {
     const permission = await queryBrowserGeolocationPermission();
     if (permission === 'denied' || permission === 'prompt') return null;
     if (permission === 'granted') {
-      return readCoordsFromBrowser();
+      // Prefer a recent cached fix so brief GPS blips don't wipe the session.
+      return readCoordsFromBrowser({ timeout: 12_000, maximumAge: 120_000 });
     }
 
     // Safari often lacks the Permissions API — try a cached position only.
@@ -364,17 +368,20 @@ export async function getUserCoords(): Promise<Coords | null> {
 }
 
 /**
- * Preferred app location: selected custom place, otherwise device GPS.
- * Use this for distances, map origin, and “near you” sorting.
+ * Preferred app location: selected custom place, otherwise device GPS,
+ * otherwise Helsingborg so distances and “Nära dig” still work.
  */
-export async function getEffectiveUserCoords(): Promise<Coords | null> {
+export async function getEffectiveUserCoords(): Promise<Coords> {
   const { getActiveCustomLocationCoords } = await import('@/lib/custom-locations');
   const custom = await getActiveCustomLocationCoords();
   if (custom) return custom;
-  return getUserCoords();
+  return (await getUserCoords()) ?? HELSINGBORG_COORDS;
 }
 
-/** Like getUserCoordsIfGranted, but honors an active custom location first. */
+/** Like getUserCoordsIfGranted, but honors an active custom location first.
+ *  Returns null when neither is available — callers should keep prior coords
+ *  rather than silently falling back to Helsingborg on a transient GPS miss.
+ */
 export async function getEffectiveUserCoordsIfGranted(): Promise<Coords | null> {
   const { getActiveCustomLocationCoords } = await import('@/lib/custom-locations');
   const custom = await getActiveCustomLocationCoords();

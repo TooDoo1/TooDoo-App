@@ -41,7 +41,12 @@ import { useRealtimeSubscription } from '@/hooks/use-realtime-subscription';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { HeroImageCarousel, HERO_HEIGHT } from '@/components/hero-image-carousel';
-import { HeroMicButton } from '@/components/hero-mic-button';
+import {
+  HeroLiveSpotlight,
+  LIVE_HERO_HEIGHT,
+  type HeroLiveSlide,
+} from '@/components/hero-live-spotlight';
+import { InlineMicButton } from '@/components/inline-mic-button';
 import { heroSlides } from '@/lib/hero-slides';
 import { useHeroTopInset } from '@/lib/use-hero-top-inset';
 import { useThemePreference } from '@/context/theme-preference-context';
@@ -54,10 +59,10 @@ import {
   applyHaversineDistances,
   fillMissingDistancesFromAddresses,
   formatDistanceKm,
-  getEffectiveUserCoords,
   getEffectiveUserCoordsIfGranted,
   getUserCoords,
   getUserCoordsIfGranted,
+  HELSINGBORG_COORDS,
 } from '@/lib/geo';
 import { subscribeCustomLocations } from '@/lib/custom-locations';
 import { IMAGE_DISPLAY_WIDTH } from '@/lib/image-url';
@@ -1244,7 +1249,7 @@ export default function HomeScreen() {
   const [searchBarHeight, setSearchBarHeight] = useState(SEARCH_BAR_HEIGHT);
   const [eventCards, setEventCards] = useState<EventFeedItem[]>(getHomeEventsCache() ?? []);
   const [isLoadingEvents, setIsLoadingEvents] = useState(!getHomeEventsCache());
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(HELSINGBORG_COORDS);
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const navBarWidth = getTabBarWidth(windowWidth, Platform.OS);
@@ -1252,10 +1257,6 @@ export default function HomeScreen() {
   const scrollBottomPadding = getFloatingTabBarScrollPadding(insets.bottom);
   const heroTopInset = useHeroTopInset();
   const scrollY = useRef(new Animated.Value(getHomeScrollOffset())).current;
-  // Eased 0->1 progress for the inline mic (driven by a scroll threshold, not
-  // raw scroll position, so the reveal is smooth regardless of scroll speed).
-  const inlineMicAnim = useRef(new Animated.Value(0)).current;
-  const inlineMicShownRef = useRef(false);
   const scrollRef = useRef<ScrollView>(null);
   const scrollOffsetRef = useRef(getHomeScrollOffset());
   const searchQueryRef = useRef(searchQuery);
@@ -1338,23 +1339,6 @@ export default function HomeScreen() {
     return () => clearTimeout(timeout);
   }, [searchSuggestions]);
 
-  // Reveal/hide the inline mic with a smooth eased animation when crossing a
-  // scroll threshold. Hysteresis (140 in / 90 out) prevents flicker.
-  useEffect(() => {
-    const id = scrollY.addListener(({ value }) => {
-      const shouldShow = inlineMicShownRef.current ? value > 90 : value > 140;
-      if (shouldShow === inlineMicShownRef.current) return;
-      inlineMicShownRef.current = shouldShow;
-      Animated.timing(inlineMicAnim, {
-        toValue: shouldShow ? 1 : 0,
-        duration: 320,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: false,
-      }).start();
-    });
-    return () => scrollY.removeListener(id);
-  }, [scrollY, inlineMicAnim]);
-
   const handleRefresh = useCallback(() => {
     invalidateCatalogCache();
     setIsRefreshing(true);
@@ -1416,9 +1400,9 @@ export default function HomeScreen() {
   }, [coords?.lat, coords?.lng, deals.length, refreshNonce]);
 
   const refreshEffectiveCoords = useCallback(async () => {
-    // Prefer custom place / already-granted GPS — never re-prompt just to refresh distances.
+    // Prefer custom place / already-granted GPS. Never overwrite a known position
+    // with Helsingborg just because a GPS read failed momentarily.
     const next = await getEffectiveUserCoordsIfGranted().catch(() => null);
-    // Never wipe a known position with null (IfGranted fails while GPS was already set).
     if (!next) return;
     setCoords((prev) => (sameCoords(prev, next) ? prev : next));
   }, []);
@@ -1426,11 +1410,12 @@ export default function HomeScreen() {
   useEffect(() => {
     let cancelled = false;
 
-    // Never open the GPS prompt during splash — that left sections stuck on Laddar.
+    // Seed Helsingborg for first paint; upgrade when custom/GPS is available.
     void (async () => {
       const granted = await getEffectiveUserCoordsIfGranted().catch(() => null);
-      if (!cancelled && granted) {
-        setCoords(granted);
+      if (cancelled) return;
+      if (granted) {
+        setCoords((prev) => (sameCoords(prev, granted) ? prev : granted));
       }
     })();
 
@@ -1440,20 +1425,38 @@ export default function HomeScreen() {
   }, []);
 
   useEffect(() => {
-    if (!isDataReady || coords) return;
+    if (!isDataReady) return;
     let cancelled = false;
 
     void (async () => {
-      const prompted = await getEffectiveUserCoords().catch(() => null);
-      if (!cancelled && prompted) {
-        setCoords(prompted);
+      const { getActiveCustomLocationCoords } = await import('@/lib/custom-locations');
+      const custom = await getActiveCustomLocationCoords().catch(() => null);
+      if (cancelled) return;
+      if (custom) {
+        setCoords((prev) => (sameCoords(prev, custom) ? prev : custom));
+        return;
+      }
+
+      // Already allowed — upgrade Helsingborg → real GPS without a dialog.
+      const granted = await getUserCoordsIfGranted().catch(() => null);
+      if (cancelled) return;
+      if (granted) {
+        setCoords((prev) => (sameCoords(prev, granted) ? prev : granted));
+        return;
+      }
+
+      // Ask once after splash/frontpage is ready (does not block first paint).
+      const prompted = await getUserCoords().catch(() => null);
+      if (cancelled) return;
+      if (prompted) {
+        setCoords((prev) => (sameCoords(prev, prompted) ? prev : prompted));
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [isDataReady, coords]);
+  }, [isDataReady]);
 
   // Re-read place when user changes Plats (or returns to Upptäck) so distances refresh.
   useEffect(
@@ -1468,14 +1471,12 @@ export default function HomeScreen() {
               return;
             }
           }
-          // Switched to "nuvarande plats" — must read device GPS (may prompt).
-          // Do not keep the previous custom coords if GPS isn't ready yet.
+          // Left custom place → device GPS (may prompt). Helsingborg if GPS unavailable.
           const gps =
             (await getUserCoordsIfGranted().catch(() => null)) ??
-            (await getUserCoords().catch(() => null));
-          if (gps) {
-            setCoords((prev) => (sameCoords(prev, gps) ? prev : gps));
-          }
+            (await getUserCoords().catch(() => null)) ??
+            HELSINGBORG_COORDS;
+          setCoords((prev) => (sameCoords(prev, gps) ? prev : gps));
         })();
       }),
     []
@@ -2650,8 +2651,110 @@ export default function HomeScreen() {
     });
   }, [router, searchQuery, snapCloseSearchOverlay]);
 
-  // Voice-search hero needs room for headline + orb + copy.
-  const heroContentHeight = isLoggedIn ? 268 : HERO_HEIGHT;
+  const liveHeroSlides = useMemo((): HeroLiveSlide[] => {
+    const slides: HeroLiveSlide[] = [];
+    const seen = new Set<string>();
+
+    const pushCard = (
+      card: CardItem,
+      kind: HeroLiveSlide['kind'],
+      eyebrow: string,
+      badge?: string
+    ) => {
+      if (!card?.id || seen.has(card.id) || slides.length >= 5) return;
+      const hasImage =
+        typeof card.image === 'number' ||
+        (typeof card.image === 'object' &&
+          card.image &&
+          'uri' in card.image &&
+          typeof card.image.uri === 'string' &&
+          card.image.uri.length > 0);
+      if (!hasImage) return;
+      seen.add(card.id);
+      slides.push({
+        id: `live:${kind}:${card.id}`,
+        sourceId: card.id,
+        kind,
+        title: card.title,
+        subtitle: card.Adress?.trim() || card.kortbeskrivning?.trim() || undefined,
+        badge: badge ?? formatDistanceKm(card.distanceKm) ?? undefined,
+        eyebrow,
+        accentColor: getCategoryAccentColor(card.categoryName),
+        image: card.image,
+      });
+    };
+
+    const byDistance = [...deals].sort((a, b) => {
+      const da = typeof a.distanceKm === 'number' ? a.distanceKm : Number.POSITIVE_INFINITY;
+      const db = typeof b.distanceKm === 'number' ? b.distanceKm : Number.POSITIVE_INFINITY;
+      return da - db;
+    });
+    byDistance.slice(0, 2).forEach((card) => pushCard(card, 'near', 'Nära dig'));
+
+    hotOfferCards.slice(0, 2).forEach((card) => {
+      const discount = computeDiscountLabel(card);
+      pushCard(
+        card,
+        'hot',
+        'Populärt just nu',
+        discount ?? formatDistanceKm(card.distanceKm) ?? undefined
+      );
+    });
+
+    nearYouCards.slice(0, 1).forEach((card) => {
+      pushCard(card, 'ending', 'Slutar snart', getEndingSoonBadge(card));
+    });
+
+    eventCards.slice(0, 1).forEach((event) => {
+      if (!event?.id || seen.has(event.id) || slides.length >= 5) return;
+      if (!event.image) return;
+      seen.add(event.id);
+      const linkedToCompany = Boolean(event.businessId) || event.source === 'business';
+      const companyCategory =
+        event.businessEvent?.categoryName ??
+        undefined;
+      slides.push({
+        id: `live:event:${event.id}`,
+        sourceId: event.id,
+        kind: 'event',
+        title: event.title,
+        subtitle: event.subtitle,
+        badge: 'Event',
+        eyebrow: 'Kommande',
+        accentColor: linkedToCompany
+          ? getCategoryAccentColor(companyCategory)
+          : '#ffffff',
+        image: event.image,
+      });
+    });
+
+    return slides;
+  }, [deals, hotOfferCards, nearYouCards, eventCards]);
+
+  const handleLiveHeroPress = useCallback(
+    (slide: HeroLiveSlide) => {
+      if (slide.kind === 'event') {
+        const event = eventCards.find((item) => item.id === slide.sourceId);
+        if (event) {
+          setHomeScrollOffset(scrollOffsetRef.current);
+          openEventFeedItem(router, event, 'index');
+        }
+        return;
+      }
+      const card =
+        deals.find((item) => item.id === slide.sourceId) ??
+        hotOfferCards.find((item) => item.id === slide.sourceId) ??
+        nearYouCards.find((item) => item.id === slide.sourceId);
+      if (!card) return;
+      closeSearchOverlay();
+      setHomeScrollOffset(scrollOffsetRef.current);
+      openOfferDetail(router, card, 'index');
+    },
+    [closeSearchOverlay, deals, eventCards, hotOfferCards, nearYouCards, router]
+  );
+
+  // Image carousel for guests; live nearby spotlight when logged in.
+  const heroContentHeight = isLoggedIn ? LIVE_HERO_HEIGHT : HERO_HEIGHT;
   const heroBlockHeight = heroContentHeight + heroTopInset;
   const searchPanelStickyLift = 12;
   // Keep collapse shorter than hero height — 1:1 mapping breaks ScrollView layout.
@@ -2672,20 +2775,6 @@ export default function HomeScreen() {
     outputRange: [10, heroTopInset + 10 - searchPanelStickyLift],
     extrapolate: 'clamp',
   });
-  // Mic drops in from the top beside the search bar, driven by the eased anim.
-  const inlineMicWidth = inlineMicAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, SEARCH_BAR_HEIGHT],
-  });
-  const inlineMicMarginLeft = inlineMicAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 10],
-  });
-  const inlineMicTranslateY = inlineMicAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-SEARCH_BAR_HEIGHT, 0],
-  });
-  const inlineMicOpacity = inlineMicAnim;
   const searchDropdownExpanded = showSearchTipsDropdown || isSearchDropdownMounted;
   const searchDropdownDividerColor = theme.isDark
     ? 'rgba(255, 255, 255, 0.08)'
@@ -2872,45 +2961,74 @@ export default function HomeScreen() {
         ]}
       >
         <View
-          ref={homeSearchBarRef}
-          collapsable={false}
-          style={{
-            width: '100%',
-            opacity: isSearchOverlayMounted ? 0 : 1,
-          }}
+          style={[
+            styles.searchBarWithMicRow,
+            { opacity: isSearchOverlayMounted ? 0 : 1 },
+          ]}
           pointerEvents={isSearchOverlayMounted ? 'none' : 'auto'}
         >
-          <Pressable
-            accessibilityRole="search"
-            accessibilityLabel="Öppna sök"
-            onPress={() => openSearchDropdown()}
-            style={[
-              filterSurfaceStyle,
-              styles.searchBarRow,
-              {
-                height: SEARCH_BAR_HEIGHT,
-                width: '100%',
-              },
-            ]}
+          <View
+            ref={homeSearchBarRef}
+            collapsable={false}
+            style={{ flex: 1, minWidth: 0 }}
           >
-            <Ionicons
-              name="search-outline"
-              size={18}
-              color={FilterChipTheme.textMuted}
-              style={styles.searchBarIcon}
-            />
-            <Text
-              numberOfLines={1}
-              style={{
-                flex: 1,
-                color: searchQuery.trim() ? FilterChipTheme.text : FilterChipTheme.placeholder,
-                fontSize: 15,
-              }}
+            <Pressable
+              accessibilityRole="search"
+              accessibilityLabel="Öppna sök"
+              onPress={() => openSearchDropdown()}
+              style={[
+                filterSurfaceStyle,
+                styles.searchBarRow,
+                {
+                  height: SEARCH_BAR_HEIGHT,
+                  width: '100%',
+                },
+              ]}
             >
-              {searchQuery.trim() || `${typedPlaceholder}|`}
-            </Text>
-          </Pressable>
+              <Ionicons
+                name="search-outline"
+                size={18}
+                color={FilterChipTheme.textMuted}
+                style={styles.searchBarIcon}
+              />
+              <Text
+                numberOfLines={1}
+                style={{
+                  flex: 1,
+                  color: searchQuery.trim() ? FilterChipTheme.text : FilterChipTheme.placeholder,
+                  fontSize: 15,
+                }}
+              >
+                {searchQuery.trim() || `${typedPlaceholder}|`}
+              </Text>
+            </Pressable>
+          </View>
+
+          <InlineMicButton
+            listening={voiceListening}
+            onPress={handleVoiceSearch}
+            accessibilityLabel={voiceListening ? 'Stoppa röstsökning' : 'Sök med rösten'}
+          />
         </View>
+        {voiceListening || voiceSpeaking || voiceStatusMessage ? (
+          <Text
+            numberOfLines={1}
+            style={{
+              marginTop: 8,
+              paddingHorizontal: 4,
+              fontSize: 12,
+              fontWeight: '600',
+              color: voiceListening ? OFFERS_CATEGORY_ACCENT : theme.textMuted,
+            }}
+          >
+            {voiceStatusMessage ??
+              (voiceListening
+                ? 'Lyssnar… tappa mikrofonen för att stoppa'
+                : voiceSpeaking
+                  ? 'Hörde dig…'
+                  : '')}
+          </Text>
+        ) : null}
       </View>
 
       <View className="mt-2" style={{ zIndex: 1, elevation: 1 }}>
@@ -3306,15 +3424,12 @@ export default function HomeScreen() {
         <View style={{ backgroundColor: homeHeaderPanelBg }}>
           {Platform.OS === 'web' ? (
             <View style={[styles.heroBlock, { height: heroBlockHeight }]}>
-              {isLoggedIn ? (
-                <HeroMicButton
-                  height={heroBlockHeight}
-                  backgroundColor={homeHeaderPanelBg}
+              {isLoggedIn && liveHeroSlides.length > 0 ? (
+                <HeroLiveSpotlight
+                  slides={liveHeroSlides}
+                  panelBackgroundColor={homeHeaderPanelBg}
                   topInset={heroTopInset}
-                  listening={voiceListening}
-                  speaking={voiceSpeaking}
-                  statusMessage={voiceStatusMessage}
-                  onPress={handleVoiceSearch}
+                  onPressSlide={handleLiveHeroPress}
                 />
               ) : (
                 <HeroImageCarousel
@@ -3326,15 +3441,12 @@ export default function HomeScreen() {
             </View>
           ) : (
             <Animated.View style={[styles.heroBlock, { height: heroHeight }]}>
-              {isLoggedIn ? (
-                <HeroMicButton
-                  height={heroBlockHeight}
-                  backgroundColor={homeHeaderPanelBg}
+              {isLoggedIn && liveHeroSlides.length > 0 ? (
+                <HeroLiveSpotlight
+                  slides={liveHeroSlides}
+                  panelBackgroundColor={homeHeaderPanelBg}
                   topInset={heroTopInset}
-                  listening={voiceListening}
-                  speaking={voiceSpeaking}
-                  statusMessage={voiceStatusMessage}
-                  onPress={handleVoiceSearch}
+                  onPressSlide={handleLiveHeroPress}
                 />
               ) : (
                 <HeroImageCarousel
@@ -3598,16 +3710,6 @@ const styles = StyleSheet.create({
     zIndex: 2,
     elevation: 2,
     overflow: 'visible',
-  },
-  inlineMicButtonWrap: {
-    flexShrink: 0,
-  },
-  inlineMicBox: {
-    width: SEARCH_BAR_HEIGHT,
-    height: SEARCH_BAR_HEIGHT,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   searchBarInputSlot: {
     flex: 1,

@@ -40,6 +40,7 @@ import {
   getUserCoords,
   getUserCoordsIfGranted,
   haversineKm,
+  HELSINGBORG_COORDS,
   isPlausibleSwedenCoordinate,
 } from '@/lib/geo';
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
@@ -275,7 +276,7 @@ export default function NaraDigScreen() {
   const { isFavorite, toggleFavorite } = useFavorites();
 
   const [companies, setCompanies] = useState<NearbyCompany[]>(cachedCompanies);
-  const [coords, setCoords] = useState<Coords | null>(null);
+  const [coords, setCoords] = useState<Coords | null>(HELSINGBORG_COORDS);
   const [isLoading, setIsLoading] = useState(cachedCompanies.length === 0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
@@ -299,7 +300,7 @@ export default function NaraDigScreen() {
     let cancelled = false;
     void (async () => {
       const resolved = await getEffectiveUserCoordsIfGranted().catch(() => null);
-      if (!cancelled) {
+      if (!cancelled && resolved) {
         setCoords((prev) => (sameCoords(prev, resolved) ? prev : resolved));
       }
     })();
@@ -310,7 +311,7 @@ export default function NaraDigScreen() {
 
   const refreshEffectiveCoords = useCallback(async () => {
     const next = await getEffectiveUserCoordsIfGranted().catch(() => null);
-    // Never wipe a known position with null.
+    // Keep the last good fix — don't snap back to Helsingborg on a blip.
     if (!next) return;
     setCoords((prev) => (sameCoords(prev, next) ? prev : next));
   }, []);
@@ -330,10 +331,9 @@ export default function NaraDigScreen() {
           // Left custom place → device GPS (may prompt). Don't keep stale custom coords.
           const gps =
             (await getUserCoordsIfGranted().catch(() => null)) ??
-            (await getUserCoords().catch(() => null));
-          if (gps) {
-            setCoords((prev) => (sameCoords(prev, gps) ? prev : gps));
-          }
+            (await getUserCoords().catch(() => null)) ??
+            HELSINGBORG_COORDS;
+          setCoords((prev) => (sameCoords(prev, gps) ? prev : gps));
         })();
       }),
     []
