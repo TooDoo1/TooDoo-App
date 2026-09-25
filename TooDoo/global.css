@@ -135,6 +135,26 @@ body {
   -webkit-user-select: none;
 }
 
+.hero-carousel-web-track.hero-carousel-native-scroll {
+  display: flex;
+  flex-direction: row;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.hero-carousel-web-track.hero-carousel-native-scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 .hero-carousel-web-slider {
   display: flex;
   flex-direction: row;
@@ -156,6 +176,8 @@ body {
   overflow: hidden;
   height: 100%;
   min-width: 0;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
   contain: layout paint;
   transform: translateZ(0);
 }

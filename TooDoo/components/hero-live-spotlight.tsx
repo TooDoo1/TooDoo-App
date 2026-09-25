@@ -28,7 +28,7 @@ import { BrandColors } from '@/lib/brand-colors';
 export const LIVE_HERO_HEIGHT = 200;
 const AUTO_MS = 4200;
 const SCROLL_ANIM_MS = 680;
-const SWIPE_THRESHOLD = 28;
+const TAP_MOVE_THRESHOLD = 12;
 const INTERACT_RESUME_MS = 2000;
 const COPY_BOTTOM_PAD = 40;
 const DECELERATION = Platform.OS === 'android' ? 0.994 : ('normal' as const);
@@ -235,36 +235,18 @@ function WebLiveCarousel({
   } | null>;
 }) {
   const trackRef = useRef<HTMLDivElement | null>(null);
-  const sliderRef = useRef<HTMLDivElement | null>(null);
-  const [trackWidth, setTrackWidth] = useState(0);
-  const pointerIdRef = useRef<number | null>(null);
-  const pointerStartXRef = useRef(0);
-  const pointerStartYRef = useRef(0);
-  const scrollStartRef = useRef(0);
-  const lastMoveXRef = useRef(0);
-  const lastMoveTsRef = useRef(0);
-  const velocityRef = useRef(0);
-  const draggingRef = useRef(false);
-  const movedRef = useRef(false);
-  const axisLockedRef = useRef<'x' | 'y' | null>(null);
-  const wrappingRef = useRef(false);
   const slideCount = slides.length;
   const loopSlides = useMemo(() => buildLoopSlides(slides), [slides]);
-  const loopCount = loopSlides.length;
-  const slideWidthPx = Math.max(trackWidth, 1);
-  const slideWidthRef = useRef(slideWidthPx);
-  slideWidthRef.current = slideWidthPx;
-  const scrollXRef = useRef(0);
-  const pendingXRef = useRef<number | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const [dragging, setDragging] = useState(false);
+  const [trackWidth, setTrackWidth] = useState(0);
+  const slideWidth = Math.max(trackWidth, 1);
   const activeLogicalRef = useRef(0);
+  const wrappingRef = useRef(false);
+  const scrollEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pointerStartRef = useRef<{ x: number; y: number; scrollLeft: number } | null>(null);
+  const movedRef = useRef(false);
 
-  const publishFromScroll = useCallback(
-    (x: number) => {
-      const width = slideWidthRef.current;
-      if (width <= 1) return;
-      const loopIndex = Math.round(x / width);
+  const publishLogical = useCallback(
+    (loopIndex: number) => {
       const logical = loopIndexToLogical(loopIndex, slideCount);
       if (logical === activeLogicalRef.current) return;
       activeLogicalRef.current = logical;
@@ -273,142 +255,81 @@ function WebLiveCarousel({
     [onLogicalIndexChange, slideCount]
   );
 
-  const flushTransform = useCallback(() => {
-    rafRef.current = null;
-    const x = pendingXRef.current;
-    if (x == null) return;
-    pendingXRef.current = null;
-    const slider = sliderRef.current;
-    if (!slider) return;
-    slider.style.transform = `translate3d(${-x}px,0,0)`;
-  }, []);
-
-  const applyTransform = useCallback(
-    (x: number, instant: boolean) => {
-      const slider = sliderRef.current;
-      if (!slider) return;
-      if (instant) {
-        slider.classList.add('is-instant');
-        // Direct paint during drag — skip React and coalesce with rAF.
-        scrollXRef.current = x;
-        pendingXRef.current = x;
-        if (rafRef.current == null) {
-          rafRef.current = requestAnimationFrame(flushTransform);
-        }
-        return;
-      }
-      slider.classList.remove('is-instant');
-      scrollXRef.current = x;
-      slider.style.transform = `translate3d(${-x}px,0,0)`;
+  const scrollToLoopIndex = useCallback(
+    (loopIndex: number, behavior: ScrollBehavior) => {
+      const node = trackRef.current;
+      if (!node || slideWidth <= 1) return;
+      node.scrollTo({ left: loopIndex * slideWidth, behavior });
+      publishLogical(loopIndex);
     },
-    [flushTransform]
+    [publishLogical, slideWidth]
   );
 
-  const setScrollX = useCallback(
-    (x: number, instant: boolean) => {
-      scrollXRef.current = x;
-      applyTransform(x, instant);
-      if (!draggingRef.current) {
-        publishFromScroll(x);
-      }
-    },
-    [applyTransform, publishFromScroll]
-  );
-
-  const wrapIfNeeded = useCallback(
-    (x: number) => {
-      const width = slideWidthRef.current;
-      if (slideCount <= 1 || width <= 1) return x;
-      const span = slideCount * width;
-      if (x < width * 0.5) return x + span;
-      if (x > slideCount * width + width * 0.5) return x - span;
-      return x;
-    },
-    [slideCount]
-  );
+  const wrapClonesIfNeeded = useCallback(() => {
+    const node = trackRef.current;
+    if (!node || slideCount <= 1 || slideWidth <= 1 || wrappingRef.current) return;
+    const maxIndex = slideCount + 1;
+    const approx = node.scrollLeft / slideWidth;
+    if (approx < 0.5) {
+      wrappingRef.current = true;
+      node.scrollTo({ left: slideCount * slideWidth, behavior: 'auto' });
+      publishLogical(slideCount - 1);
+      requestAnimationFrame(() => {
+        wrappingRef.current = false;
+      });
+      return;
+    }
+    if (approx > maxIndex - 0.5) {
+      wrappingRef.current = true;
+      node.scrollTo({ left: slideWidth, behavior: 'auto' });
+      publishLogical(0);
+      requestAnimationFrame(() => {
+        wrappingRef.current = false;
+      });
+    }
+  }, [publishLogical, slideCount, slideWidth]);
 
   useEffect(() => {
     const node = trackRef.current;
-    if (!node || typeof ResizeObserver === 'undefined') {
-      if (node) setTrackWidth(Math.round(node.getBoundingClientRect().width));
-      return;
-    }
+    if (!node) return;
     const update = () => setTrackWidth(Math.round(node.getBoundingClientRect().width));
     update();
+    if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(update);
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
-    if (trackWidth <= 0) return;
-    const logical = activeLogicalRef.current;
-    const next = (slideCount > 1 ? logical + 1 : 0) * trackWidth;
-    setScrollX(next, true);
-  }, [trackWidth, slideCount, setScrollX]);
-
-  const animateTo = useCallback(
-    (target: number) => {
-      const width = slideWidthRef.current;
-      const start = scrollXRef.current;
-      let end = target;
-      if (slideCount > 1 && width > 1) {
-        const span = slideCount * width;
-        const candidates = [target, target - span, target + span];
-        end = candidates.reduce((best, value) =>
-          Math.abs(value - start) < Math.abs(best - start) ? value : best
-        );
-      }
-      if (Math.abs(end - start) < 0.5) {
-        const settled = wrapIfNeeded(end);
-        setScrollX(settled, true);
-        return;
-      }
-      // Softer settle — longer ease so snaps don't feel yanked.
-      const distance = Math.abs(end - start);
-      const duration = Math.min(980, Math.max(560, distance * 0.95 + 420));
-      const slider = sliderRef.current;
-      if (slider) {
-        slider.style.transitionDuration = `${duration}ms`;
-        slider.style.transitionTimingFunction = 'cubic-bezier(0.25, 0.8, 0.25, 1)';
-      }
-      setScrollX(end, false);
-      wrappingRef.current = true;
-      window.setTimeout(() => {
-        const settled = wrapIfNeeded(scrollXRef.current);
-        if (settled !== scrollXRef.current) {
-          setScrollX(settled, true);
-        } else {
-          applyTransform(settled, true);
-        }
-        wrappingRef.current = false;
-        if (slider) {
-          slider.style.transitionDuration = '';
-          slider.style.transitionTimingFunction = '';
-        }
-      }, duration + 16);
-    },
-    [applyTransform, setScrollX, slideCount, wrapIfNeeded]
-  );
+    const node = trackRef.current;
+    if (!node || trackWidth <= 0) return;
+    const startIndex = slideCount > 1 ? 1 : 0;
+    wrappingRef.current = true;
+    node.scrollTo({ left: startIndex * trackWidth, behavior: 'auto' });
+    publishLogical(startIndex);
+    requestAnimationFrame(() => {
+      wrappingRef.current = false;
+    });
+  }, [trackWidth, slideCount, publishLogical]);
 
   const step = useCallback(
     (direction: -1 | 1) => {
-      if (slideCount <= 1 || draggingRef.current || wrappingRef.current) return;
-      const width = slideWidthRef.current;
-      const currentIndex = Math.round(scrollXRef.current / width);
-      animateTo((currentIndex + direction) * width);
+      if (slideCount <= 1 || wrappingRef.current) return;
+      const node = trackRef.current;
+      if (!node) return;
+      const current = Math.round(node.scrollLeft / slideWidth);
+      scrollToLoopIndex(current + direction, 'smooth');
     },
-    [animateTo, slideCount]
+    [scrollToLoopIndex, slideCount, slideWidth]
   );
 
   const goTo = useCallback(
     (logicalIndex: number) => {
-      if (slideCount <= 1 || draggingRef.current || wrappingRef.current) return;
-      const width = slideWidthRef.current;
+      if (slideCount <= 1 || wrappingRef.current) return;
       const target = Math.max(0, Math.min(slideCount - 1, logicalIndex));
-      animateTo((target + (slideCount > 1 ? 1 : 0)) * width);
+      scrollToLoopIndex(target + (slideCount > 1 ? 1 : 0), 'smooth');
     },
-    [animateTo, slideCount]
+    [scrollToLoopIndex, slideCount]
   );
 
   useEffect(() => {
@@ -419,181 +340,91 @@ function WebLiveCarousel({
     };
   }, [controlsRef, goTo, step]);
 
+  useEffect(() => {
+    return () => {
+      if (scrollEndTimerRef.current) clearTimeout(scrollEndTimerRef.current);
+    };
+  }, []);
+
+  const handleScroll = () => {
+    const node = trackRef.current;
+    if (!node || wrappingRef.current || slideWidth <= 1) return;
+    const approx = Math.round(node.scrollLeft / slideWidth);
+    publishLogical(approx);
+    onInteractStart?.();
+    if (scrollEndTimerRef.current) clearTimeout(scrollEndTimerRef.current);
+    scrollEndTimerRef.current = setTimeout(() => {
+      wrapClonesIfNeeded();
+      onInteractEnd?.();
+      scrollEndTimerRef.current = null;
+    }, 140);
+  };
+
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
-    if (slideCount <= 1) return;
-    pointerIdRef.current = event.pointerId;
-    pointerStartXRef.current = event.clientX;
-    pointerStartYRef.current = event.clientY;
-    lastMoveXRef.current = event.clientX;
-    lastMoveTsRef.current = performance.now();
-    velocityRef.current = 0;
-    scrollStartRef.current = scrollXRef.current;
+    const node = trackRef.current;
+    pointerStartRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      scrollLeft: node?.scrollLeft ?? 0,
+    };
     movedRef.current = false;
-    axisLockedRef.current = null;
-    draggingRef.current = true;
-    wrappingRef.current = false;
-    setDragging(true);
-    applyTransform(scrollXRef.current, true);
-    onInteractStart?.();
-    try {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    } catch {
-      // ignore
-    }
   };
 
   const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (pointerIdRef.current !== event.pointerId || !draggingRef.current) return;
-    const dx = event.clientX - pointerStartXRef.current;
-    const dy = event.clientY - pointerStartYRef.current;
-
-    if (!axisLockedRef.current) {
-      if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
-      axisLockedRef.current = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
-      if (axisLockedRef.current === 'y') {
-        draggingRef.current = false;
-        setDragging(false);
-        pointerIdRef.current = null;
-        onInteractEnd?.();
-        try {
-          event.currentTarget.releasePointerCapture(event.pointerId);
-        } catch {
-          // ignore
-        }
-        return;
-      }
-    }
-
-    if (axisLockedRef.current !== 'x') return;
-    event.preventDefault();
-    movedRef.current = true;
-
-    const now = performance.now();
-    const dt = Math.max(4, now - lastMoveTsRef.current);
-    const moveDx = event.clientX - lastMoveXRef.current;
-    const instantVelocity = moveDx / dt;
-    velocityRef.current = velocityRef.current * 0.72 + instantVelocity * 0.28;
-    lastMoveXRef.current = event.clientX;
-    lastMoveTsRef.current = now;
-
-    const next = scrollStartRef.current - dx;
-    applyTransform(next, true);
-  };
-
-  const finishDrag = (clientX: number) => {
-    if (!draggingRef.current && pointerIdRef.current == null) return;
-    draggingRef.current = false;
-    setDragging(false);
-    pointerIdRef.current = null;
-
-    if (rafRef.current != null) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-    if (pendingXRef.current != null) {
-      scrollXRef.current = pendingXRef.current;
-      pendingXRef.current = null;
-      const slider = sliderRef.current;
-      if (slider) slider.style.transform = `translate3d(${-scrollXRef.current}px,0,0)`;
-    }
-
-    const width = slideWidthRef.current;
-    const dx = clientX - pointerStartXRef.current;
-    const velocity = velocityRef.current;
-
-    if (!movedRef.current || (Math.abs(dx) < SWIPE_THRESHOLD && Math.abs(velocity) < 0.2)) {
-      const nearest = Math.round(scrollStartRef.current / width) * width;
-      animateTo(nearest);
-      if (!movedRef.current) {
-        const logical = loopIndexToLogical(Math.round(nearest / width), slideCount);
-        const slide = slides[logical];
-        if (slide) onPressSlide?.(slide);
-      }
-      onInteractEnd?.();
-      return;
-    }
-
-    // Prefer staying on the slide you started from unless you've clearly committed.
-    const startIndex = Math.round(scrollStartRef.current / width);
-    const progress = scrollXRef.current / width;
-    const dragged = progress - startIndex;
-    let targetIndex = startIndex;
-
-    const commitDistance = 0.38; // need ~38% toward a neighbor before changing
-    const flickCommit = 0.55; // stronger flick needed to force a change
-
-    if (Math.abs(velocity) > flickCommit) {
-      // Finger right (positive velocity) → previous slide.
-      targetIndex = velocity > 0 ? startIndex - 1 : startIndex + 1;
-    } else if (dragged >= commitDistance) {
-      targetIndex = startIndex + 1;
-    } else if (dragged <= -commitDistance) {
-      targetIndex = startIndex - 1;
-    }
-
-    animateTo(targetIndex * width);
-    onInteractEnd?.();
-  };
-
-  const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (pointerIdRef.current !== event.pointerId) return;
-    finishDrag(event.clientX);
-    try {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    } catch {
-      // ignore
+    const start = pointerStartRef.current;
+    if (!start) return;
+    if (
+      Math.abs(event.clientX - start.x) > TAP_MOVE_THRESHOLD ||
+      Math.abs(event.clientY - start.y) > TAP_MOVE_THRESHOLD
+    ) {
+      movedRef.current = true;
     }
   };
 
-  const handlePointerCancel = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (pointerIdRef.current !== event.pointerId) return;
-    finishDrag(event.clientX);
+  const handlePointerUp = () => {
+    const start = pointerStartRef.current;
+    pointerStartRef.current = null;
+    if (!start || movedRef.current || slideCount === 0) return;
+    const logical = activeLogicalRef.current;
+    const slide = slides[logical];
+    if (slide) onPressSlide?.(slide);
   };
 
   return (
     <div
       ref={trackRef}
-      className="hero-carousel-web-track"
-      style={{
-        height: shellHeight,
-        cursor: slideCount > 1 ? (dragging ? 'grabbing' : 'grab') : 'default',
-        touchAction: dragging ? 'none' : 'pan-y',
-      }}
+      className="hero-carousel-web-track hero-carousel-native-scroll"
+      style={{ height: shellHeight }}
+      onScroll={handleScroll}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerCancel}
+      onPointerCancel={() => {
+        pointerStartRef.current = null;
+      }}
     >
-      <div
-        ref={sliderRef}
-        className={`hero-carousel-web-slider${dragging ? ' is-instant' : ''}`}
-        style={{
-          width: trackWidth > 0 ? loopCount * slideWidthPx : `${Math.max(loopCount, 1) * 100}%`,
-          transform: trackWidth > 0 ? `translate3d(${-scrollXRef.current}px,0,0)` : 'translate3d(0,0,0)',
-        }}
-      >
-        {loopSlides.map((slide, idx) => (
-          <div
-            key={`${slide.id}:loop:${idx}`}
-            className="hero-carousel-web-slide"
-            style={{
-              width: trackWidth > 0 ? slideWidthPx : `${100 / Math.max(loopCount, 1)}%`,
-              flex: trackWidth > 0 ? `0 0 ${slideWidthPx}px` : `0 0 ${100 / Math.max(loopCount, 1)}%`,
-            }}
-          >
-            <LiveSlideFrame
-              slide={slide}
-              shellHeight={shellHeight}
-              slideWidth={slideWidthPx}
-              fillWidth
-              priority="high"
-              topInset={topInset}
-              disablePress
-            />
-          </div>
-        ))}
-      </div>
+      {loopSlides.map((slide, idx) => (
+        <div
+          key={`${slide.id}:loop:${idx}`}
+          className="hero-carousel-web-slide"
+          style={{
+            width: trackWidth > 0 ? slideWidth : '100%',
+            flex: trackWidth > 0 ? `0 0 ${slideWidth}px` : '0 0 100%',
+            height: shellHeight,
+          }}
+        >
+          <LiveSlideFrame
+            slide={slide}
+            shellHeight={shellHeight}
+            slideWidth={slideWidth}
+            fillWidth
+            priority="high"
+            topInset={topInset}
+            disablePress
+          />
+        </div>
+      ))}
     </div>
   );
 }
