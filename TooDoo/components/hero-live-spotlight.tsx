@@ -25,12 +25,12 @@ import { resolveHeroImageUri } from '@/lib/hero-slides';
 import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
 import { BrandColors } from '@/lib/brand-colors';
 
-export const LIVE_HERO_HEIGHT = 248;
+export const LIVE_HERO_HEIGHT = 200;
 const AUTO_MS = 4200;
 const SCROLL_ANIM_MS = 520;
 const SWIPE_THRESHOLD = 40;
 const INTERACT_RESUME_MS = 2800;
-const COPY_BOTTOM_PAD = 46;
+const COPY_BOTTOM_PAD = 40;
 const DECELERATION = Platform.OS === 'android' ? 0.992 : ('normal' as const);
 
 export type HeroLiveSlide = {
