@@ -364,12 +364,13 @@ function WebLiveCarousel({
         setScrollX(settled, true);
         return;
       }
-      // Distance-scaled duration keeps short snaps snappy and long ones fluid.
+      // Softer settle — longer ease so snaps don't feel yanked.
       const distance = Math.abs(end - start);
-      const duration = Math.min(820, Math.max(420, distance * 0.75 + 280));
+      const duration = Math.min(980, Math.max(560, distance * 0.95 + 420));
       const slider = sliderRef.current;
       if (slider) {
         slider.style.transitionDuration = `${duration}ms`;
+        slider.style.transitionTimingFunction = 'cubic-bezier(0.25, 0.8, 0.25, 1)';
       }
       setScrollX(end, false);
       wrappingRef.current = true;
@@ -383,6 +384,7 @@ function WebLiveCarousel({
         wrappingRef.current = false;
         if (slider) {
           slider.style.transitionDuration = '';
+          slider.style.transitionTimingFunction = '';
         }
       }, duration + 16);
     },
@@ -512,19 +514,24 @@ function WebLiveCarousel({
       return;
     }
 
-    // Velocity chooses direction and can skip more than one slide on a fast flick.
+    // Prefer staying on the slide you started from unless you've clearly committed.
+    const startIndex = Math.round(scrollStartRef.current / width);
     const progress = scrollXRef.current / width;
-    let targetIndex = Math.round(progress);
-    const speed = Math.abs(velocity);
-    if (speed > 0.22) {
-      const direction = velocity > 0 ? -1 : 1;
-      const fromIndex = velocity > 0 ? Math.ceil(progress - 0.001) : Math.floor(progress + 0.001);
-      const skip = speed > 0.9 ? 2 : speed > 0.45 ? 1 : 0;
-      targetIndex = fromIndex + direction * skip;
-      if (skip === 0) {
-        targetIndex = direction < 0 ? Math.floor(progress) : Math.ceil(progress);
-      }
+    const dragged = progress - startIndex;
+    let targetIndex = startIndex;
+
+    const commitDistance = 0.38; // need ~38% toward a neighbor before changing
+    const flickCommit = 0.55; // stronger flick needed to force a change
+
+    if (Math.abs(velocity) > flickCommit) {
+      // Finger right (positive velocity) → previous slide.
+      targetIndex = velocity > 0 ? startIndex - 1 : startIndex + 1;
+    } else if (dragged >= commitDistance) {
+      targetIndex = startIndex + 1;
+    } else if (dragged <= -commitDistance) {
+      targetIndex = startIndex - 1;
     }
+
     animateTo(targetIndex * width);
     onInteractEnd?.();
   };
