@@ -27,11 +27,11 @@ import { BrandColors } from '@/lib/brand-colors';
 
 export const LIVE_HERO_HEIGHT = 200;
 const AUTO_MS = 4200;
-const SCROLL_ANIM_MS = 520;
-const SWIPE_THRESHOLD = 40;
-const INTERACT_RESUME_MS = 2800;
+const SCROLL_ANIM_MS = 680;
+const SWIPE_THRESHOLD = 28;
+const INTERACT_RESUME_MS = 3200;
 const COPY_BOTTOM_PAD = 40;
-const DECELERATION = Platform.OS === 'android' ? 0.992 : ('normal' as const);
+const DECELERATION = Platform.OS === 'android' ? 0.994 : ('normal' as const);
 
 export type HeroLiveSlide = {
   id: string;
@@ -233,18 +233,74 @@ function WebLiveCarousel({
   } | null>;
 }) {
   const trackRef = useRef<HTMLDivElement | null>(null);
+  const sliderRef = useRef<HTMLDivElement | null>(null);
   const [trackWidth, setTrackWidth] = useState(0);
-  const pointerStartXRef = useRef<number | null>(null);
-  const pointerStartYRef = useRef<number | null>(null);
-  const didSwipeRef = useRef(false);
-  const settlingRef = useRef(false);
-  const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pointerIdRef = useRef<number | null>(null);
+  const pointerStartXRef = useRef(0);
+  const pointerStartYRef = useRef(0);
+  const scrollStartRef = useRef(0);
+  const lastMoveXRef = useRef(0);
+  const lastMoveTsRef = useRef(0);
+  const velocityRef = useRef(0);
+  const draggingRef = useRef(false);
+  const movedRef = useRef(false);
+  const axisLockedRef = useRef<'x' | 'y' | null>(null);
+  const wrappingRef = useRef(false);
   const slideCount = slides.length;
   const loopSlides = useMemo(() => buildLoopSlides(slides), [slides]);
   const loopCount = loopSlides.length;
-  const [loopIndex, setLoopIndex] = useState(() => (slideCount > 1 ? 1 : 0));
-  const [instant, setInstant] = useState(false);
   const slideWidthPx = Math.max(trackWidth, 1);
+  const slideWidthRef = useRef(slideWidthPx);
+  slideWidthRef.current = slideWidthPx;
+  const scrollXRef = useRef(0);
+  const [dragging, setDragging] = useState(false);
+  const [, setTick] = useState(0);
+  const activeLogicalRef = useRef(0);
+
+  const publishFromScroll = useCallback(
+    (x: number) => {
+      const width = slideWidthRef.current;
+      if (width <= 1) return;
+      const loopIndex = Math.round(x / width);
+      const logical = loopIndexToLogical(loopIndex, slideCount);
+      if (logical === activeLogicalRef.current) return;
+      activeLogicalRef.current = logical;
+      onLogicalIndexChange?.(logical);
+    },
+    [onLogicalIndexChange, slideCount]
+  );
+
+  const applyTransform = useCallback((x: number, instant: boolean) => {
+    const slider = sliderRef.current;
+    if (!slider) return;
+    if (instant) {
+      slider.classList.add('is-instant');
+    } else {
+      slider.classList.remove('is-instant');
+    }
+    slider.style.transform = `translate3d(${-x}px,0,0)`;
+  }, []);
+
+  const setScrollX = useCallback(
+    (x: number, instant: boolean) => {
+      scrollXRef.current = x;
+      applyTransform(x, instant);
+      publishFromScroll(x);
+    },
+    [applyTransform, publishFromScroll]
+  );
+
+  const wrapIfNeeded = useCallback(
+    (x: number) => {
+      const width = slideWidthRef.current;
+      if (slideCount <= 1 || width <= 1) return x;
+      const span = slideCount * width;
+      if (x < width * 0.5) return x + span;
+      if (x > slideCount * width + width * 0.5) return x - span;
+      return x;
+    },
+    [slideCount]
+  );
 
   useEffect(() => {
     const node = trackRef.current;
@@ -259,96 +315,73 @@ function WebLiveCarousel({
     return () => observer.disconnect();
   }, []);
 
-  const publishLogical = useCallback(
-    (nextLoopIndex: number) => {
-      onLogicalIndexChange?.(loopIndexToLogical(nextLoopIndex, slideCount));
-    },
-    [onLogicalIndexChange, slideCount]
-  );
-
   useEffect(() => {
-    setLoopIndex(slideCount > 1 ? 1 : 0);
-    setInstant(false);
-    publishLogical(slideCount > 1 ? 1 : 0);
-  }, [slideCount, publishLogical]);
+    if (trackWidth <= 0) return;
+    const logical = activeLogicalRef.current;
+    const next = (slideCount > 1 ? logical + 1 : 0) * trackWidth;
+    setScrollX(next, true);
+  }, [trackWidth, slideCount, setScrollX]);
 
-  const snapCloneIfNeeded = useCallback(
-    (index: number) => {
-      if (slideCount <= 1) return index;
-      if (index === 0) {
-        settlingRef.current = true;
-        setInstant(true);
-        setLoopIndex(slideCount);
-        publishLogical(slideCount);
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            setInstant(false);
-            settlingRef.current = false;
-          });
-        });
-        return slideCount;
+  const animateTo = useCallback(
+    (target: number) => {
+      const width = slideWidthRef.current;
+      const start = scrollXRef.current;
+      let end = target;
+      if (slideCount > 1 && width > 1) {
+        const span = slideCount * width;
+        const candidates = [target, target - span, target + span];
+        end = candidates.reduce((best, value) =>
+          Math.abs(value - start) < Math.abs(best - start) ? value : best
+        );
       }
-      if (index === slideCount + 1) {
-        settlingRef.current = true;
-        setInstant(true);
-        setLoopIndex(1);
-        publishLogical(1);
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            setInstant(false);
-            settlingRef.current = false;
-          });
-        });
-        return 1;
+      if (Math.abs(end - start) < 0.5) {
+        const settled = wrapIfNeeded(end);
+        setScrollX(settled, true);
+        return;
       }
-      return index;
+      // Distance-scaled duration keeps short snaps snappy and long ones fluid.
+      const distance = Math.abs(end - start);
+      const duration = Math.min(820, Math.max(420, distance * 0.75 + 280));
+      const slider = sliderRef.current;
+      if (slider) {
+        slider.style.transitionDuration = `${duration}ms`;
+      }
+      setScrollX(end, false);
+      wrappingRef.current = true;
+      window.setTimeout(() => {
+        const settled = wrapIfNeeded(scrollXRef.current);
+        if (settled !== scrollXRef.current) {
+          setScrollX(settled, true);
+        } else {
+          applyTransform(settled, true);
+        }
+        wrappingRef.current = false;
+        if (slider) {
+          slider.style.transitionDuration = '';
+        }
+      }, duration + 16);
     },
-    [publishLogical, slideCount]
+    [applyTransform, setScrollX, slideCount, wrapIfNeeded]
   );
 
   const step = useCallback(
     (direction: -1 | 1) => {
-      if (slideCount <= 1 || settlingRef.current) return;
-      setInstant(false);
-      setLoopIndex((prev) => {
-        const next = prev + direction;
-        publishLogical(next);
-        if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
-        settleTimerRef.current = setTimeout(() => {
-          snapCloneIfNeeded(next);
-          settleTimerRef.current = null;
-        }, SCROLL_ANIM_MS);
-        return next;
-      });
+      if (slideCount <= 1 || draggingRef.current || wrappingRef.current) return;
+      const width = slideWidthRef.current;
+      const currentIndex = Math.round(scrollXRef.current / width);
+      animateTo((currentIndex + direction) * width);
     },
-    [publishLogical, slideCount, snapCloneIfNeeded]
+    [animateTo, slideCount]
   );
 
   const goTo = useCallback(
     (logicalIndex: number) => {
-      if (slideCount <= 1) return;
-      if (settlingRef.current) return;
+      if (slideCount <= 1 || draggingRef.current || wrappingRef.current) return;
+      const width = slideWidthRef.current;
       const target = Math.max(0, Math.min(slideCount - 1, logicalIndex));
-      const currentLogical = loopIndexToLogical(loopIndex, slideCount);
-      if (target === currentLogical) return;
-
-      let nextLoop = target + 1;
-      if (currentLogical === slideCount - 1 && target === 0) {
-        nextLoop = slideCount + 1;
-      } else if (currentLogical === 0 && target === slideCount - 1) {
-        nextLoop = 0;
-      }
-
-      setInstant(false);
-      setLoopIndex(nextLoop);
-      publishLogical(nextLoop);
-      if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
-      settleTimerRef.current = setTimeout(() => {
-        snapCloneIfNeeded(nextLoop);
-        settleTimerRef.current = null;
-      }, SCROLL_ANIM_MS);
+      animateTo((target + (slideCount > 1 ? 1 : 0)) * width);
     },
-    [loopIndex, publishLogical, slideCount, snapCloneIfNeeded]
+    [animateTo, slideCount]
   );
 
   useEffect(() => {
@@ -359,61 +392,109 @@ function WebLiveCarousel({
     };
   }, [controlsRef, goTo, step]);
 
-  useEffect(() => {
-    return () => {
-      if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
-    };
-  }, []);
-
-  const finishGesture = (clientX: number, clientY: number) => {
-    const startX = pointerStartXRef.current;
-    const startY = pointerStartYRef.current;
-    pointerStartXRef.current = null;
-    pointerStartYRef.current = null;
-    if (startX == null || startY == null) return;
-
-    const deltaX = clientX - startX;
-    const deltaY = clientY - startY;
-    if (Math.abs(deltaX) >= SWIPE_THRESHOLD && Math.abs(deltaX) > Math.abs(deltaY)) {
-      didSwipeRef.current = true;
-      step(deltaX > 0 ? -1 : 1);
-      return;
-    }
-
-    if (!didSwipeRef.current) {
-      const logical = loopIndexToLogical(loopIndex, slideCount);
-      const slide = slides[logical];
-      if (slide) onPressSlide?.(slide);
-    }
-  };
-
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
+    if (slideCount <= 1) return;
+    pointerIdRef.current = event.pointerId;
     pointerStartXRef.current = event.clientX;
     pointerStartYRef.current = event.clientY;
-    didSwipeRef.current = false;
+    lastMoveXRef.current = event.clientX;
+    lastMoveTsRef.current = performance.now();
+    velocityRef.current = 0;
+    scrollStartRef.current = scrollXRef.current;
+    movedRef.current = false;
+    axisLockedRef.current = null;
+    draggingRef.current = true;
+    wrappingRef.current = false;
+    setDragging(true);
+    applyTransform(scrollXRef.current, true);
     onInteract?.();
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
     } catch {
-      // ignore capture failures
+      // ignore
     }
   };
 
   const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const startX = pointerStartXRef.current;
-    const startY = pointerStartYRef.current;
-    if (startX == null || startY == null) return;
-    const deltaX = event.clientX - startX;
-    const deltaY = event.clientY - startY;
-    if (Math.abs(deltaX) >= SWIPE_THRESHOLD && Math.abs(deltaX) > Math.abs(deltaY)) {
-      didSwipeRef.current = true;
+    if (pointerIdRef.current !== event.pointerId || !draggingRef.current) return;
+    const dx = event.clientX - pointerStartXRef.current;
+    const dy = event.clientY - pointerStartYRef.current;
+
+    if (!axisLockedRef.current) {
+      if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+      axisLockedRef.current = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
+      if (axisLockedRef.current === 'y') {
+        draggingRef.current = false;
+        setDragging(false);
+        pointerIdRef.current = null;
+        try {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        } catch {
+          // ignore
+        }
+        return;
+      }
     }
+
+    if (axisLockedRef.current !== 'x') return;
+    event.preventDefault();
+    movedRef.current = true;
+
+    const now = performance.now();
+    const dt = Math.max(8, now - lastMoveTsRef.current);
+    const moveDx = event.clientX - lastMoveXRef.current;
+    // Smooth velocity with light EMA so snaps feel intentional.
+    const instantVelocity = moveDx / dt;
+    velocityRef.current = velocityRef.current * 0.65 + instantVelocity * 0.35;
+    lastMoveXRef.current = event.clientX;
+    lastMoveTsRef.current = now;
+
+    const next = scrollStartRef.current - dx;
+    scrollXRef.current = next;
+    applyTransform(next, true);
+    publishFromScroll(next);
+  };
+
+  const finishDrag = (clientX: number) => {
+    if (!draggingRef.current && pointerIdRef.current == null) return;
+    draggingRef.current = false;
+    setDragging(false);
+    pointerIdRef.current = null;
+
+    const width = slideWidthRef.current;
+    const dx = clientX - pointerStartXRef.current;
+    const velocity = velocityRef.current;
+
+    if (!movedRef.current || (Math.abs(dx) < SWIPE_THRESHOLD && Math.abs(velocity) < 0.2)) {
+      const nearest = Math.round(scrollStartRef.current / width) * width;
+      animateTo(nearest);
+      if (!movedRef.current) {
+        const logical = loopIndexToLogical(Math.round(nearest / width), slideCount);
+        const slide = slides[logical];
+        if (slide) onPressSlide?.(slide);
+      }
+      onInteract?.();
+      return;
+    }
+
+    // Velocity chooses direction; otherwise snap to nearest.
+    const progress = scrollXRef.current / width;
+    let targetIndex = Math.round(progress);
+    if (Math.abs(velocity) > 0.35) {
+      // Finger moving right (positive velocity) reveals previous slide.
+      targetIndex = velocity > 0 ? Math.floor(progress) : Math.ceil(progress);
+    } else if (Math.abs(velocity) > 0.18) {
+      targetIndex = velocity > 0 ? Math.floor(progress + 0.15) : Math.ceil(progress - 0.15);
+    }
+    animateTo(targetIndex * width);
+    onInteract?.();
+    setTick((value) => value + 1);
   };
 
   const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (pointerStartXRef.current == null) return;
-    finishGesture(event.clientX, event.clientY);
+    if (pointerIdRef.current !== event.pointerId) return;
+    finishDrag(event.clientX);
     try {
       event.currentTarget.releasePointerCapture(event.pointerId);
     } catch {
@@ -421,31 +502,33 @@ function WebLiveCarousel({
     }
   };
 
-  const handlePointerCancel = () => {
-    pointerStartXRef.current = null;
-    pointerStartYRef.current = null;
+  const handlePointerCancel = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (pointerIdRef.current !== event.pointerId) return;
+    finishDrag(event.clientX);
   };
 
-  const activeLogical = loopIndexToLogical(loopIndex, slideCount);
+  const activeLogical = activeLogicalRef.current;
 
   return (
     <div
       ref={trackRef}
       className="hero-carousel-web-track"
-      style={{ height: shellHeight, cursor: slideCount > 1 ? 'grab' : 'default', touchAction: 'pan-y' }}
+      style={{
+        height: shellHeight,
+        cursor: slideCount > 1 ? (dragging ? 'grabbing' : 'grab') : 'default',
+        touchAction: 'pan-y',
+      }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
     >
       <div
-        className={`hero-carousel-web-slider${instant ? ' is-instant' : ''}`}
+        ref={sliderRef}
+        className={`hero-carousel-web-slider${dragging ? ' is-instant' : ''}`}
         style={{
-          width: trackWidth > 0 ? loopCount * slideWidthPx : `${loopCount * 100}%`,
-          transform:
-            trackWidth > 0
-              ? `translate3d(-${loopIndex * slideWidthPx}px,0,0)`
-              : `translate3d(-${loopIndex * (100 / Math.max(loopCount, 1))}%,0,0)`,
+          width: trackWidth > 0 ? loopCount * slideWidthPx : `${Math.max(loopCount, 1) * 100}%`,
+          transform: trackWidth > 0 ? `translate3d(${-scrollXRef.current}px,0,0)` : 'translate3d(0,0,0)',
         }}
       >
         {loopSlides.map((slide, idx) => (
@@ -576,7 +659,8 @@ export function HeroLiveSpotlight({
         return;
       }
       if (!isLayoutReady) return;
-      const nextLoopIndex = currentLoopIndexRef.current + direction;
+      const base = Math.round(currentLoopIndexRef.current);
+      const nextLoopIndex = base + direction;
       currentLoopIndexRef.current = nextLoopIndex;
       scrollToIndex(nextLoopIndex, true);
       setActiveDot(loopIndexToLogical(nextLoopIndex, slideCount));
@@ -648,7 +732,6 @@ export function HeroLiveSpotlight({
           ref={scrollRef}
           horizontal
           nestedScrollEnabled
-          pagingEnabled
           removeClippedSubviews
           showsHorizontalScrollIndicator={false}
           decelerationRate={DECELERATION}
@@ -661,6 +744,11 @@ export function HeroLiveSpotlight({
           contentContainerStyle={styles.scrollContent}
           onScrollBeginDrag={() => {
             markInteracting();
+          }}
+          onScroll={(event) => {
+            const offsetX = event.nativeEvent.contentOffset.x;
+            const approx = Math.round(offsetX / Math.max(slideStride, 1));
+            setActiveDot(loopIndexToLogical(approx, slideCount));
           }}
           onScrollEndDrag={(event) => handleScrollEnd(event.nativeEvent.contentOffset.x)}
           onMomentumScrollEnd={(event) => handleScrollEnd(event.nativeEvent.contentOffset.x)}
