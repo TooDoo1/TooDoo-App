@@ -19,7 +19,6 @@ import {
   type MapLibrePin,
   type MapViewportBounds,
 } from '@/components/ui/maplibre-map.web';
-import { getFloatingTabBarScrollPadding } from '@/components/floating-tab-bar';
 import { useThemePreference } from '@/context/theme-preference-context';
 import {
   filterBusinessesByQuery,
@@ -31,7 +30,16 @@ import {
 } from '@/lib/business-map-data';
 import { getCategoryAccentColor, OFFERS_CATEGORY_ACCENT } from '@/lib/category-colors';
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
-import { getEffectiveUserCoords, type Coords } from '@/lib/geo';
+import { subscribeCustomLocations } from '@/lib/custom-locations';
+import {
+  getEffectiveUserCoords,
+  getEffectiveUserCoordsIfGranted,
+  getUserCoords,
+  getUserCoordsIfGranted,
+  haversineKm,
+  HELSINGBORG_COORDS,
+  type Coords,
+} from '@/lib/geo';
 import { warmMapPinImages } from '@/lib/map-business-pin';
 import { MAP_PAINT_VERSION } from '@/lib/maplibre-brand';
 import { mapShellBackground } from '@/lib/map-style';
@@ -42,10 +50,50 @@ import {
   type TravelRoutes,
 } from '@/lib/osrm-route';
 import { uiTheme } from '@/lib/ui-theme';
+import { useFocusEffect } from '@react-navigation/native';
+
+const NEAR_YOU_ZOOM = 13.35;
+const NEAR_YOU_FIT_RADIUS_KM = 3.5;
+const NEAR_YOU_FIT_COUNT = 12;
 
 function paramString(value: string | string[] | undefined): string {
   if (Array.isArray(value)) return value[0] ?? '';
   return value ?? '';
+}
+
+function sameCoords(a: Coords | null | undefined, b: Coords | null | undefined) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return Math.abs(a.lat - b.lat) < 1e-7 && Math.abs(a.lng - b.lng) < 1e-7;
+}
+
+function nearbyFitCoordinates(
+  businesses: MapBusiness[],
+  userCoords: Coords | null,
+  limit = NEAR_YOU_FIT_COUNT
+): Array<{ latitude: number; longitude: number }> | null {
+  if (!userCoords) return null;
+
+  const nearby = [...businesses]
+    .filter(
+      (b) =>
+        Number.isFinite(b.latitude) &&
+        Number.isFinite(b.longitude) &&
+        typeof b.distanceKm === 'number' &&
+        b.distanceKm <= NEAR_YOU_FIT_RADIUS_KM
+    )
+    .sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0))
+    .slice(0, limit);
+
+  if (nearby.length === 0) return null;
+
+  return [
+    { latitude: userCoords.lat, longitude: userCoords.lng },
+    ...nearby.map((b) => ({
+      latitude: b.latitude,
+      longitude: b.longitude,
+    })),
+  ];
 }
 
 const HELSINGBORG = {
@@ -89,12 +137,18 @@ function RouteChip({
 
 export default function BusinessMapScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ q?: string | string[] }>();
+  const params = useLocalSearchParams<{
+    q?: string | string[];
+    returnTo?: string | string[];
+  }>();
   const insets = useSafeAreaInsets();
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
   const shellBg = mapShellBackground(mode);
-  const bottomPad = getFloatingTabBarScrollPadding(insets.bottom);
+  // Tab bar is hidden on this stack screen — only reserve the home-indicator inset.
+  const bottomPad = Math.max(insets.bottom, 12) + 16;
+  const fromNaraDig = paramString(params.returnTo) === 'naradig';
+  const mapZoom = fromNaraDig ? NEAR_YOU_ZOOM : 12.6;
 
   const [pinsLoading, setPinsLoading] = useState(true);
   const [userCoords, setUserCoords] = useState<Coords | null>(null);
@@ -105,27 +159,92 @@ export default function BusinessMapScreen() {
   const [viewBounds, setViewBounds] = useState<MapViewportBounds | null>(null);
   const [searchQuery, setSearchQuery] = useState(() => paramString(params.q));
 
+  const mapCenter = useMemo(() => {
+    if (userCoords) {
+      return { latitude: userCoords.lat, longitude: userCoords.lng };
+    }
+    return HELSINGBORG;
+  }, [userCoords]);
+
+  const nearYouFitCoordinates = useMemo(() => {
+    if (!fromNaraDig) return null;
+    return nearbyFitCoordinates(businesses, userCoords);
+  }, [businesses, fromNaraDig, userCoords]);
+
+  const loadedCoordsRef = useRef<Coords | null>(null);
+
+  const refreshForCoords = useCallback(async (next: Coords | null) => {
+    if (!next) return;
+    if (sameCoords(loadedCoordsRef.current, next)) {
+      setUserCoords((prev) => (sameCoords(prev, next) ? prev : next));
+      return;
+    }
+    loadedCoordsRef.current = next;
+    setUserCoords(next);
+    // Instantly re-rank cached pins so the camera follows before network returns.
+    setBusinesses((prev) =>
+      [...prev]
+        .map((b) => ({
+          ...b,
+          distanceKm: haversineKm(next.lat, next.lng, b.latitude, b.longitude),
+        }))
+        .sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0))
+    );
+    try {
+      const mapped = await loadMapBusinesses(next);
+      setBusinesses(mapped);
+    } catch {
+      // keep locally re-ranked pins
+    } finally {
+      setPinsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       const coords = await getEffectiveUserCoords().catch(() => null);
-      if (cancelled) return;
-      setUserCoords(coords);
-      try {
-        const mapped = await loadMapBusinesses(coords);
-        if (!cancelled) setBusinesses(mapped);
-      } catch {
-        if (!cancelled && businesses.length === 0) setBusinesses([]);
-      } finally {
+      if (cancelled || !coords) {
         if (!cancelled) setPinsLoading(false);
+        return;
       }
+      await refreshForCoords(coords);
     })();
     return () => {
       cancelled = true;
     };
-    // Intentionally once on mount — seed from cache, then refresh.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refreshForCoords]);
+
+  useEffect(
+    () =>
+      subscribeCustomLocations((state) => {
+        void (async () => {
+          if (state.activeId) {
+            const active = state.locations.find((item) => item.id === state.activeId);
+            if (active) {
+              await refreshForCoords({ lat: active.lat, lng: active.lng });
+              return;
+            }
+          }
+          const gps =
+            (await getUserCoordsIfGranted().catch(() => null)) ??
+            (await getUserCoords().catch(() => null)) ??
+            HELSINGBORG_COORDS;
+          await refreshForCoords(gps);
+        })();
+      }),
+    [refreshForCoords]
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      void getEffectiveUserCoordsIfGranted()
+        .catch(() => null)
+        .then((coords) => {
+          if (coords) void refreshForCoords(coords);
+        });
+    }, [refreshForCoords])
+  );
 
   const selected = useMemo(
     () => businesses.find((b) => b.id === selectedId) ?? null,
@@ -242,10 +361,11 @@ export default function BusinessMapScreen() {
 
         <MapLibreMapView
           key={`explore-${MAP_PAINT_VERSION}`}
-          center={HELSINGBORG}
-          zoom={12.6}
+          center={mapCenter}
+          zoom={mapZoom}
           pins={pins}
           fitPins={false}
+          fitCoordinates={nearYouFitCoordinates}
           interactive
           showUserLocation={
             userCoords

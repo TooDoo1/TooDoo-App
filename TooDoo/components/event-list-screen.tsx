@@ -2,14 +2,11 @@ import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  Pressable,
   RefreshControl,
   Text,
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
@@ -17,9 +14,8 @@ import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
 import { ScreenBackButton } from '@/components/ui/screen-back-button';
 import { ListItemSeparator } from '@/components/ui/list-item-separator';
 import { PaginatedListFooter } from '@/components/ui/paginated-list-footer';
-import { CardMedia } from '@/components/ui/card-media';
+import { SeeAllCardActions, SeeAllListCard, SeeAllPill } from '@/components/ui/see-all-list-card';
 import { useThemePreference } from '@/context/theme-preference-context';
-import { brandInkRgba } from '@/lib/brand-colors';
 import {
   fetchEventFeed,
   type EventFeedItem,
@@ -29,9 +25,11 @@ import { getHomeEventsCache, setHomeEventsCache } from '@/lib/home-list-cache';
 import { openEventFeedItem } from '@/lib/open-event-feed';
 import { usePaginatedList, SEE_ALL_PAGE_SIZE } from '@/lib/paginated-list';
 import { schedulePrefetchImageUris, usePrefetchPageImages } from '@/lib/image-prefetch';
-import { IMAGE_DISPLAY_WIDTH } from '@/lib/image-url';
 import { uiTheme } from '@/lib/ui-theme';
 import { useRealtimeSubscription } from '@/hooks/use-realtime-subscription';
+import { useSeeAllFavorite } from '@/hooks/use-see-all-favorite';
+import { shareBusiness, shareEvent } from '@/lib/share-offer';
+import { FAVORITE_HEART_COLOR } from '@/lib/tab-colors';
 
 const LIST_BATCH_SIZE = 8;
 
@@ -46,63 +44,49 @@ const EventCard = memo(function EventCard({
   theme: ReturnType<typeof uiTheme>;
   imagePriority: 'high' | 'normal';
 }) {
+  const { isFavorite, onFavoritePress } = useSeeAllFavorite(event.businessId);
+
   return (
-    <Pressable
+    <SeeAllListCard
+      title={event.title}
+      subtitle={event.subtitle}
+      meta={
+        event.startsAt
+          ? new Date(event.startsAt).toLocaleDateString('sv-SE', {
+              day: 'numeric',
+              month: 'short',
+            })
+          : undefined
+      }
+      image={
+        event.image ?? {
+          uri: `https://picsum.photos/seed/${encodeURIComponent(event.id)}/300/200`,
+        }
+      }
+      theme={theme}
       onPress={onPress}
-      className="overflow-hidden rounded-2xl"
-      style={{
-        width: '100%',
-        backgroundColor: theme.cardBg,
-        borderWidth: 1,
-        borderColor: theme.border,
-      }}
-    >
-      <View className="relative h-44 w-full">
-        {event.image ? (
-          <CardMedia
-            source={event.image}
-            svgFit="fill"
-            priority={imagePriority}
-            displayWidth={IMAGE_DISPLAY_WIDTH.card}
-          />
-        ) : (
-          <View className="h-full w-full" style={{ backgroundColor: theme.cardBg }} />
-        )}
-        <View className="absolute inset-0 bg-black/20" />
-
-        <View className="absolute left-2 top-2">
-          <View
-            className="rounded-full px-2 py-1"
-            style={{ backgroundColor: brandInkRgba(0.75) }}
-          >
-            <Text className="text-[10px] font-semibold text-white">Evenemang</Text>
-          </View>
-        </View>
-
-        <LinearGradient
-          colors={['rgba(0,0,0,0.00)', 'rgba(0,0,0,0.85)']}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-          style={{
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            bottom: 0,
-            height: '55%',
-            paddingHorizontal: 10,
-            paddingBottom: 10,
-            justifyContent: 'flex-end',
+      imagePriority={imagePriority}
+      accentColor={theme.eventColor}
+      topLeft={<SeeAllPill label="Event" backgroundColor={theme.eventColor} />}
+      topRight={
+        <SeeAllCardActions
+          isFavorite={isFavorite}
+          onFavoritePress={onFavoritePress}
+          onSharePress={() => {
+            if (event.businessId) {
+              void shareBusiness({
+                businessId: event.businessId,
+                businessName: event.subtitle || event.title,
+              });
+              return;
+            }
+            void shareEvent({ title: event.title, subtitle: event.subtitle });
           }}
-        >
-          <Text className="text-sm font-semibold text-white" numberOfLines={1}>
-            {event.title}
-          </Text>
-          <Text className="mt-0.5 text-[11px] text-white/80" numberOfLines={1}>
-            {event.subtitle}
-          </Text>
-        </LinearGradient>
-      </View>
-    </Pressable>
+          shareLabel="Dela evenemang"
+          favoriteColor={FAVORITE_HEART_COLOR}
+        />
+      }
+    />
   );
 });
 
@@ -181,18 +165,23 @@ export function EventListScreen() {
   const listHeader = useMemo(
     () => (
       <View className="mb-5">
-        <View className="flex-row items-center">
-          <Ionicons name="calendar-outline" size={22} color={theme.eventColor} />
-          <Text className="ml-2 text-2xl font-semibold" style={{ color: theme.text }}>
-            Evenemang
-          </Text>
-        </View>
-        <Text className="mt-1 text-sm" style={{ color: theme.textMuted }}>
+        <Text
+          style={{
+            color: theme.text,
+            fontSize: 28,
+            fontWeight: '800',
+            letterSpacing: -0.5,
+            lineHeight: 32,
+          }}
+        >
+          Evenemang
+        </Text>
+        <Text className="mt-1.5 text-sm" style={{ color: theme.textMuted, lineHeight: 20 }}>
           Kommande aktiviteter och lokala evenemang
         </Text>
       </View>
     ),
-    [theme.eventColor, theme.text, theme.textMuted]
+    [theme.text, theme.textMuted]
   );
 
   const listFooter = useMemo(

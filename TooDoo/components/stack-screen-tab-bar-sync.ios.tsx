@@ -12,7 +12,7 @@ export function StackScreenTabBarSync() {
   const isFocusedShared = useSharedValue(isFocused ? 1 : 0);
   const closingUsesDirectProgress = useSharedValue(-1);
   const shouldRevealTabBar = useSharedValue(1);
-  const { stackHideProgress } = useTabBarMotion();
+  const { stackHideProgress, acquireStackHide, releaseStackHide } = useTabBarMotion();
   const { progress, closing } = useReanimatedTransitionProgress();
   const previousRouteName = useNavigationState((state) => {
     if (!state || state.index < 1) {
@@ -31,11 +31,15 @@ export function StackScreenTabBarSync() {
 
   useFocusEffect(
     useCallback(() => {
+      acquireStackHide();
       stackHideProgress.value = withTiming(1, {
         duration: DETAIL_SCREEN_MOTION_MS,
         easing: DETAIL_SCREEN_MOTION_EASING,
       });
-    }, [stackHideProgress])
+      return () => {
+        releaseStackHide();
+      };
+    }, [acquireStackHide, releaseStackHide, stackHideProgress])
   );
 
   useAnimatedReaction(

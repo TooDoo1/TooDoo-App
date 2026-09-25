@@ -18,7 +18,6 @@ import { BusinessMapPin } from '@/components/ui/business-map-pin';
 import { UserLocationArrow } from '@/components/ui/user-location-arrow';
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
 import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
-import { getFloatingTabBarScrollPadding } from '@/components/floating-tab-bar';
 import { useThemePreference } from '@/context/theme-preference-context';
 import {
   filterBusinessesByQuery,
@@ -31,7 +30,16 @@ import {
 } from '@/lib/business-map-data';
 import { getCategoryAccentColor, OFFERS_CATEGORY_ACCENT } from '@/lib/category-colors';
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
-import { getEffectiveUserCoords, type Coords } from '@/lib/geo';
+import { subscribeCustomLocations } from '@/lib/custom-locations';
+import {
+  getEffectiveUserCoords,
+  getEffectiveUserCoordsIfGranted,
+  getUserCoords,
+  getUserCoordsIfGranted,
+  haversineKm,
+  HELSINGBORG_COORDS,
+  type Coords,
+} from '@/lib/geo';
 import { MAP_ATTRIBUTION, mapShellBackground, mapTileUrlForMode } from '@/lib/map-style';
 import {
   fetchTravelRoutes,
@@ -40,12 +48,60 @@ import {
   type TravelRoutes,
 } from '@/lib/osrm-route';
 import { uiTheme } from '@/lib/ui-theme';
+import { useFocusEffect } from '@react-navigation/native';
 
 const DEFAULT_DELTA = 0.06;
+/** Neighborhood frame around the active place — follows location changes. */
+const NEAR_YOU_DELTA = 0.038;
+/** Only pull the camera toward businesses this close to the user. */
+const NEAR_YOU_FIT_RADIUS_KM = 3.5;
+const NEAR_YOU_FIT_COUNT = 12;
 
 function paramString(value: string | string[] | undefined): string {
   if (Array.isArray(value)) return value[0] ?? '';
   return value ?? '';
+}
+
+function sameCoords(a: Coords | null | undefined, b: Coords | null | undefined) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return Math.abs(a.lat - b.lat) < 1e-7 && Math.abs(a.lng - b.lng) < 1e-7;
+}
+
+/**
+ * Frame the active place. Prefer a user-centered neighborhood view; only
+ * expand to include businesses that are actually nearby (not city-wide).
+ */
+function nearbyFitCoordinates(
+  businesses: MapBusiness[],
+  userCoords: Coords | null,
+  limit = NEAR_YOU_FIT_COUNT
+): Array<{ latitude: number; longitude: number }> | null {
+  if (!userCoords) return null;
+
+  const nearby = [...businesses]
+    .filter(
+      (b) =>
+        typeof b.latitude === 'number' &&
+        typeof b.longitude === 'number' &&
+        Number.isFinite(b.latitude) &&
+        Number.isFinite(b.longitude) &&
+        typeof b.distanceKm === 'number' &&
+        b.distanceKm <= NEAR_YOU_FIT_RADIUS_KM
+    )
+    .sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0))
+    .slice(0, limit);
+
+  // No close businesses → camera stays on the user (handled via center/zoom).
+  if (nearby.length === 0) return null;
+
+  return [
+    { latitude: userCoords.lat, longitude: userCoords.lng },
+    ...nearby.map((b) => ({
+      latitude: b.latitude,
+      longitude: b.longitude,
+    })),
+  ];
 }
 
 function regionAround(coords: Coords, delta = DEFAULT_DELTA): Region {
@@ -102,7 +158,10 @@ function RouteChip({
 
 export default function BusinessMapScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ q?: string | string[] }>();
+  const params = useLocalSearchParams<{
+    q?: string | string[];
+    returnTo?: string | string[];
+  }>();
   const insets = useSafeAreaInsets();
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
@@ -120,33 +179,119 @@ export default function BusinessMapScreen() {
   const routeRequestRef = useRef(0);
   const tileUrl = mapTileUrlForMode(mode);
   const shellBg = mapShellBackground(mode);
-  const bottomPad = getFloatingTabBarScrollPadding(insets.bottom);
+  const bottomPad = Math.max(insets.bottom, 12) + 16;
+  const fromNaraDig = paramString(params.returnTo) === 'naradig';
+  const regionDelta = fromNaraDig ? NEAR_YOU_DELTA : DEFAULT_DELTA;
+  const loadedCoordsRef = useRef<Coords | null>(null);
+
+  const refreshForCoords = useCallback(async (next: Coords | null) => {
+    if (!next) return;
+    if (sameCoords(loadedCoordsRef.current, next)) {
+      setUserCoords((prev) => (sameCoords(prev, next) ? prev : next));
+      return;
+    }
+    loadedCoordsRef.current = next;
+    setUserCoords(next);
+    // Instantly re-rank cached pins so the camera can follow before network returns.
+    setBusinesses((prev) =>
+      [...prev]
+        .map((b) => ({
+          ...b,
+          distanceKm: haversineKm(next.lat, next.lng, b.latitude, b.longitude),
+        }))
+        .sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0))
+    );
+    try {
+      const mapped = await loadMapBusinesses(next);
+      setBusinesses(mapped);
+    } catch {
+      // keep locally re-ranked pins
+    } finally {
+      setPinsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       const coords = await getEffectiveUserCoords().catch(() => null);
-      if (!cancelled) setUserCoords(coords);
-      try {
-        const mapped = await loadMapBusinesses(coords);
-        if (!cancelled) setBusinesses(mapped);
-      } catch {
-        if (!cancelled && businesses.length === 0) setBusinesses([]);
-      } finally {
+      if (cancelled || !coords) {
         if (!cancelled) setPinsLoading(false);
+        return;
       }
+      await refreshForCoords(coords);
     })();
     return () => {
       cancelled = true;
     };
-    // Intentionally once on mount — seed from cache, then refresh.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refreshForCoords]);
+
+  useEffect(
+    () =>
+      subscribeCustomLocations((state) => {
+        void (async () => {
+          if (state.activeId) {
+            const active = state.locations.find((item) => item.id === state.activeId);
+            if (active) {
+              await refreshForCoords({ lat: active.lat, lng: active.lng });
+              return;
+            }
+          }
+          const gps =
+            (await getUserCoordsIfGranted().catch(() => null)) ??
+            (await getUserCoords().catch(() => null)) ??
+            HELSINGBORG_COORDS;
+          await refreshForCoords(gps);
+        })();
+      }),
+    [refreshForCoords]
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      void getEffectiveUserCoordsIfGranted()
+        .catch(() => null)
+        .then((coords) => {
+          if (coords) void refreshForCoords(coords);
+        });
+    }, [refreshForCoords])
+  );
 
   const initialRegion = useMemo(
-    () => regionAround(MAP_DEFAULT_CENTER, DEFAULT_DELTA),
-    []
+    () => regionAround(userCoords ?? MAP_DEFAULT_CENTER, regionDelta),
+    [regionDelta, userCoords]
   );
+
+  const nearYouFitCoordinates = useMemo(() => {
+    if (!fromNaraDig) return null;
+    return nearbyFitCoordinates(businesses, userCoords);
+  }, [businesses, fromNaraDig, userCoords]);
+
+  const nearYouFitSigRef = useRef('');
+
+  // Follow the active place: neighborhood around the user, optionally expanded
+  // to businesses within NEAR_YOU_FIT_RADIUS_KM (never city-wide).
+  useEffect(() => {
+    if (!mapRef.current || !fromNaraDig || !userCoords) return;
+
+    if (nearYouFitCoordinates && nearYouFitCoordinates.length >= 2) {
+      const sig = nearYouFitCoordinates
+        .map((p) => `${p.latitude.toFixed(5)},${p.longitude.toFixed(5)}`)
+        .join('|');
+      if (nearYouFitSigRef.current === sig) return;
+      nearYouFitSigRef.current = sig;
+      mapRef.current.fitToCoordinates(nearYouFitCoordinates, {
+        edgePadding: { top: 110, right: 44, bottom: 48, left: 44 },
+        animated: true,
+      });
+      return;
+    }
+
+    const sig = `user:${userCoords.lat.toFixed(5)},${userCoords.lng.toFixed(5)}:${regionDelta}`;
+    if (nearYouFitSigRef.current === sig) return;
+    nearYouFitSigRef.current = sig;
+    mapRef.current.animateToRegion(regionAround(userCoords, regionDelta), 450);
+  }, [fromNaraDig, nearYouFitCoordinates, regionDelta, userCoords]);
 
   const handleRegionChange = useCallback((region: Region) => {
     setViewBounds(regionToBounds(region));

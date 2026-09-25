@@ -7,11 +7,15 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter, useSegments } from 'expo-router';
+import { useLocalSearchParams, useRouter, useSegments } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
 
 import { FilterChipTheme } from '@/lib/brand-colors';
+import {
+  DETAIL_RETURN_ROUTES,
+  type DetailReturnKey,
+} from '@/lib/detail-navigation';
 import { requestOpenHomeSearch } from '@/lib/home-search-handoff';
 import { performWebStackBack } from '@/lib/web-stack-navigation';
 
@@ -25,6 +29,14 @@ type BusinessMapSearchHeaderProps = {
   onChangeText: (text: string) => void;
 };
 
+function resolveMapReturnPath(returnTo?: string | string[]) {
+  const key = (Array.isArray(returnTo) ? returnTo[0] : returnTo) as DetailReturnKey | undefined;
+  if (key && key in DETAIL_RETURN_ROUTES) {
+    return DETAIL_RETURN_ROUTES[key];
+  }
+  return null;
+}
+
 /**
  * Same header chrome as the home search overlay: back, search field, map button.
  */
@@ -35,13 +47,28 @@ export function BusinessMapSearchHeader({
   const router = useRouter();
   const segments = useSegments();
   const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ returnTo?: string | string[] }>();
+  const returnPath = resolveMapReturnPath(params.returnTo);
   const trimmed = value.trim();
 
   const leaveMap = useCallback(
     (mode: 'home' | 'search') => {
-      // Map button returns to search mode; back goes home without reopening search.
+      // Map button returns to search mode; back goes home / returnTo without reopening search.
       if (mode === 'search') {
         requestOpenHomeSearch(value, { fromMap: true });
+      }
+
+      if (mode === 'home' && returnPath) {
+        try {
+          if (router.canDismiss()) {
+            router.dismissTo(returnPath);
+            return;
+          }
+        } catch {
+          // fall through
+        }
+        router.replace(returnPath);
+        return;
       }
 
       if (router.canGoBack()) {
@@ -53,16 +80,17 @@ export function BusinessMapSearchHeader({
         performWebStackBack(router, {
           isCompanyDetail: topSegment === 'company-detail',
           topSegment,
+          returnTo: params.returnTo,
         });
         return;
       }
       try {
-        router.dismissTo('/');
+        router.dismissTo(returnPath ?? '/');
       } catch {
-        router.replace('/');
+        router.replace(returnPath ?? '/');
       }
     },
-    [router, segments, value]
+    [params.returnTo, returnPath, router, segments, value]
   );
 
   return (

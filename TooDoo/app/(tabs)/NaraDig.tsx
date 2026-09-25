@@ -17,20 +17,15 @@ import { ScreenBackButton } from '@/components/ui/screen-back-button';
 import { ListItemSeparator } from '@/components/ui/list-item-separator';
 import { PaginatedListFooter } from '@/components/ui/paginated-list-footer';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { brandInkRgba } from '@/lib/brand-colors';
 import { uiTheme } from '@/lib/ui-theme';
 import { fetchApprovedBusinessesCatalog } from '@/lib/catalog-cache';
-import { apiUrl, normalizeImageUrl } from '@/lib/api';
-import { CardMedia } from '@/components/ui/card-media';
-import { CompanyActivityDots } from '@/components/ui/company-activity-dots';
-import { fetchBusinessEvents } from '@/lib/business-events';
-import { getHomeEventsCache } from '@/lib/home-list-cache';
-import { getOrderBusinessId, isActiveOffer, parseOrdersList } from '@/lib/offers';
-import { useAuth } from '@/context/auth-context';
+import { normalizeImageUrl } from '@/lib/api';
+import { SeeAllCardActions, SeeAllListCard, SeeAllPill } from '@/components/ui/see-all-list-card';
+import { getCategoryAccentColor } from '@/lib/category-colors';
 import { useRealtimeSubscription } from '@/hooks/use-realtime-subscription';
-import { useFavorites } from '@/context/favorites-context';
+import { useSeeAllFavorite } from '@/hooks/use-see-all-favorite';
 import { subscribeCustomLocations } from '@/lib/custom-locations';
 import {
   type Coords,
@@ -47,8 +42,8 @@ import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
 import { BUSINESS_MAP_PATH } from '@/lib/stack-navigation';
 import { usePaginatedList, SEE_ALL_PAGE_SIZE } from '@/lib/paginated-list';
 import { schedulePrefetchImageUris, usePrefetchPageImages } from '@/lib/image-prefetch';
-import { IMAGE_DISPLAY_WIDTH } from '@/lib/image-url';
 import { FAVORITE_HEART_COLOR } from '@/lib/tab-colors';
+import { shareBusiness } from '@/lib/share-offer';
 import {
   getHomeNearbyBusinessesCache,
   hasFreshHomeNearbyBusinessesCache,
@@ -62,6 +57,7 @@ type NearbyCompany = {
   imageUri?: string;
   address: string;
   description?: string;
+  categoryName?: string;
   latitude?: number;
   longitude?: number;
   distanceKm?: number;
@@ -132,6 +128,7 @@ function cacheToNearbyCompany(card: NearbyBusinessCard): NearbyCompany {
     imageUri: card.image.uri || undefined,
     address: card.Adress,
     description: card.kortbeskrivning,
+    categoryName: card.categoryName,
     latitude: card.latitude,
     longitude: card.longitude,
     distanceKm: card.distanceKm,
@@ -149,116 +146,57 @@ function nearbyToCacheItem(company: NearbyCompany): NearbyBusinessCard {
     latitude: company.latitude,
     longitude: company.longitude,
     distanceKm: company.distanceKm,
+    categoryName: company.categoryName,
   };
 }
 
 const NearbyCompanyCard = memo(function NearbyCompanyCard({
   company,
-  showFavorite,
-  isFavorite,
-  onToggleFavorite,
   onPress,
   imagePriority,
-  hasEvent,
-  hasOffer,
 }: {
   company: NearbyCompany;
-  showFavorite: boolean;
-  isFavorite: boolean;
-  onToggleFavorite: (id: string) => void;
   onPress: (company: NearbyCompany) => void;
   imagePriority: 'high' | 'normal';
-  hasEvent: boolean;
-  hasOffer: boolean;
 }) {
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
   const distance = formatDistanceKm(company.distanceKm);
+  const { isFavorite, onFavoritePress } = useSeeAllFavorite(company.id);
+  const accentColor = getCategoryAccentColor(company.categoryName);
 
   return (
-    <Pressable
-      onPress={() => onPress(company)}
-      className="overflow-hidden rounded-2xl"
-      style={{
-        width: '100%',
-        backgroundColor: theme.cardBg,
-        borderWidth: 1,
-        borderColor: theme.border,
+    <SeeAllListCard
+      title={company.name}
+      subtitle={company.address || company.description?.trim() || undefined}
+      meta={[distance, company.categoryName].filter(Boolean).join(' · ') || undefined}
+      image={{
+        uri:
+          company.imageUri ??
+          `https://picsum.photos/seed/${encodeURIComponent(company.id)}/300/200`,
       }}
-    >
-      <View className="relative h-44 w-full">
-        <CardMedia
-          source={{
-            uri:
-              company.imageUri ??
-              `https://picsum.photos/seed/${encodeURIComponent(company.id)}/300/200`,
-          }}
-          svgFit="fill"
-          priority={imagePriority}
-          displayWidth={IMAGE_DISPLAY_WIDTH.cardWide}
+      theme={theme}
+      onPress={() => onPress(company)}
+      imagePriority={imagePriority}
+      accentColor={accentColor}
+      topLeft={
+        <SeeAllPill
+          label={distance ?? 'Nära dig'}
+          backgroundColor={brandInkRgba(0.72)}
         />
-        <View className="absolute inset-0 bg-black/20" />
-
-        <View className="absolute left-2 top-2">
-          <View
-            className="rounded-full px-2 py-1"
-            style={{ backgroundColor: brandInkRgba(0.75) }}
-          >
-            <Text className="text-[10px] font-semibold text-white">{distance ?? 'Nära dig'}</Text>
-          </View>
-          <CompanyActivityDots
-            hasEvent={hasEvent}
-            hasOffer={hasOffer}
-            eventColor={theme.eventColor}
-          />
-        </View>
-
-        {showFavorite ? (
-          <View
-            className="absolute right-2 top-2 h-8 w-8 items-center justify-center rounded-full"
-            style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
-          >
-            <Pressable
-              onPress={(e: any) => {
-                e?.stopPropagation?.();
-                void onToggleFavorite(company.id);
-              }}
-              hitSlop={10}
-              style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center' }}
-            >
-              <Ionicons
-                name={isFavorite ? 'heart' : 'heart-outline'}
-                size={18}
-                color={isFavorite ? FAVORITE_HEART_COLOR : '#ffffff'}
-              />
-            </Pressable>
-          </View>
-        ) : null}
-
-        <LinearGradient
-          colors={['rgba(0,0,0,0.00)', 'rgba(0,0,0,0.85)']}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-          style={{
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            bottom: 0,
-            height: '55%',
-            paddingHorizontal: 10,
-            paddingBottom: 10,
-            justifyContent: 'flex-end',
-          }}
-        >
-          <Text className="text-sm font-semibold text-white" numberOfLines={1}>
-            {company.name}
-          </Text>
-          <Text className="mt-0.5 text-[11px] text-white/80" numberOfLines={1}>
-            {company.address}
-          </Text>
-        </LinearGradient>
-      </View>
-    </Pressable>
+      }
+      topRight={
+        <SeeAllCardActions
+          isFavorite={isFavorite}
+          onFavoritePress={onFavoritePress}
+          onSharePress={() =>
+            void shareBusiness({ businessId: company.id, businessName: company.name })
+          }
+          shareLabel="Dela verksamhet"
+          favoriteColor={FAVORITE_HEART_COLOR}
+        />
+      }
+    />
   );
 });
 
@@ -272,25 +210,12 @@ export default function NaraDigScreen() {
   const theme = uiTheme(mode);
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { isLoggedIn, role } = useAuth();
-  const { isFavorite, toggleFavorite } = useFavorites();
 
   const [companies, setCompanies] = useState<NearbyCompany[]>(cachedCompanies);
   const [coords, setCoords] = useState<Coords | null>(HELSINGBORG_COORDS);
   const [isLoading, setIsLoading] = useState(cachedCompanies.length === 0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
-  const [businessIdsWithEvents, setBusinessIdsWithEvents] = useState<Set<string>>(() => {
-    const cached = getHomeEventsCache();
-    return new Set(
-      (cached ?? [])
-        .map((event) => event.businessId)
-        .filter((businessId): businessId is string => Boolean(businessId))
-    );
-  });
-  const [businessIdsWithOffers, setBusinessIdsWithOffers] = useState<Set<string>>(new Set());
-
-  const showFavorite = Boolean(isLoggedIn && role === 'USER');
 
   useRealtimeSubscription(() => {
     setRefreshNonce((nonce) => nonce + 1);
@@ -358,34 +283,6 @@ export default function NaraDigScreen() {
   useEffect(() => {
     let cancelled = false;
 
-    void (async () => {
-      const [events, ordersRes] = await Promise.all([
-        fetchBusinessEvents(),
-        fetch(apiUrl('/orders')),
-      ]);
-
-      if (cancelled) return;
-
-      setBusinessIdsWithEvents(new Set(events.map((event) => event.businessId)));
-
-      const ordersJson = await ordersRes.json().catch(() => []);
-      const offerBusinessIds = new Set<string>();
-      parseOrdersList(ordersJson).forEach((order) => {
-        if (!isActiveOffer(order)) return;
-        const businessId = getOrderBusinessId(order);
-        if (businessId) offerBusinessIds.add(businessId);
-      });
-      setBusinessIdsWithOffers(offerBusinessIds);
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshNonce]);
-
-  useEffect(() => {
-    let cancelled = false;
-
     (async () => {
       if (refreshNonce === 0 && hasFreshHomeNearbyBusinessesCache()) {
         if (coords) {
@@ -420,6 +317,7 @@ export default function NaraDigScreen() {
             imageUri: pickImageUri(b),
             address,
             description: b?.description ?? undefined,
+            categoryName: b?.categoryName ?? b?.category?.name ?? undefined,
             latitude: lat,
             longitude: lng,
           };
@@ -535,26 +433,31 @@ export default function NaraDigScreen() {
     ({ item, index }: { item: NearbyCompany; index: number }) => (
       <NearbyCompanyCard
         company={item}
-        showFavorite={showFavorite}
-        isFavorite={isFavorite(item.id)}
-        onToggleFavorite={toggleFavorite}
         onPress={openCompany}
         imagePriority={index < 6 ? 'high' : 'normal'}
-        hasEvent={businessIdsWithEvents.has(item.id)}
-        hasOffer={businessIdsWithOffers.has(item.id)}
       />
     ),
-    [businessIdsWithEvents, businessIdsWithOffers, showFavorite, isFavorite, toggleFavorite, openCompany]
+    [openCompany]
   );
 
   const listHeader = useMemo(
     () => (
       <View className="mb-5">
-        <View className="flex-row items-center justify-between">
-          <View className="min-w-0 flex-1 flex-row items-center">
-            <Ionicons name="navigate" size={22} color="#ff3b30" />
-            <Text className="ml-2 text-2xl font-semibold" style={{ color: theme.text }}>
+        <View className="flex-row items-start justify-between">
+          <View className="min-w-0 flex-1 pr-3">
+            <Text
+              style={{
+                color: theme.text,
+                fontSize: 28,
+                fontWeight: '800',
+                letterSpacing: -0.5,
+                lineHeight: 32,
+              }}
+            >
               Nära dig
+            </Text>
+            <Text className="mt-1.5 text-sm" style={{ color: theme.textMuted, lineHeight: 20 }}>
+              {headerNote}
             </Text>
           </View>
           <Pressable
@@ -566,9 +469,12 @@ export default function NaraDigScreen() {
                   mod.prefetchBusinessMapAssets();
                 });
               }
-              router.push(BUSINESS_MAP_PATH);
+              router.push({
+                pathname: BUSINESS_MAP_PATH,
+                params: { returnTo: 'naradig' },
+              });
             }}
-            className="ml-3 flex-row items-center rounded-full px-3 py-2"
+            className="mt-1 flex-row items-center rounded-full px-3 py-2"
             style={{
               backgroundColor: theme.cardBg,
               borderWidth: 1,
@@ -581,9 +487,6 @@ export default function NaraDigScreen() {
             </Text>
           </Pressable>
         </View>
-        <Text className="mt-1 text-sm" style={{ color: theme.textMuted }}>
-          {headerNote}
-        </Text>
       </View>
     ),
     [headerNote, router, theme.border, theme.cardBg, theme.text, theme.textMuted]

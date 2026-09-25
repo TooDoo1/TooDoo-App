@@ -103,6 +103,8 @@ function RootFloatingTabBarOverlayContent({
 
     return {
       bottom: bottomOffset - slide,
+      // Keep the bar from capturing taps while it's slid off-screen.
+      pointerEvents: hideAmount > 0.5 ? 'none' : 'auto',
     };
   });
 

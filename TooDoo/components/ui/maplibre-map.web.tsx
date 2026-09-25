@@ -39,6 +39,11 @@ type Props = {
   /** Walking route polyline (lat/lng) — drawn separately from driving. */
   walkingRouteLine?: Array<{ latitude: number; longitude: number }> | null;
   fitPins?: boolean;
+  /**
+   * One-shot camera fit to these coordinates (e.g. Nära dig businesses).
+   * Takes precedence over center/zoom once the map is ready.
+   */
+  fitCoordinates?: Array<{ latitude: number; longitude: number }> | null;
   onPinPress?: (id: string) => void;
   /** Fires with visible bounds after each pan/zoom settles (and once on load). */
   onViewportChange?: (bounds: MapViewportBounds) => void;
@@ -50,6 +55,11 @@ type MlMap = {
   resize: () => void;
   setCenter: (c: [number, number]) => void;
   setZoom: (z: number) => void;
+  easeTo?: (opts: {
+    center?: [number, number];
+    zoom?: number;
+    duration?: number;
+  }) => void;
   fitBounds: (b: unknown, o?: object) => void;
   getBounds: () => { toArray: () => [[number, number], [number, number]] };
   on: (event: string, cb: () => void) => void;
@@ -318,6 +328,7 @@ export function MapLibreMapView({
   routeLine = null,
   walkingRouteLine = null,
   fitPins = false,
+  fitCoordinates = null,
   onPinPress,
   onViewportChange,
   style,
@@ -337,6 +348,9 @@ export function MapLibreMapView({
   pinsRef.current = pins;
   const fitPinsRef = useRef(fitPins);
   fitPinsRef.current = fitPins;
+  const fitCoordinatesRef = useRef(fitCoordinates);
+  fitCoordinatesRef.current = fitCoordinates;
+  const fitCoordinatesSigRef = useRef('');
   const routeRef = useRef(routeLine);
   routeRef.current = routeLine;
   const walkingRouteRef = useRef(walkingRouteLine);
@@ -346,6 +360,29 @@ export function MapLibreMapView({
   userLocationRef.current = showUserLocation;
   const badgeBgRef = useRef(theme.screenBg);
   badgeBgRef.current = theme.cardBg;
+
+  const applyFitCoordinates = (map: MlMap, ml: MapLibreGl) => {
+    const coords = fitCoordinatesRef.current;
+    if (!coords || coords.length === 0) {
+      // Allow center/zoom props to drive the camera again.
+      if (fitCoordinatesSigRef.current !== '') {
+        fitCoordinatesSigRef.current = '';
+      }
+      return;
+    }
+    const sig = coords
+      .map((p) => `${p.latitude.toFixed(5)},${p.longitude.toFixed(5)}`)
+      .join('|');
+    if (fitCoordinatesSigRef.current === sig) return;
+    fitCoordinatesSigRef.current = sig;
+    const bounds = new ml.LngLatBounds();
+    coords.forEach((p) => bounds.extend([p.longitude, p.latitude]));
+    map.fitBounds(bounds, {
+      padding: { top: 96, bottom: 56, left: 44, right: 44 },
+      maxZoom: 14,
+      duration: 550,
+    });
+  };
 
   const syncUserLocation = (map: MlMap, ml: MapLibreGl) => {
     userMarkerRef.current?.remove();
@@ -461,6 +498,7 @@ export function MapLibreMapView({
           syncPins(map, ml);
           syncRouteLines(map, ml, routeRef.current, walkingRouteRef.current, routeFitSigRef);
           syncUserLocation(map, ml);
+          applyFitCoordinates(map, ml);
           emitViewport();
         });
         map.on('moveend', emitViewport);
@@ -502,16 +540,28 @@ export function MapLibreMapView({
     syncRouteLines(map, ml, routeLine, walkingRouteLine, routeFitSigRef);
   }, [routeLine, walkingRouteLine]);
 
-  // Only follow center/zoom prop changes — never reset the camera just because
-  // route lines were cleared (deselect on the explore map).
+  // Camera: fitCoordinates wins when present; otherwise follow center/zoom
+  // (used by Nära dig after a location change).
   useEffect(() => {
     const map = mapRef.current;
+    const ml = mlRef.current;
     if (!map) return;
     if (routeRef.current?.length || walkingRouteRef.current?.length) return;
-    map.setCenter([center.longitude, center.latitude]);
-    map.setZoom(zoom);
-  }, [center.latitude, center.longitude, zoom]);
 
+    if (fitCoordinates && fitCoordinates.length > 0 && ml) {
+      applyFitCoordinates(map, ml);
+      return;
+    }
+
+    fitCoordinatesSigRef.current = '';
+    const nextCenter: [number, number] = [center.longitude, center.latitude];
+    if (typeof map.easeTo === 'function') {
+      map.easeTo({ center: nextCenter, zoom, duration: 550 });
+    } else {
+      map.setCenter(nextCenter);
+      map.setZoom(zoom);
+    }
+  }, [center.latitude, center.longitude, zoom, fitCoordinates]);
   useEffect(() => {
     const map = mapRef.current;
     const ml = mlRef.current;

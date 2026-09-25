@@ -292,9 +292,14 @@ export async function loadMapBusinesses(coords: Coords | null): Promise<MapBusin
     .filter((item): item is MapBusiness => Boolean(item))
     .map((item) => ({
       ...item,
+      distanceKm:
+        coords != null
+          ? haversineKm(coords.lat, coords.lng, item.latitude, item.longitude)
+          : item.distanceKm,
       hasEvent: item.hasEvent ?? eventIds.has(item.id),
       hasOffer: item.hasOffer ?? offerIds.has(item.id),
-    }));
+    }))
+    .sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0));
 }
 
 /** Sync snapshot from home nearby cache — used so the map can mount with pins immediately. */

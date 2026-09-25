@@ -209,3 +209,44 @@ export async function shareBusiness(input: ShareBusinessInput) {
     // User dismissed the native share sheet.
   }
 }
+
+export type ShareEventInput = {
+  title: string;
+  subtitle?: string;
+};
+
+function buildEventShareMessage(input: ShareEventInput) {
+  const title = compactShareText(input.title) ?? 'Evenemang';
+  const subtitle = compactShareText(input.subtitle);
+  if (subtitle) {
+    return `Kolla in "${title}" (${subtitle}) på TooDoo!`;
+  }
+  return `Kolla in "${title}" på TooDoo!`;
+}
+
+export async function shareEvent(input: ShareEventInput) {
+  const message = buildEventShareMessage(input);
+  const title = compactShareText(input.title) ?? 'Evenemang på TooDoo';
+
+  if (Platform.OS === 'web') {
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      try {
+        await navigator.share({ title, text: message });
+      } catch (error) {
+        if ((error as { name?: string }).name !== 'AbortError') {
+          Alert.alert('Dela evenemang', message);
+        }
+      }
+      return;
+    }
+
+    Alert.alert('Dela evenemang', message);
+    return;
+  }
+
+  try {
+    await Share.share(Platform.OS === 'ios' ? { message, title } : { message, title });
+  } catch {
+    // User dismissed the native share sheet.
+  }
+}

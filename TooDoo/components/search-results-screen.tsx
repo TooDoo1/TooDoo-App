@@ -9,7 +9,6 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
@@ -17,7 +16,7 @@ import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
 import { ScreenBackButton } from '@/components/ui/screen-back-button';
 import { ListItemSeparator } from '@/components/ui/list-item-separator';
 import { PaginatedListFooter } from '@/components/ui/paginated-list-footer';
-import { CardMedia } from '@/components/ui/card-media';
+import { SeeAllCardActions, SeeAllListCard, SeeAllPill } from '@/components/ui/see-all-list-card';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { brandInkRgba } from '@/lib/brand-colors';
 import {
@@ -39,8 +38,11 @@ import {
 import { openOfferDetail } from '@/lib/open-offer-detail';
 import { usePaginatedList, SEE_ALL_PAGE_SIZE } from '@/lib/paginated-list';
 import { schedulePrefetchImageUris, usePrefetchPageImages } from '@/lib/image-prefetch';
-import { IMAGE_DISPLAY_WIDTH } from '@/lib/image-url';
+import { getCategoryAccentForItem } from '@/lib/category-colors';
 import { uiTheme } from '@/lib/ui-theme';
+import { useSeeAllFavorite } from '@/hooks/use-see-all-favorite';
+import { shareEvent, shareOfferFromCard } from '@/lib/share-offer';
+import { FAVORITE_HEART_COLOR } from '@/lib/tab-colors';
 
 const LIST_BATCH_SIZE = 8;
 
@@ -83,68 +85,58 @@ function SearchResultCard({
   const discount = computeDiscountLabel(card);
   const discountColor = getDiscountBadgeColor(card);
   const offerLabel = Array.isArray(card.erbjudande) ? card.erbjudande[0] : card.erbjudande;
+  const distance = formatDistanceKm(card.distanceKm);
+  const isEvent = card.resultKind === 'event';
+  const pillLabel = badgeLabel ?? discount ?? (isEvent ? 'Event' : undefined);
+  const pillColor = badgeLabel
+    ? brandInkRgba(0.72)
+    : discount
+      ? discountColor
+      : isEvent
+        ? theme.eventColor
+        : undefined;
+  const { isFavorite, onFavoritePress } = useSeeAllFavorite(isEvent ? undefined : card.id);
 
   return (
-    <Pressable
+    <SeeAllListCard
+      title={card.title}
+      subtitle={
+        isEvent
+          ? card.Adress || 'Evenemang'
+          : offerLabel || card.kortbeskrivning || 'Erbjudande'
+      }
+      meta={[distance, card.categoryName].filter(Boolean).join(' · ') || undefined}
+      image={card.image}
+      theme={theme}
       onPress={onPress}
-      className="overflow-hidden rounded-2xl"
-      style={{
-        width: '100%',
-        height: 176,
-        backgroundColor: theme.cardBg,
-        borderWidth: 1,
-        borderColor: theme.border,
-      }}
-    >
-      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
-        <CardMedia
-          source={card.image}
-          svgFit="fill"
-          priority={imagePriority}
-          displayWidth={IMAGE_DISPLAY_WIDTH.card}
+      imagePriority={imagePriority}
+      accentColor={
+        isEvent ? theme.eventColor : getCategoryAccentForItem(card)
+      }
+      topLeft={
+        pillLabel && pillColor ? (
+          <SeeAllPill label={pillLabel} backgroundColor={pillColor} />
+        ) : null
+      }
+      topRight={
+        <SeeAllCardActions
+          isFavorite={isFavorite}
+          onFavoritePress={onFavoritePress}
+          onSharePress={() => {
+            if (isEvent) {
+              void shareEvent({
+                title: card.title,
+                subtitle: card.Adress || card.kortbeskrivning,
+              });
+              return;
+            }
+            void shareOfferFromCard(card);
+          }}
+          shareLabel={isEvent ? 'Dela evenemang' : 'Dela erbjudande'}
+          favoriteColor={FAVORITE_HEART_COLOR}
         />
-      </View>
-      <View className="absolute inset-0 bg-black/20" />
-      {badgeLabel ? (
-        <View
-          className="absolute left-2 top-2 rounded-full px-2 py-1"
-          style={{ backgroundColor: brandInkRgba(0.75) }}
-        >
-          <Text className="text-[10px] font-semibold text-white">{badgeLabel}</Text>
-        </View>
-      ) : null}
-      {discount ? (
-        <View
-          className="absolute right-2 top-2 rounded-md px-2 py-0.5"
-          style={{ backgroundColor: discountColor }}
-        >
-          <Text className="text-[11px] font-semibold text-white">{discount}</Text>
-        </View>
-      ) : null}
-      <LinearGradient
-        colors={['rgba(0,0,0,0.00)', 'rgba(0,0,0,0.85)']}
-        start={{ x: 0.5, y: 0 }}
-        end={{ x: 0.5, y: 1 }}
-        style={{
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          bottom: 0,
-          paddingHorizontal: 12,
-          paddingBottom: 12,
-          paddingTop: 28,
-        }}
-      >
-        <Text className="text-base font-semibold text-white" numberOfLines={1}>
-          {card.title}
-        </Text>
-        <Text className="mt-0.5 text-xs text-white/80" numberOfLines={1}>
-          {card.resultKind === 'event'
-            ? card.Adress || 'Evenemang'
-            : offerLabel || card.kortbeskrivning || 'Erbjudande'}
-        </Text>
-      </LinearGradient>
-    </Pressable>
+      }
+    />
   );
 }
 
@@ -251,25 +243,33 @@ export function SearchResultsScreen() {
   const listHeader = useMemo(
     () => (
       <View className="mb-5">
-        <View className="flex-row items-center">
-          <Ionicons name={config.icon} size={22} color={theme.text} />
-          <Text className="ml-2 text-2xl font-semibold" style={{ color: theme.text }}>
-            {config.title}
-          </Text>
-        </View>
+        <Text
+          style={{
+            color: theme.text,
+            fontSize: 28,
+            fontWeight: '800',
+            letterSpacing: -0.5,
+            lineHeight: 32,
+          }}
+        >
+          {config.title}
+        </Text>
         {query ? (
-          <Text className="mt-1 text-sm" style={{ color: theme.textMuted }}>
+          <Text className="mt-1.5 text-sm" style={{ color: theme.textMuted, lineHeight: 20 }}>
             Sökning: {query}
           </Text>
         ) : null}
         {config.subtitle ? (
-          <Text className="mt-0.5 text-sm" style={{ color: theme.textMuted }}>
+          <Text
+            className="mt-1 text-sm"
+            style={{ color: theme.textMuted, lineHeight: 20 }}
+          >
             {config.subtitle}
           </Text>
         ) : null}
       </View>
     ),
-    [config.icon, config.subtitle, config.title, query, theme.text, theme.textMuted]
+    [config.subtitle, config.title, query, theme.text, theme.textMuted]
   );
 
   const getBadgeLabel = useCallback(
