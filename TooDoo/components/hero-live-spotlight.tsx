@@ -255,8 +255,9 @@ function WebLiveCarousel({
   const slideWidthRef = useRef(slideWidthPx);
   slideWidthRef.current = slideWidthPx;
   const scrollXRef = useRef(0);
+  const pendingXRef = useRef<number | null>(null);
+  const rafRef = useRef<number | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [, setTick] = useState(0);
   const activeLogicalRef = useRef(0);
 
   const publishFromScroll = useCallback(
@@ -272,22 +273,44 @@ function WebLiveCarousel({
     [onLogicalIndexChange, slideCount]
   );
 
-  const applyTransform = useCallback((x: number, instant: boolean) => {
+  const flushTransform = useCallback(() => {
+    rafRef.current = null;
+    const x = pendingXRef.current;
+    if (x == null) return;
+    pendingXRef.current = null;
     const slider = sliderRef.current;
     if (!slider) return;
-    if (instant) {
-      slider.classList.add('is-instant');
-    } else {
-      slider.classList.remove('is-instant');
-    }
     slider.style.transform = `translate3d(${-x}px,0,0)`;
   }, []);
+
+  const applyTransform = useCallback(
+    (x: number, instant: boolean) => {
+      const slider = sliderRef.current;
+      if (!slider) return;
+      if (instant) {
+        slider.classList.add('is-instant');
+        // Direct paint during drag — skip React and coalesce with rAF.
+        scrollXRef.current = x;
+        pendingXRef.current = x;
+        if (rafRef.current == null) {
+          rafRef.current = requestAnimationFrame(flushTransform);
+        }
+        return;
+      }
+      slider.classList.remove('is-instant');
+      scrollXRef.current = x;
+      slider.style.transform = `translate3d(${-x}px,0,0)`;
+    },
+    [flushTransform]
+  );
 
   const setScrollX = useCallback(
     (x: number, instant: boolean) => {
       scrollXRef.current = x;
       applyTransform(x, instant);
-      publishFromScroll(x);
+      if (!draggingRef.current) {
+        publishFromScroll(x);
+      }
     },
     [applyTransform, publishFromScroll]
   );
@@ -445,18 +468,15 @@ function WebLiveCarousel({
     movedRef.current = true;
 
     const now = performance.now();
-    const dt = Math.max(8, now - lastMoveTsRef.current);
+    const dt = Math.max(4, now - lastMoveTsRef.current);
     const moveDx = event.clientX - lastMoveXRef.current;
-    // Smooth velocity with light EMA so snaps feel intentional.
     const instantVelocity = moveDx / dt;
-    velocityRef.current = velocityRef.current * 0.65 + instantVelocity * 0.35;
+    velocityRef.current = velocityRef.current * 0.72 + instantVelocity * 0.28;
     lastMoveXRef.current = event.clientX;
     lastMoveTsRef.current = now;
 
     const next = scrollStartRef.current - dx;
-    scrollXRef.current = next;
     applyTransform(next, true);
-    publishFromScroll(next);
   };
 
   const finishDrag = (clientX: number) => {
@@ -464,6 +484,17 @@ function WebLiveCarousel({
     draggingRef.current = false;
     setDragging(false);
     pointerIdRef.current = null;
+
+    if (rafRef.current != null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    if (pendingXRef.current != null) {
+      scrollXRef.current = pendingXRef.current;
+      pendingXRef.current = null;
+      const slider = sliderRef.current;
+      if (slider) slider.style.transform = `translate3d(${-scrollXRef.current}px,0,0)`;
+    }
 
     const width = slideWidthRef.current;
     const dx = clientX - pointerStartXRef.current;
@@ -481,18 +512,21 @@ function WebLiveCarousel({
       return;
     }
 
-    // Velocity chooses direction; otherwise snap to nearest.
+    // Velocity chooses direction and can skip more than one slide on a fast flick.
     const progress = scrollXRef.current / width;
     let targetIndex = Math.round(progress);
-    if (Math.abs(velocity) > 0.35) {
-      // Finger moving right (positive velocity) reveals previous slide.
-      targetIndex = velocity > 0 ? Math.floor(progress) : Math.ceil(progress);
-    } else if (Math.abs(velocity) > 0.18) {
-      targetIndex = velocity > 0 ? Math.floor(progress + 0.15) : Math.ceil(progress - 0.15);
+    const speed = Math.abs(velocity);
+    if (speed > 0.22) {
+      const direction = velocity > 0 ? -1 : 1;
+      const fromIndex = velocity > 0 ? Math.ceil(progress - 0.001) : Math.floor(progress + 0.001);
+      const skip = speed > 0.9 ? 2 : speed > 0.45 ? 1 : 0;
+      targetIndex = fromIndex + direction * skip;
+      if (skip === 0) {
+        targetIndex = direction < 0 ? Math.floor(progress) : Math.ceil(progress);
+      }
     }
     animateTo(targetIndex * width);
     onInteractEnd?.();
-    setTick((value) => value + 1);
   };
 
   const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -510,8 +544,6 @@ function WebLiveCarousel({
     finishDrag(event.clientX);
   };
 
-  const activeLogical = activeLogicalRef.current;
-
   return (
     <div
       ref={trackRef}
@@ -519,7 +551,7 @@ function WebLiveCarousel({
       style={{
         height: shellHeight,
         cursor: slideCount > 1 ? (dragging ? 'grabbing' : 'grab') : 'default',
-        touchAction: 'pan-y',
+        touchAction: dragging ? 'none' : 'pan-y',
       }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -548,7 +580,7 @@ function WebLiveCarousel({
               shellHeight={shellHeight}
               slideWidth={slideWidthPx}
               fillWidth
-              priority={loopIndexToLogical(idx, slideCount) === activeLogical ? 'high' : 'low'}
+              priority="high"
               topInset={topInset}
               disablePress
             />
