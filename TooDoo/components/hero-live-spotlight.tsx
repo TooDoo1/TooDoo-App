@@ -25,11 +25,12 @@ import { resolveHeroImageUri } from '@/lib/hero-slides';
 import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
 import { BrandColors } from '@/lib/brand-colors';
 
-export const LIVE_HERO_HEIGHT = 210;
+export const LIVE_HERO_HEIGHT = 248;
 const AUTO_MS = 4200;
 const SCROLL_ANIM_MS = 520;
 const SWIPE_THRESHOLD = 40;
 const INTERACT_RESUME_MS = 2800;
+const COPY_BOTTOM_PAD = 46;
 const DECELERATION = Platform.OS === 'android' ? 0.992 : ('normal' as const);
 
 export type HeroLiveSlide = {
@@ -142,11 +143,14 @@ function LiveSlideFrame({
         priority={priority}
       />
       <LinearGradient
-        colors={['rgba(8,10,18,0.28)', 'rgba(8,10,18,0.05)', 'rgba(8,10,18,0.86)']}
-        locations={[0, 0.38, 1]}
+        colors={['rgba(8,10,18,0.22)', 'rgba(8,10,18,0.08)', 'rgba(8,10,18,0.78)', 'rgba(8,10,18,0.94)']}
+        locations={[0, 0.35, 0.72, 1]}
         style={StyleSheet.absoluteFill}
       />
-      <View style={[styles.copy, { paddingTop: Math.max(topInset + 10, 16) }]} pointerEvents="none">
+      <View
+        style={[styles.copy, { paddingTop: Math.max(topInset + 10, 16), paddingBottom: COPY_BOTTOM_PAD }]}
+        pointerEvents="none"
+      >
         <View style={styles.topRow}>
           {slide.eyebrow ? (
             <View style={styles.eyebrowChip}>
@@ -228,6 +232,8 @@ function WebLiveCarousel({
     goTo: (logicalIndex: number) => void;
   } | null>;
 }) {
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const [trackWidth, setTrackWidth] = useState(0);
   const pointerStartXRef = useRef<number | null>(null);
   const pointerStartYRef = useRef<number | null>(null);
   const didSwipeRef = useRef(false);
@@ -238,7 +244,20 @@ function WebLiveCarousel({
   const loopCount = loopSlides.length;
   const [loopIndex, setLoopIndex] = useState(() => (slideCount > 1 ? 1 : 0));
   const [instant, setInstant] = useState(false);
-  const slideShare = loopCount > 0 ? 100 / loopCount : 100;
+  const slideWidthPx = Math.max(trackWidth, 1);
+
+  useEffect(() => {
+    const node = trackRef.current;
+    if (!node || typeof ResizeObserver === 'undefined') {
+      if (node) setTrackWidth(Math.round(node.getBoundingClientRect().width));
+      return;
+    }
+    const update = () => setTrackWidth(Math.round(node.getBoundingClientRect().width));
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   const publishLogical = useCallback(
     (nextLoopIndex: number) => {
@@ -313,7 +332,6 @@ function WebLiveCarousel({
       const currentLogical = loopIndexToLogical(loopIndex, slideCount);
       if (target === currentLogical) return;
 
-      // Prefer the short direction through clones when jumping across the seam.
       let nextLoop = target + 1;
       if (currentLogical === slideCount - 1 && target === 0) {
         nextLoop = slideCount + 1;
@@ -412,6 +430,7 @@ function WebLiveCarousel({
 
   return (
     <div
+      ref={trackRef}
       className="hero-carousel-web-track"
       style={{ height: shellHeight, cursor: slideCount > 1 ? 'grab' : 'default', touchAction: 'pan-y' }}
       onPointerDown={handlePointerDown}
@@ -422,20 +441,26 @@ function WebLiveCarousel({
       <div
         className={`hero-carousel-web-slider${instant ? ' is-instant' : ''}`}
         style={{
-          width: `${loopCount * 100}%`,
-          transform: `translateX(-${loopIndex * slideShare}%)`,
+          width: trackWidth > 0 ? loopCount * slideWidthPx : `${loopCount * 100}%`,
+          transform:
+            trackWidth > 0
+              ? `translate3d(-${loopIndex * slideWidthPx}px,0,0)`
+              : `translate3d(-${loopIndex * (100 / Math.max(loopCount, 1))}%,0,0)`,
         }}
       >
         {loopSlides.map((slide, idx) => (
           <div
             key={`${slide.id}:loop:${idx}`}
             className="hero-carousel-web-slide"
-            style={{ width: `${slideShare}%` }}
+            style={{
+              width: trackWidth > 0 ? slideWidthPx : `${100 / Math.max(loopCount, 1)}%`,
+              flex: trackWidth > 0 ? `0 0 ${slideWidthPx}px` : `0 0 ${100 / Math.max(loopCount, 1)}%`,
+            }}
           >
             <LiveSlideFrame
               slide={slide}
               shellHeight={shellHeight}
-              slideWidth={0}
+              slideWidth={slideWidthPx}
               fillWidth
               priority={loopIndexToLogical(idx, slideCount) === activeLogical ? 'high' : 'low'}
               topInset={topInset}
@@ -703,8 +728,7 @@ const styles = StyleSheet.create({
   },
   copy: {
     ...StyleSheet.absoluteFillObject,
-    paddingHorizontal: 20,
-    paddingBottom: 28,
+    paddingHorizontal: 18,
     justifyContent: 'space-between',
     zIndex: 2,
   },
@@ -740,14 +764,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   bottomCopy: {
-    gap: 5,
+    gap: 4,
     paddingRight: 4,
+    maxWidth: '100%',
   },
   title: {
     color: '#ffffff',
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '800',
-    lineHeight: 28,
+    lineHeight: 26,
     letterSpacing: -0.3,
   },
   subtitleRow: {
@@ -766,7 +791,7 @@ const styles = StyleSheet.create({
     textShadowRadius: 4,
   },
   ctaRow: {
-    marginTop: 2,
+    marginTop: 4,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
@@ -778,7 +803,7 @@ const styles = StyleSheet.create({
   },
   dotsOverlay: {
     position: 'absolute',
-    bottom: 10,
+    bottom: 14,
     left: 0,
     right: 0,
     flexDirection: 'row',
@@ -803,7 +828,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: 28,
+    height: 36,
     zIndex: 2,
   },
 });
