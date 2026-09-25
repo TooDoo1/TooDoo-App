@@ -29,7 +29,7 @@ export const LIVE_HERO_HEIGHT = 200;
 const AUTO_MS = 4200;
 const SCROLL_ANIM_MS = 680;
 const SWIPE_THRESHOLD = 28;
-const INTERACT_RESUME_MS = 3200;
+const INTERACT_RESUME_MS = 2000;
 const COPY_BOTTOM_PAD = 40;
 const DECELERATION = Platform.OS === 'android' ? 0.994 : ('normal' as const);
 
@@ -218,7 +218,8 @@ function WebLiveCarousel({
   topInset,
   onLogicalIndexChange,
   onPressSlide,
-  onInteract,
+  onInteractStart,
+  onInteractEnd,
   controlsRef,
 }: {
   slides: HeroLiveSlide[];
@@ -226,7 +227,8 @@ function WebLiveCarousel({
   topInset: number;
   onLogicalIndexChange?: (logicalIndex: number) => void;
   onPressSlide?: (slide: HeroLiveSlide) => void;
-  onInteract?: () => void;
+  onInteractStart?: () => void;
+  onInteractEnd?: () => void;
   controlsRef?: MutableRefObject<{
     step: (direction: -1 | 1) => void;
     goTo: (logicalIndex: number) => void;
@@ -408,7 +410,7 @@ function WebLiveCarousel({
     wrappingRef.current = false;
     setDragging(true);
     applyTransform(scrollXRef.current, true);
-    onInteract?.();
+    onInteractStart?.();
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
     } catch {
@@ -428,6 +430,7 @@ function WebLiveCarousel({
         draggingRef.current = false;
         setDragging(false);
         pointerIdRef.current = null;
+        onInteractEnd?.();
         try {
           event.currentTarget.releasePointerCapture(event.pointerId);
         } catch {
@@ -474,7 +477,7 @@ function WebLiveCarousel({
         const slide = slides[logical];
         if (slide) onPressSlide?.(slide);
       }
-      onInteract?.();
+      onInteractEnd?.();
       return;
     }
 
@@ -488,7 +491,7 @@ function WebLiveCarousel({
       targetIndex = velocity > 0 ? Math.floor(progress + 0.15) : Math.ceil(progress - 0.15);
     }
     animateTo(targetIndex * width);
-    onInteract?.();
+    onInteractEnd?.();
     setTick((value) => value + 1);
   };
 
@@ -581,7 +584,15 @@ export function HeroLiveSpotlight({
   const [activeDot, setActiveDot] = useState(0);
   const useWebTrack = Platform.OS === 'web';
 
-  const markInteracting = useCallback(() => {
+  const pauseAutoplay = useCallback(() => {
+    isInteractingRef.current = true;
+    if (interactResumeTimerRef.current) {
+      clearTimeout(interactResumeTimerRef.current);
+      interactResumeTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleAutoplayResume = useCallback(() => {
     isInteractingRef.current = true;
     if (interactResumeTimerRef.current) clearTimeout(interactResumeTimerRef.current);
     interactResumeTimerRef.current = setTimeout(() => {
@@ -646,9 +657,9 @@ export function HeroLiveSpotlight({
       const nextIndex = Math.round(offsetX / slideStride);
       currentLoopIndexRef.current = nextIndex;
       settleLoopIndex(nextIndex);
-      isInteractingRef.current = false;
+      scheduleAutoplayResume();
     },
-    [isLayoutReady, settleLoopIndex, slideCount, slideStride, useWebTrack]
+    [isLayoutReady, scheduleAutoplayResume, settleLoopIndex, slideCount, slideStride, useWebTrack]
   );
 
   const stepLogicalIndex = useCallback(
@@ -687,7 +698,8 @@ export function HeroLiveSpotlight({
 
   const scrollToLogicalIndex = (logicalIndex: number) => {
     if (slideCount === 0) return;
-    markInteracting();
+    pauseAutoplay();
+    scheduleAutoplayResume();
     if (useWebTrack) {
       webControlsRef.current?.goTo(logicalIndex);
       return;
@@ -724,7 +736,8 @@ export function HeroLiveSpotlight({
           topInset={topInset}
           onLogicalIndexChange={setActiveDot}
           onPressSlide={onPressSlide}
-          onInteract={markInteracting}
+          onInteractStart={pauseAutoplay}
+          onInteractEnd={scheduleAutoplayResume}
           controlsRef={webControlsRef}
         />
       ) : isLayoutReady ? (
@@ -743,7 +756,7 @@ export function HeroLiveSpotlight({
           style={[styles.scrollView, { height: shellHeight }]}
           contentContainerStyle={styles.scrollContent}
           onScrollBeginDrag={() => {
-            markInteracting();
+            pauseAutoplay();
           }}
           onScroll={(event) => {
             const offsetX = event.nativeEvent.contentOffset.x;
