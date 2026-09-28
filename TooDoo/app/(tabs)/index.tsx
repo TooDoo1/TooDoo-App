@@ -2636,6 +2636,23 @@ export default function HomeScreen() {
     [router, searchResults, trimmedSearchQuery]
   );
 
+  const openSeeAllWithCategory = useCallback(
+    (pathname: typeof NARA_DIG_PATH | typeof HETA_ERBJUDANDEN_PATH) => {
+      if (isSpecificCategorySelected && selectedCategory) {
+        router.push({
+          pathname,
+          params: {
+            categoryId: selectedCategory.id,
+            categoryName: selectedCategory.label,
+          },
+        });
+        return;
+      }
+      router.push(pathname);
+    },
+    [isSpecificCategorySelected, router, selectedCategory]
+  );
+
   const openBusinessMapFromSearch = useCallback(() => {
     if (Platform.OS === 'web') {
       void import('@/components/ui/maplibre-map.web').then((mod) => {
@@ -3568,6 +3585,7 @@ export default function HomeScreen() {
                     icon={selectedCategory.icon}
                     iconColor={getCategoryAccentColor(selectedCategory.label)}
                     subtitle="Slumpad ordning"
+                    onSeeAllPress={() => openSeeAllWithCategory(NARA_DIG_PATH)}
                   />
                   {isLoadingData && selectedCategoryCards.length === 0 ? (
                     <Text style={{ color: theme.textMuted }}>Laddar...</Text>
@@ -3589,7 +3607,7 @@ export default function HomeScreen() {
                 title="Nära dig"
                 icon="navigate"
                 iconColor={OFFERS_CATEGORY_ACCENT}
-                onSeeAllPress={() => router.push(NARA_DIG_PATH)}
+                onSeeAllPress={() => openSeeAllWithCategory(NARA_DIG_PATH)}
           />
           {isLoadingData && filteredDeals.length === 0 ? (
             <Text style={{ color: theme.textMuted }}>Laddar...</Text>
@@ -3613,7 +3631,7 @@ export default function HomeScreen() {
             icon="flame"
                   iconColor={OFFERS_CATEGORY_ACCENT}
             subtitle="Baserat på dina intressen"
-                  onSeeAllPress={() => router.push(HETA_ERBJUDANDEN_PATH)}
+                  onSeeAllPress={() => openSeeAllWithCategory(HETA_ERBJUDANDEN_PATH)}
           />
           {isLoadingData && hotOfferCards.length === 0 ? (
             <Text style={{ color: theme.textMuted }}>Laddar...</Text>

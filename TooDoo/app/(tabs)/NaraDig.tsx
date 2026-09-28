@@ -8,7 +8,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
@@ -39,6 +39,7 @@ import {
   isPlausibleSwedenCoordinate,
 } from '@/lib/geo';
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
+import { cardMatchesCategory, resolveBusinessCategoryIds } from '@/lib/home-offers';
 import { BUSINESS_MAP_PATH } from '@/lib/stack-navigation';
 import { usePaginatedList, SEE_ALL_PAGE_SIZE } from '@/lib/paginated-list';
 import { schedulePrefetchImageUris, usePrefetchPageImages } from '@/lib/image-prefetch';
@@ -57,11 +58,33 @@ type NearbyCompany = {
   imageUri?: string;
   address: string;
   description?: string;
+  categoryId?: string;
+  categoryIds?: string[];
   categoryName?: string;
   latitude?: number;
   longitude?: number;
   distanceKm?: number;
 };
+
+function paramString(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) return value[0] ?? '';
+  return value ?? '';
+}
+
+function companyMatchesCategoryFilter(
+  company: NearbyCompany,
+  categoryId?: string,
+  categoryName?: string
+) {
+  if (!categoryId && !categoryName) return true;
+  if (categoryId && cardMatchesCategory(company, categoryId)) return true;
+  if (categoryName) {
+    const want = categoryName.trim().toLocaleLowerCase('sv-SE');
+    const have = company.categoryName?.trim().toLocaleLowerCase('sv-SE') ?? '';
+    if (want && have === want) return true;
+  }
+  return false;
+}
 
 const GEOCODE_BATCH_SIZE = 4;
 const GEOCODE_MAX = 12;
@@ -128,6 +151,8 @@ function cacheToNearbyCompany(card: NearbyBusinessCard): NearbyCompany {
     imageUri: card.image.uri || undefined,
     address: card.Adress,
     description: card.kortbeskrivning,
+    categoryId: card.categoryId,
+    categoryIds: card.categoryIds,
     categoryName: card.categoryName,
     latitude: card.latitude,
     longitude: card.longitude,
@@ -146,6 +171,8 @@ function nearbyToCacheItem(company: NearbyCompany): NearbyBusinessCard {
     latitude: company.latitude,
     longitude: company.longitude,
     distanceKm: company.distanceKm,
+    categoryId: company.categoryId,
+    categoryIds: company.categoryIds,
     categoryName: company.categoryName,
   };
 }
@@ -201,6 +228,14 @@ const NearbyCompanyCard = memo(function NearbyCompanyCard({
 });
 
 export default function NaraDigScreen() {
+  const params = useLocalSearchParams<{
+    categoryId?: string | string[];
+    categoryName?: string | string[];
+  }>();
+  const categoryId = paramString(params.categoryId) || undefined;
+  const categoryName = paramString(params.categoryName) || undefined;
+  const hasCategoryFilter = Boolean(categoryId || categoryName);
+
   const cachedCompanies = useMemo(() => {
     const cached = getHomeNearbyBusinessesCache();
     return cached?.map(cacheToNearbyCompany) ?? [];
@@ -311,12 +346,15 @@ export default function NaraDigScreen() {
           const lng = typeof b?.longitude === 'number' ? b.longitude : undefined;
           const address = [b?.address, b?.city].filter(Boolean).join(', ') || 'Adress saknas';
 
+          const categoryIds = resolveBusinessCategoryIds(b);
           const company: NearbyCompany = {
             id,
             name: b?.name ?? 'Okänd verksamhet',
             imageUri: pickImageUri(b),
             address,
             description: b?.description ?? undefined,
+            categoryId: categoryIds[0],
+            categoryIds,
             categoryName: b?.categoryName ?? b?.category?.name ?? undefined,
             latitude: lat,
             longitude: lng,
@@ -426,8 +464,20 @@ export default function NaraDigScreen() {
   );
 
   const headerNote = coords
-    ? 'Sorterat efter avstånd från din plats.'
+    ? hasCategoryFilter
+      ? `Visar ${categoryName ?? 'kategori'} nära dig.`
+      : 'Sorterat efter avstånd från din plats.'
     : 'Aktivera plats för att se avstånd till varje företag.';
+
+  const visibleCompanies = useMemo(
+    () =>
+      companies.filter((company) =>
+        companyMatchesCategoryFilter(company, categoryId, categoryName)
+      ),
+    [categoryId, categoryName, companies]
+  );
+
+  const listTitle = categoryName?.trim() || 'Nära dig';
 
   const renderItem = useCallback(
     ({ item, index }: { item: NearbyCompany; index: number }) => (
@@ -454,7 +504,7 @@ export default function NaraDigScreen() {
                 lineHeight: 32,
               }}
             >
-              Nära dig
+              {listTitle}
             </Text>
             <Text className="mt-1.5 text-sm" style={{ color: theme.textMuted, lineHeight: 20 }}>
               {headerNote}
@@ -471,7 +521,11 @@ export default function NaraDigScreen() {
               }
               router.push({
                 pathname: BUSINESS_MAP_PATH,
-                params: { returnTo: 'naradig' },
+                params: {
+                  returnTo: 'naradig',
+                  ...(categoryId ? { categoryId } : {}),
+                  ...(categoryName ? { categoryName } : {}),
+                },
               });
             }}
             className="mt-1 flex-row items-center rounded-full px-3 py-2"
@@ -489,10 +543,23 @@ export default function NaraDigScreen() {
         </View>
       </View>
     ),
-    [headerNote, router, theme.border, theme.cardBg, theme.text, theme.textMuted]
+    [
+      categoryId,
+      categoryName,
+      headerNote,
+      listTitle,
+      router,
+      theme.border,
+      theme.cardBg,
+      theme.text,
+      theme.textMuted,
+    ]
   );
 
-  const pagination = usePaginatedList(companies, refreshNonce);
+  const pagination = usePaginatedList(
+    visibleCompanies,
+    `${refreshNonce}-${categoryId ?? ''}-${categoryName ?? ''}`
+  );
 
   const selectNearbyImage = useCallback(
     (company: NearbyCompany) => ({
@@ -503,8 +570,8 @@ export default function NaraDigScreen() {
     []
   );
 
-  usePrefetchPageImages(companies, pagination.page, SEE_ALL_PAGE_SIZE, {
-    resetKey: refreshNonce,
+  usePrefetchPageImages(visibleCompanies, pagination.page, SEE_ALL_PAGE_SIZE, {
+    resetKey: `${refreshNonce}-${categoryId ?? ''}-${categoryName ?? ''}`,
     selectImage: selectNearbyImage,
   });
 
@@ -555,7 +622,9 @@ export default function NaraDigScreen() {
               </View>
             ) : (
               <Text className="mt-10" style={{ color: theme.textMuted }}>
-                Inga företag att visa just nu.
+                {hasCategoryFilter
+                  ? `Inga träffar i ${categoryName ?? 'denna kategori'} just nu.`
+                  : 'Inga företag att visa just nu.'}
               </Text>
             )
           }

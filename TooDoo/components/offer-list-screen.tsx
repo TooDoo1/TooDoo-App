@@ -6,7 +6,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -19,6 +19,7 @@ import { SeeAllCardActions, SeeAllListCard, SeeAllPill } from '@/components/ui/s
 import { hydrateOfferCardImages } from '@/lib/business-image';
 import { useThemePreference } from '@/context/theme-preference-context';
 import {
+  cardMatchesCategory,
   computeDiscountLabel,
   getDiscountBadgeColor,
   fetchOfferListCards,
@@ -48,6 +49,11 @@ type OfferListScreenProps = {
   subtitle?: string;
   emptyText: string;
 };
+
+function paramString(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) return value[0] ?? '';
+  return value ?? '';
+}
 
 const LIST_BATCH_SIZE = 8;
 
@@ -107,6 +113,23 @@ export function OfferListScreen({
   subtitle,
   emptyText,
 }: OfferListScreenProps) {
+  const params = useLocalSearchParams<{
+    categoryId?: string | string[];
+    categoryName?: string | string[];
+  }>();
+  const categoryId = paramString(params.categoryId) || undefined;
+  const categoryName = paramString(params.categoryName) || undefined;
+  const hasCategoryFilter = Boolean(categoryId || categoryName);
+  const listTitle = categoryName?.trim() || title;
+  const listSubtitle = hasCategoryFilter
+    ? mode === 'hot'
+      ? `Populärt inom ${categoryName}`
+      : `Inom ${categoryName}`
+    : subtitle;
+  const listEmptyText = hasCategoryFilter
+    ? `Inga träffar i ${categoryName} just nu.`
+    : emptyText;
+
   const initialCache = useMemo(
     () => (mode === 'hot' ? getHomeHotOffersCache() : getHomeEndingSoonCache()) ?? [],
     [mode]
@@ -189,9 +212,27 @@ export function OfferListScreen({
     [router, mode]
   );
 
-  const pagination = usePaginatedList(cards, refreshNonce);
+  const visibleCards = useMemo(() => {
+    if (!hasCategoryFilter) return cards;
+    return cards.filter((card) => {
+      if (categoryId && cardMatchesCategory(card, categoryId)) return true;
+      if (categoryName) {
+        const want = categoryName.trim().toLocaleLowerCase('sv-SE');
+        const have = card.categoryName?.trim().toLocaleLowerCase('sv-SE') ?? '';
+        if (want && have === want) return true;
+      }
+      return false;
+    });
+  }, [cards, categoryId, categoryName, hasCategoryFilter]);
 
-  usePrefetchPageImages(cards, pagination.page, SEE_ALL_PAGE_SIZE, { resetKey: refreshNonce });
+  const pagination = usePaginatedList(
+    visibleCards,
+    `${refreshNonce}-${categoryId ?? ''}-${categoryName ?? ''}`
+  );
+
+  usePrefetchPageImages(visibleCards, pagination.page, SEE_ALL_PAGE_SIZE, {
+    resetKey: `${refreshNonce}-${categoryId ?? ''}-${categoryName ?? ''}`,
+  });
 
   const listHeader = useMemo(
     () => (
@@ -205,16 +246,16 @@ export function OfferListScreen({
             lineHeight: 32,
           }}
         >
-          {title}
+          {listTitle}
         </Text>
-        {subtitle ? (
+        {listSubtitle ? (
           <Text className="mt-1.5 text-sm" style={{ color: theme.textMuted, lineHeight: 20 }}>
-            {subtitle}
+            {listSubtitle}
           </Text>
         ) : null}
       </View>
     ),
-    [subtitle, theme.text, theme.textMuted, title]
+    [listSubtitle, listTitle, theme.text, theme.textMuted]
   );
 
   const renderItem = useCallback(
@@ -282,7 +323,7 @@ export function OfferListScreen({
               </View>
             ) : (
               <Text className="mt-10" style={{ color: theme.textMuted }}>
-                {emptyText}
+                {listEmptyText}
               </Text>
             )
           }

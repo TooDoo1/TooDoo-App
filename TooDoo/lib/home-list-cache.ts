@@ -19,6 +19,8 @@ export type NearbyBusinessCard = {
   latitude?: number;
   longitude?: number;
   distanceKm?: number;
+  categoryId?: string;
+  categoryIds?: string[];
   categoryName?: string;
   hasEvent?: boolean;
   hasOffer?: boolean;
