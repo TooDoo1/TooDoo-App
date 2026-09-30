@@ -26,11 +26,12 @@ import { resolveHeroImageUri } from '@/lib/hero-slides';
 import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
 import { BrandColors } from '@/lib/brand-colors';
 
-export const LIVE_HERO_HEIGHT = 268;
+export const LIVE_HERO_HEIGHT = 220;
 const AUTO_MS = 5200;
 const TAP_MOVE_THRESHOLD = 12;
 const INTERACT_RESUME_MS = 2400;
-const COPY_BOTTOM_PAD = 48;
+/** Keep copy clear of dots + bottom fade. */
+const COPY_BOTTOM_PAD = 44;
 const DECELERATION = Platform.OS === 'android' ? 0.994 : ('normal' as const);
 const WEB_SWIPE_THRESHOLD = 42;
 
@@ -135,13 +136,9 @@ function LiveSlideFrame({
         <View style={[styles.splitCopy, { paddingTop: padTop, paddingBottom: COPY_BOTTOM_PAD }]}>
           <Text style={styles.splitEyebrow}>{slide.eyebrow ?? 'Testa något nytt'}</Text>
           {slide.badge ? <Text style={styles.splitDiscount}>{slide.badge}</Text> : null}
-          <Text style={styles.splitTitle} numberOfLines={3}>
+          <Text style={styles.splitTitle} numberOfLines={2}>
             {slide.title}
           </Text>
-          <View style={styles.ctaRow}>
-            <Text style={styles.ctaText}>Utforska</Text>
-            <Ionicons name="chevron-forward" size={13} color="#ffffff" />
-          </View>
         </View>
         <View style={styles.splitMedia}>
           <SlideImage
@@ -171,8 +168,8 @@ function LiveSlideFrame({
           priority={priority}
         />
         <LinearGradient
-          colors={['rgba(14,19,37,0.55)', 'rgba(14,19,37,0.2)', 'rgba(14,19,37,0.88)']}
-          locations={[0, 0.4, 1]}
+          colors={['rgba(14,19,37,0.45)', 'rgba(14,19,37,0.15)', 'rgba(14,19,37,0.9)']}
+          locations={[0, 0.42, 1]}
           style={StyleSheet.absoluteFill}
         />
         <View style={[styles.copy, { paddingTop: padTop, paddingBottom: COPY_BOTTOM_PAD }]} pointerEvents="none">
@@ -180,18 +177,14 @@ function LiveSlideFrame({
             <Text style={styles.promoBrandText}>TooDoo</Text>
           </View>
           <View style={styles.bottomCopy}>
-            <Text style={styles.promoTitle} numberOfLines={3}>
+            <Text style={styles.promoTitle} numberOfLines={2}>
               {slide.title}
             </Text>
             {slide.subtitle ? (
-              <Text style={styles.promoSubtitle} numberOfLines={2}>
+              <Text style={styles.promoSubtitle} numberOfLines={1}>
                 {slide.subtitle}
               </Text>
             ) : null}
-            <View style={styles.ctaRow}>
-              <Text style={styles.ctaText}>Sök nu</Text>
-              <Ionicons name="chevron-forward" size={13} color="#ffffff" />
-            </View>
           </View>
         </View>
       </>
@@ -207,8 +200,8 @@ function LiveSlideFrame({
           priority={priority}
         />
         <LinearGradient
-          colors={['rgba(8,14,32,0.55)', 'rgba(8,14,32,0.18)', 'rgba(8,14,32,0.94)']}
-          locations={[0, 0.38, 1]}
+          colors={['rgba(8,14,32,0.5)', 'rgba(8,14,32,0.15)', 'rgba(8,14,32,0.92)']}
+          locations={[0, 0.4, 1]}
           style={StyleSheet.absoluteFill}
         />
         <View style={[styles.eventAccent, { backgroundColor: kindColor }]} />
@@ -222,24 +215,20 @@ function LiveSlideFrame({
             </View>
           </View>
           <View style={styles.bottomCopy}>
-            <Text style={styles.eventTitle} numberOfLines={3}>
+            <Text style={styles.eventTitle} numberOfLines={2}>
               {slide.title}
             </Text>
             {slide.subtitle ? (
-              <Text style={styles.subtitle} numberOfLines={2}>
+              <Text style={styles.subtitle} numberOfLines={1}>
                 {slide.subtitle}
               </Text>
             ) : null}
-            <View style={styles.ctaRow}>
-              <Text style={styles.ctaText}>Öppna kartan</Text>
-              <Ionicons name="chevron-forward" size={13} color="#ffffff" />
-            </View>
           </View>
         </View>
       </>
     );
   } else {
-    // voice
+    // voice — whole slide is tappable; no extra CTA line that gets clipped
     content = (
       <>
         <SlideImage
@@ -250,7 +239,7 @@ function LiveSlideFrame({
           priority={priority}
         />
         <LinearGradient
-          colors={['rgba(20,40,80,0.55)', 'rgba(14,19,37,0.15)', 'rgba(14,19,37,0.94)']}
+          colors={['rgba(20,40,80,0.5)', 'rgba(14,19,37,0.12)', 'rgba(14,19,37,0.92)']}
           locations={[0, 0.4, 1]}
           style={StyleSheet.absoluteFill}
         />
@@ -264,14 +253,10 @@ function LiveSlideFrame({
               {slide.title}
             </Text>
             {slide.subtitle ? (
-              <Text style={styles.subtitle} numberOfLines={2}>
+              <Text style={styles.subtitle} numberOfLines={1}>
                 {slide.subtitle}
               </Text>
             ) : null}
-            <View style={styles.ctaRow}>
-              <Text style={styles.ctaText}>Börja prata</Text>
-              <Ionicons name="chevron-forward" size={13} color="#ffffff" />
-            </View>
           </View>
         </View>
       </>
@@ -736,8 +721,8 @@ const styles = StyleSheet.create({
   },
   eventTitle: {
     color: '#ffffff',
-    fontSize: 23,
-    lineHeight: 27,
+    fontSize: 22,
+    lineHeight: 26,
     fontWeight: '800',
     letterSpacing: -0.35,
     maxWidth: '92%',
@@ -857,15 +842,15 @@ const styles = StyleSheet.create({
   },
   splitDiscount: {
     color: '#ffffff',
-    fontSize: 36,
-    lineHeight: 40,
+    fontSize: 28,
+    lineHeight: 32,
     fontWeight: '800',
-    letterSpacing: -1,
+    letterSpacing: -0.8,
   },
   splitTitle: {
     color: '#ffffff',
-    fontSize: 16,
-    lineHeight: 20,
+    fontSize: 15,
+    lineHeight: 19,
     fontWeight: '700',
   },
   promoBrandPill: {
@@ -883,8 +868,8 @@ const styles = StyleSheet.create({
   },
   promoTitle: {
     color: '#ffffff',
-    fontSize: 24,
-    lineHeight: 28,
+    fontSize: 22,
+    lineHeight: 26,
     fontWeight: '800',
     letterSpacing: -0.4,
     maxWidth: '90%',
@@ -900,14 +885,14 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: 28,
+    height: 36,
     zIndex: 3,
   },
   dotsOverlay: {
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 10,
+    bottom: 12,
     zIndex: 4,
     flexDirection: 'row',
     justifyContent: 'center',

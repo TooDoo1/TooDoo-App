@@ -1261,7 +1261,7 @@ export default function HomeScreen() {
   const [isLoadingEvents, setIsLoadingEvents] = useState(!getHomeEventsCache());
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(HELSINGBORG_COORDS);
   const insets = useSafeAreaInsets();
-  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const { width: windowWidth } = useWindowDimensions();
   const navBarWidth = getTabBarWidth(windowWidth, Platform.OS);
   const navBarLeft = getTabBarLeft(windowWidth, navBarWidth);
   const scrollBottomPadding = getFloatingTabBarScrollPadding(insets.bottom);
@@ -2717,7 +2717,7 @@ export default function HomeScreen() {
         kind: 'map',
         eyebrow: 'Karta',
         title: 'Se vad som finns runt dig',
-        subtitle: 'Utforska ställen på kartan — inte bara i listorna',
+        subtitle: 'Utforska ställen på kartan',
         accentColor: BrandColors.dark.primary,
         image: mapImage,
       },
@@ -2727,7 +2727,7 @@ export default function HomeScreen() {
         kind: 'voice',
         eyebrow: 'Röstsök',
         title: 'Säg vad du är sugen på',
-        subtitle: 'Snabbare än att scrolla — bara prata',
+        subtitle: 'Bara prata — snabbare än att scrolla',
         accentColor: BrandColors.dark.primary,
         image: voiceImage,
       },
@@ -2762,19 +2762,12 @@ export default function HomeScreen() {
     ]
   );
 
-  // Image carousel for guests; live nearby spotlight when logged in.
-  const heroContentHeight = useMemo(() => {
-    const base = isLoggedIn ? LIVE_HERO_HEIGHT : HERO_HEIGHT;
-    // Short phones still need room for title + CTA above the dots.
-    if (windowHeight > 0 && windowHeight < 720) {
-      return Math.max(base, Math.round(windowHeight * 0.34));
-    }
-    return base;
-  }, [isLoggedIn, windowHeight]);
+  // Image carousel for guests; discovery spotlight when logged in.
+  const heroContentHeight = isLoggedIn ? LIVE_HERO_HEIGHT : HERO_HEIGHT;
   const heroBlockHeight = heroContentHeight + heroTopInset;
   const searchPanelStickyLift = 12;
   // Keep collapse shorter than hero height — 1:1 mapping breaks ScrollView layout.
-  const heroCollapseScroll = Math.min(280, Math.max(200, Math.round(heroBlockHeight * 0.72)));
+  const heroCollapseScroll = 200;
   const collapsedHeaderTopPadding = heroTopInset + 8 - searchPanelStickyLift;
   const heroHeight = scrollY.interpolate({
     inputRange: [0, heroCollapseScroll],
