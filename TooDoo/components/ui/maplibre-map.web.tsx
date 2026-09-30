@@ -141,7 +141,8 @@ function loadMapLibre(): Promise<MapLibreGl> {
 export function prefetchBusinessMapAssets(): void {
   if (typeof window === 'undefined') return;
   void loadMapLibre().catch(() => {});
-  void loadTooDooMapStyle().catch(() => {});
+  void loadTooDooMapStyle('light').catch(() => {});
+  void loadTooDooMapStyle('dark').catch(() => {});
 }
 
 let tileWarmupStarted = false;
@@ -464,7 +465,7 @@ export function MapLibreMapView({
       try {
         const [ml, mapStyle] = await Promise.all([
           loadMapLibre(),
-          loadTooDooMapStyle(),
+          loadTooDooMapStyle(mode),
         ]);
         if (cancelled || mapRef.current) return;
 
@@ -531,7 +532,7 @@ export function MapLibreMapView({
       mapRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [MAP_PAINT_VERSION]);
+  }, [MAP_PAINT_VERSION, mode]);
 
   useEffect(() => {
     const map = mapRef.current;

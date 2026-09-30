@@ -46,7 +46,7 @@ export const FilterChipTheme = {
   surface: {
     backgroundColor: '#ffffff',
     borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.08)',
+    borderColor: 'rgba(0, 0, 0, 0.1)',
   },
   text: BrandColors.light.foreground,
   textMuted: '#5c6370',

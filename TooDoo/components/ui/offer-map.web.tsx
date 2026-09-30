@@ -135,7 +135,7 @@ function OfferMapComponent({
   return (
     <View style={[styles.wrap, { height: mapHeight, backgroundColor: shellBg }]}>
       <MapLibreMapView
-        key={`map-${MAP_PAINT_VERSION}-${hasOrigin ? 'route' : 'pin'}`}
+        key={`map-${MAP_PAINT_VERSION}-${mode}-${hasOrigin ? 'route' : 'pin'}`}
         center={{ latitude, longitude }}
         zoom={14.5}
         pins={pins}

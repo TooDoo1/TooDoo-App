@@ -36,13 +36,14 @@ export function mapLibreStyleUrlForMode(_mode: ThemeMode) {
   return OPENFREEMAP_STYLES.liberty;
 }
 
-export function mapTileUrlForMode(_mode: ThemeMode) {
-  // Light gray basemap in both app themes.
-  return MAP_RASTER_TILE_TEMPLATES.light;
+export function mapTileUrlForMode(mode: ThemeMode) {
+  return mode === 'dark'
+    ? MAP_RASTER_TILE_TEMPLATES.dark
+    : MAP_RASTER_TILE_TEMPLATES.light;
 }
 
-export function mapShellBackground(_mode: ThemeMode) {
-  return '#efe8dc';
+export function mapShellBackground(mode: ThemeMode) {
+  return mode === 'dark' ? '#12161f' : '#efe8dc';
 }
 
 /** @deprecated alias */

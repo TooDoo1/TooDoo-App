@@ -1297,10 +1297,10 @@ export default function HomeScreen() {
   // revealed with a typewriter effect (type out -> hold -> erase -> next).
   const searchSuggestions = useMemo(
     () => [
-      'Hitta något kul att göra i helgen',
-      'Sök restauranger, events, upplevelser',
-      'Vad är du sugen på ikväll?',
-      'Upptäck nya ställen nära dig',
+      'Hitta något kul i helgen',
+      'Restauranger & events',
+      'Vad är du sugen på?',
+      'Nya ställen nära dig',
     ],
     []
   );
@@ -3004,7 +3004,7 @@ export default function HomeScreen() {
             >
               <Ionicons
                 name="search-outline"
-                size={18}
+                size={17}
                 color={FilterChipTheme.textMuted}
                 style={styles.searchBarIcon}
               />
@@ -3014,6 +3014,7 @@ export default function HomeScreen() {
                   flex: 1,
                   color: searchQuery.trim() ? FilterChipTheme.text : FilterChipTheme.placeholder,
                   fontSize: 15,
+                  letterSpacing: -0.1,
                 }}
               >
                 {searchQuery.trim() || `${typedPlaceholder}|`}
@@ -3206,7 +3207,7 @@ export default function HomeScreen() {
           >
             <Ionicons
               name="search-outline"
-              size={18}
+              size={17}
               color={FilterChipTheme.textMuted}
               style={styles.searchBarIcon}
             />
@@ -3231,6 +3232,7 @@ export default function HomeScreen() {
                   {
                     color: FilterChipTheme.text,
                     height: SEARCH_BAR_HEIGHT,
+                    letterSpacing: -0.1,
                   },
                 ]}
                 returnKeyType="search"
@@ -3710,8 +3712,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     width: '100%',
-    borderRadius: 999,
-    paddingHorizontal: 14,
+    borderTopLeftRadius: SEARCH_BAR_HEIGHT / 2,
+    borderBottomLeftRadius: SEARCH_BAR_HEIGHT / 2,
+    borderTopRightRadius: 12,
+    borderBottomRightRadius: 12,
+    paddingHorizontal: 16,
   },
   searchBarIcon: {
     marginRight: 10,
@@ -3721,6 +3726,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     width: '100%',
+    gap: 0,
   },
   searchBarDropdownHost: {
     flex: 1,

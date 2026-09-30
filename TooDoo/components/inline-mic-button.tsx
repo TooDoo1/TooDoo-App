@@ -6,6 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BrandColors } from '@/lib/brand-colors';
 
 const SIZE = 44;
+const CORNER = 12;
 const RECORDING_RED = '#ff3b30';
 
 type InlineMicButtonProps = {
@@ -127,8 +128,8 @@ export function InlineMicButton({
             end={{ x: 0.9, y: 1 }}
             style={styles.orb}
           >
-            <View style={styles.orbSheen} />
-            <Ionicons name="mic-outline" size={20} color="#ffffff" />
+            <View style={styles.orbSheen} pointerEvents="none" />
+            <Ionicons name="mic" size={20} color="#ffffff" />
           </LinearGradient>
         )}
       </Animated.View>
@@ -140,7 +141,7 @@ const styles = StyleSheet.create({
   hit: {
     width: SIZE,
     height: SIZE,
-    marginLeft: 10,
+    marginLeft: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -153,7 +154,10 @@ const styles = StyleSheet.create({
   orb: {
     width: SIZE,
     height: SIZE,
-    borderRadius: SIZE / 2,
+    borderTopLeftRadius: CORNER,
+    borderBottomLeftRadius: CORNER,
+    borderTopRightRadius: SIZE / 2,
+    borderBottomRightRadius: SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
@@ -167,14 +171,17 @@ const styles = StyleSheet.create({
     left: 6,
     right: 6,
     height: 14,
-    borderRadius: 10,
+    borderRadius: 8,
     backgroundColor: 'rgba(255,255,255,0.22)',
   },
   ring: {
     position: 'absolute',
     width: SIZE,
     height: SIZE,
-    borderRadius: SIZE / 2,
+    borderTopLeftRadius: CORNER,
+    borderBottomLeftRadius: CORNER,
+    borderTopRightRadius: SIZE / 2,
+    borderBottomRightRadius: SIZE / 2,
     borderWidth: 2,
   },
 });

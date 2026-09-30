@@ -360,7 +360,7 @@ export default function BusinessMapScreen() {
         <BusinessMapSearchHeader value={searchQuery} onChangeText={setSearchQuery} />
 
         <MapLibreMapView
-          key={`explore-${MAP_PAINT_VERSION}`}
+          key={`explore-${MAP_PAINT_VERSION}-${mode}`}
           center={mapCenter}
           zoom={mapZoom}
           pins={pins}
