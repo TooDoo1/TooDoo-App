@@ -729,7 +729,8 @@ function ForYouOrderCarousel({
                 </View>
               ) : null}
               <LinearGradient
-                colors={['rgba(0,0,0,0.00)', 'rgba(0,0,0,0.85)']}
+                colors={['rgba(0,0,0,0.00)', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.92)']}
+                locations={[0, 0.45, 1]}
                 start={{ x: 0.5, y: 0 }}
                 end={{ x: 0.5, y: 1 }}
                 style={{
@@ -737,7 +738,7 @@ function ForYouOrderCarousel({
                   left: 0,
                   right: 0,
                   bottom: 0,
-                  height: '55%',
+                  height: '62%',
                   paddingHorizontal: 10,
                   paddingBottom: 10,
                   justifyContent: 'flex-end',
@@ -746,7 +747,11 @@ function ForYouOrderCarousel({
                 <Text className="text-sm font-semibold text-white" numberOfLines={1}>
                   {card.title}
                 </Text>
-                <Text className="mt-0.5 text-[11px] text-white/80" numberOfLines={1}>
+                <Text
+                  className="mt-0.5 text-[12px] font-medium text-white"
+                  style={{ opacity: 0.92 }}
+                  numberOfLines={1}
+                >
                   {isEvent
                     ? card.kortbeskrivning || 'Evenemang'
                     : card.kortbeskrivning || 'Erbjudande'}
@@ -802,7 +807,8 @@ function FeaturedDealCard({
         </View>
       ) : null}
       <LinearGradient
-        colors={['rgba(0,0,0,0.00)', 'rgba(0,0,0,0.85)']}
+        colors={['rgba(0,0,0,0.00)', 'rgba(0,0,0,0.5)', 'rgba(0,0,0,0.92)']}
+        locations={[0, 0.4, 1]}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
         style={{
@@ -812,7 +818,7 @@ function FeaturedDealCard({
           bottom: 0,
           paddingHorizontal: 12,
           paddingBottom: 12,
-          paddingTop: 28,
+          paddingTop: 36,
         }}
       >
         <Text
@@ -914,7 +920,8 @@ function FillCard({
         />
       </View>
       <LinearGradient
-        colors={['rgba(0,0,0,0.00)', 'rgba(0,0,0,0.85)']}
+        colors={['rgba(0,0,0,0.00)', 'rgba(0,0,0,0.5)', 'rgba(0,0,0,0.92)']}
+        locations={[0, 0.4, 1]}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
         style={{
@@ -924,7 +931,7 @@ function FillCard({
           bottom: 0,
           paddingHorizontal: 12,
           paddingBottom: 12,
-          paddingTop: 28,
+          paddingTop: 36,
         }}
       >
         <Text
@@ -1197,7 +1204,10 @@ function SectionTitleRow({
           </Text>
         </View>
         {subtitle ? (
-          <Text className="mt-0.5 text-xs" style={{ color: theme.textMuted }}>
+          <Text
+            className="mt-1 text-sm"
+            style={{ color: theme.textMuted, fontWeight: '500' }}
+          >
             {subtitle}
           </Text>
         ) : null}
@@ -2669,105 +2679,87 @@ export default function HomeScreen() {
   }, [router, searchQuery, snapCloseSearchOverlay]);
 
   const liveHeroSlides = useMemo((): HeroLiveSlide[] => {
-    const slides: HeroLiveSlide[] = [];
-    const seen = new Set<string>();
+    const web = Platform.OS === 'web';
+    const tryImage = web
+      ? { uri: '/hero/food.jpg' }
+      : require('../../assets/images/city-night-2.jpg');
+    const mapImage = web
+      ? { uri: '/hero/restaurant.jpg' }
+      : require('../../assets/images/city-night.jpg');
+    const voiceImage = web
+      ? { uri: '/hero/image-1.png' }
+      : require('../../assets/images/city-night-3.jpg');
 
-    const pushCard = (
-      card: CardItem,
-      kind: HeroLiveSlide['kind'],
-      eyebrow: string,
-      badge?: string
-    ) => {
-      if (!card?.id || seen.has(card.id) || slides.length >= 5) return;
-      const hasImage =
-        typeof card.image === 'number' ||
-        (typeof card.image === 'object' &&
-          card.image &&
-          'uri' in card.image &&
-          typeof card.image.uri === 'string' &&
-          card.image.uri.length > 0);
-      if (!hasImage) return;
-      seen.add(card.id);
-      slides.push({
-        id: `live:${kind}:${card.id}`,
-        sourceId: card.id,
-        kind,
-        title: card.title,
-        subtitle: card.Adress?.trim() || card.kortbeskrivning?.trim() || undefined,
-        badge: badge ?? formatDistanceKm(card.distanceKm) ?? undefined,
-        eyebrow,
-        accentColor: getCategoryAccentColor(card.categoryName),
-        image: card.image,
-      });
-    };
+    // Rotating “try something” nudge from live categories when available.
+    const categoryHints = categoryFilters
+      .map((c) => c.label?.trim())
+      .filter((label): label is string => Boolean(label) && label.toLowerCase() !== 'alla');
+    const tryHint =
+      categoryHints.length > 0
+        ? categoryHints[Math.floor(Date.now() / 86_400_000) % categoryHints.length]
+        : 'något oväntat';
 
-    const byDistance = [...deals].sort((a, b) => {
-      const da = typeof a.distanceKm === 'number' ? a.distanceKm : Number.POSITIVE_INFINITY;
-      const db = typeof b.distanceKm === 'number' ? b.distanceKm : Number.POSITIVE_INFINITY;
-      return da - db;
-    });
-    byDistance.slice(0, 2).forEach((card) => pushCard(card, 'near', 'Nära dig'));
-
-    hotOfferCards.slice(0, 2).forEach((card) => {
-      const discount = computeDiscountLabel(card);
-      pushCard(
-        card,
-        'hot',
-        'Populärt just nu',
-        discount ?? formatDistanceKm(card.distanceKm) ?? undefined
-      );
-    });
-
-    nearYouCards.slice(0, 1).forEach((card) => {
-      pushCard(card, 'ending', 'Slutar snart', getEndingSoonBadge(card));
-    });
-
-    eventCards.slice(0, 1).forEach((event) => {
-      if (!event?.id || seen.has(event.id) || slides.length >= 5) return;
-      if (!event.image) return;
-      seen.add(event.id);
-      const linkedToCompany = Boolean(event.businessId) || event.source === 'business';
-      const companyCategory =
-        event.businessEvent?.categoryName ??
-        undefined;
-      slides.push({
-        id: `live:event:${event.id}`,
-        sourceId: event.id,
-        kind: 'event',
-        title: event.title,
-        subtitle: event.subtitle,
-        badge: 'Event',
-        eyebrow: 'Kommande',
-        accentColor: linkedToCompany
-          ? getCategoryAccentColor(companyCategory)
-          : '#ffffff',
-        image: event.image,
-      });
-    });
-
-    return slides;
-  }, [deals, hotOfferCards, nearYouCards, eventCards]);
+    return [
+      {
+        id: 'discover:try',
+        sourceId: 'try',
+        kind: 'try',
+        eyebrow: 'Testa något nytt',
+        badge: tryHint,
+        title: `Sugen på ${tryHint.toLowerCase()}?`,
+        subtitle: 'Hoppa utanför det vanliga',
+        accentColor: BrandColors.dark.primary,
+        image: tryImage,
+      },
+      {
+        id: 'discover:map',
+        sourceId: 'map',
+        kind: 'map',
+        eyebrow: 'Karta',
+        title: 'Se vad som finns runt dig',
+        subtitle: 'Utforska ställen på kartan — inte bara i listorna',
+        accentColor: BrandColors.dark.primary,
+        image: mapImage,
+      },
+      {
+        id: 'discover:voice',
+        sourceId: 'voice',
+        kind: 'voice',
+        eyebrow: 'Röstsök',
+        title: 'Säg vad du är sugen på',
+        subtitle: 'Snabbare än att scrolla — bara prata',
+        accentColor: BrandColors.dark.primary,
+        image: voiceImage,
+      },
+    ];
+  }, [categoryFilters]);
 
   const handleLiveHeroPress = useCallback(
     (slide: HeroLiveSlide) => {
-      if (slide.kind === 'event') {
-        const event = eventCards.find((item) => item.id === slide.sourceId);
-        if (event) {
-          setHomeScrollOffset(scrollOffsetRef.current);
-          openEventFeedItem(router, event, 'index');
-        }
+      if (slide.kind === 'map') {
+        snapCloseSearchOverlay();
+        router.push({ pathname: BUSINESS_MAP_PATH });
         return;
       }
-      const card =
-        deals.find((item) => item.id === slide.sourceId) ??
-        hotOfferCards.find((item) => item.id === slide.sourceId) ??
-        nearYouCards.find((item) => item.id === slide.sourceId);
-      if (!card) return;
-      closeSearchOverlay();
-      setHomeScrollOffset(scrollOffsetRef.current);
-      openOfferDetail(router, card, 'index');
+      if (slide.kind === 'voice') {
+        handleVoiceSearch();
+        return;
+      }
+      // try + search → open search; for try, seed with the hint badge when present
+      if (slide.kind === 'try' && slide.badge) {
+        clearVoiceSearchOwnership();
+        setSearchCommitted(false);
+        setSearchQuery(slide.badge);
+      }
+      openSearchDropdown();
     },
-    [closeSearchOverlay, deals, eventCards, hotOfferCards, nearYouCards, router]
+    [
+      clearVoiceSearchOwnership,
+      handleVoiceSearch,
+      openSearchDropdown,
+      router,
+      snapCloseSearchOverlay,
+    ]
   );
 
   // Image carousel for guests; live nearby spotlight when logged in.

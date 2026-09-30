@@ -6,6 +6,7 @@ import {
   useState,
   type MutableRefObject,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from 'react';
 import {
   ImageSourcePropType,
@@ -25,13 +26,13 @@ import { resolveHeroImageUri } from '@/lib/hero-slides';
 import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
 import { BrandColors } from '@/lib/brand-colors';
 
-export const LIVE_HERO_HEIGHT = 200;
-const AUTO_MS = 4200;
-const SCROLL_ANIM_MS = 680;
+export const LIVE_HERO_HEIGHT = 210;
+const AUTO_MS = 5200;
 const TAP_MOVE_THRESHOLD = 12;
-const INTERACT_RESUME_MS = 2000;
+const INTERACT_RESUME_MS = 2400;
 const COPY_BOTTOM_PAD = 40;
 const DECELERATION = Platform.OS === 'android' ? 0.994 : ('normal' as const);
+const WEB_SWIPE_THRESHOLD = 42;
 
 export type HeroLiveSlide = {
   id: string;
@@ -42,7 +43,8 @@ export type HeroLiveSlide = {
   accentColor?: string;
   image: ImageSourcePropType;
   sourceId: string;
-  kind: 'near' | 'hot' | 'ending' | 'event';
+  /** Discovery actions — not copies of home carousels. */
+  kind: 'try' | 'map' | 'voice' | 'search';
 };
 
 type HeroLiveSpotlightProps = {
@@ -51,18 +53,6 @@ type HeroLiveSpotlightProps = {
   topInset?: number;
   onPressSlide?: (slide: HeroLiveSlide) => void;
 };
-
-function buildLoopSlides(slides: HeroLiveSlide[]): HeroLiveSlide[] {
-  if (slides.length <= 1) return slides;
-  return [slides[slides.length - 1], ...slides, slides[0]];
-}
-
-function loopIndexToLogical(loopIndex: number, slideCount: number): number {
-  if (slideCount <= 1) return 0;
-  if (loopIndex === 0) return slideCount - 1;
-  if (loopIndex === slideCount + 1) return 0;
-  return loopIndex - 1;
-}
 
 function SlideImage({
   source,
@@ -132,65 +122,159 @@ function LiveSlideFrame({
   onPress?: () => void;
   disablePress?: boolean;
 }) {
-  const kindColor = slide.accentColor ?? '#ffffff';
-  const content = (
-    <>
-      <SlideImage
-        source={slide.image}
-        width={slideWidth}
-        height={shellHeight}
-        fillWidth={fillWidth}
-        priority={priority}
-      />
-      <LinearGradient
-        colors={['rgba(8,10,18,0.22)', 'rgba(8,10,18,0.08)', 'rgba(8,10,18,0.78)', 'rgba(8,10,18,0.94)']}
-        locations={[0, 0.35, 0.72, 1]}
-        style={StyleSheet.absoluteFill}
-      />
-      <View
-        style={[styles.copy, { paddingTop: Math.max(topInset + 10, 16), paddingBottom: COPY_BOTTOM_PAD }]}
-        pointerEvents="none"
-      >
-        <View style={styles.topRow}>
-          {slide.eyebrow ? (
-            <View style={styles.eyebrowChip}>
-              <Text style={[styles.eyebrowText, { color: kindColor }]}>{slide.eyebrow}</Text>
-            </View>
-          ) : (
-            <View />
-          )}
-          {slide.badge ? (
-            <View
-              style={[
-                styles.badgeChip,
-                slide.kind === 'event' ? styles.eventBadgeChip : null,
-              ]}
-            >
-              <Text style={styles.badgeText}>{slide.badge}</Text>
-            </View>
-          ) : null}
-        </View>
-        <View style={styles.bottomCopy}>
-          <Text style={styles.title} numberOfLines={2}>
+  const kindColor = slide.accentColor ?? BrandColors.dark.primary;
+  const padTop = Math.max(topInset + 10, 16);
+
+  let content: ReactNode;
+
+  if (slide.kind === 'try') {
+    content = (
+      <View style={styles.splitRoot}>
+        <View style={[styles.splitCopy, { paddingTop: padTop, paddingBottom: COPY_BOTTOM_PAD }]}>
+          <Text style={styles.splitEyebrow}>{slide.eyebrow ?? 'Testa något nytt'}</Text>
+          {slide.badge ? <Text style={styles.splitDiscount}>{slide.badge}</Text> : null}
+          <Text style={styles.splitTitle} numberOfLines={3}>
             {slide.title}
           </Text>
-          {slide.subtitle ? (
-            <View style={styles.subtitleRow}>
-              <Ionicons name="location-outline" size={14} color="#ffffff" />
-              <Text style={styles.subtitle} numberOfLines={1}>
-                {slide.subtitle}
-              </Text>
-            </View>
-          ) : null}
           <View style={styles.ctaRow}>
-            <Text style={styles.ctaText}>Visa mer</Text>
+            <Text style={styles.ctaText}>Utforska</Text>
             <Ionicons name="chevron-forward" size={13} color="#ffffff" />
           </View>
         </View>
+        <View style={styles.splitMedia}>
+          <SlideImage
+            source={slide.image}
+            width={slideWidth * 0.52}
+            height={shellHeight}
+            fillWidth
+            priority={priority}
+          />
+          <LinearGradient
+            colors={['rgba(10,12,20,0.15)', 'rgba(10,12,20,0.55)']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+        </View>
       </View>
-    </>
-  );
-
+    );
+  } else if (slide.kind === 'search') {
+    content = (
+      <>
+        <SlideImage
+          source={slide.image}
+          width={slideWidth}
+          height={shellHeight}
+          fillWidth={fillWidth}
+          priority={priority}
+        />
+        <LinearGradient
+          colors={['rgba(14,19,37,0.55)', 'rgba(14,19,37,0.2)', 'rgba(14,19,37,0.88)']}
+          locations={[0, 0.4, 1]}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={[styles.copy, { paddingTop: padTop, paddingBottom: COPY_BOTTOM_PAD }]} pointerEvents="none">
+          <View style={styles.promoBrandPill}>
+            <Text style={styles.promoBrandText}>TooDoo</Text>
+          </View>
+          <View style={styles.bottomCopy}>
+            <Text style={styles.promoTitle} numberOfLines={3}>
+              {slide.title}
+            </Text>
+            {slide.subtitle ? (
+              <Text style={styles.promoSubtitle} numberOfLines={2}>
+                {slide.subtitle}
+              </Text>
+            ) : null}
+            <View style={styles.ctaRow}>
+              <Text style={styles.ctaText}>Sök nu</Text>
+              <Ionicons name="chevron-forward" size={13} color="#ffffff" />
+            </View>
+          </View>
+        </View>
+      </>
+    );
+  } else if (slide.kind === 'map') {
+    content = (
+      <>
+        <SlideImage
+          source={slide.image}
+          width={slideWidth}
+          height={shellHeight}
+          fillWidth={fillWidth}
+          priority={priority}
+        />
+        <LinearGradient
+          colors={['rgba(8,14,32,0.55)', 'rgba(8,14,32,0.18)', 'rgba(8,14,32,0.94)']}
+          locations={[0, 0.38, 1]}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={[styles.eventAccent, { backgroundColor: kindColor }]} />
+        <View style={[styles.copy, { paddingTop: padTop, paddingBottom: COPY_BOTTOM_PAD }]} pointerEvents="none">
+          <View style={styles.topRow}>
+            <View style={styles.eyebrowChipEvent}>
+              <Ionicons name="map-outline" size={12} color="#ffffff" />
+              <Text style={[styles.eyebrowText, { color: '#ffffff', marginLeft: 5 }]}>
+                {slide.eyebrow ?? 'Karta'}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.bottomCopy}>
+            <Text style={styles.eventTitle} numberOfLines={3}>
+              {slide.title}
+            </Text>
+            {slide.subtitle ? (
+              <Text style={styles.subtitle} numberOfLines={2}>
+                {slide.subtitle}
+              </Text>
+            ) : null}
+            <View style={styles.ctaRow}>
+              <Text style={styles.ctaText}>Öppna kartan</Text>
+              <Ionicons name="chevron-forward" size={13} color="#ffffff" />
+            </View>
+          </View>
+        </View>
+      </>
+    );
+  } else {
+    // voice
+    content = (
+      <>
+        <SlideImage
+          source={slide.image}
+          width={slideWidth}
+          height={shellHeight}
+          fillWidth={fillWidth}
+          priority={priority}
+        />
+        <LinearGradient
+          colors={['rgba(20,40,80,0.55)', 'rgba(14,19,37,0.15)', 'rgba(14,19,37,0.94)']}
+          locations={[0, 0.4, 1]}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={[styles.copy, { paddingTop: padTop, paddingBottom: COPY_BOTTOM_PAD }]} pointerEvents="none">
+          <View style={styles.voiceBanner}>
+            <Ionicons name="mic" size={13} color="#ffffff" />
+            <Text style={styles.endingBannerText}>{slide.eyebrow ?? 'Röstsök'}</Text>
+          </View>
+          <View style={styles.bottomCopy}>
+            <Text style={styles.title} numberOfLines={2}>
+              {slide.title}
+            </Text>
+            {slide.subtitle ? (
+              <Text style={styles.subtitle} numberOfLines={2}>
+                {slide.subtitle}
+              </Text>
+            ) : null}
+            <View style={styles.ctaRow}>
+              <Text style={styles.ctaText}>Börja prata</Text>
+              <Ionicons name="chevron-forward" size={13} color="#ffffff" />
+            </View>
+          </View>
+        </View>
+      </>
+    );
+  }
   const frameStyle = [
     styles.slideFrame,
     fillWidth ? StyleSheet.absoluteFillObject : { width: slideWidth, height: shellHeight },
@@ -212,11 +296,13 @@ function LiveSlideFrame({
   );
 }
 
-function WebLiveCarousel({
+/** Web: crossfade stack — no infinite clones, so it never feels like the same card looping. */
+function WebFadeCarousel({
   slides,
   shellHeight,
   topInset,
-  onLogicalIndexChange,
+  activeIndex,
+  onActiveIndexChange,
   onPressSlide,
   onInteractStart,
   onInteractEnd,
@@ -225,7 +311,8 @@ function WebLiveCarousel({
   slides: HeroLiveSlide[];
   shellHeight: number;
   topInset: number;
-  onLogicalIndexChange?: (logicalIndex: number) => void;
+  activeIndex: number;
+  onActiveIndexChange: (index: number) => void;
   onPressSlide?: (slide: HeroLiveSlide) => void;
   onInteractStart?: () => void;
   onInteractEnd?: () => void;
@@ -234,102 +321,26 @@ function WebLiveCarousel({
     goTo: (logicalIndex: number) => void;
   } | null>;
 }) {
-  const trackRef = useRef<HTMLDivElement | null>(null);
   const slideCount = slides.length;
-  const loopSlides = useMemo(() => buildLoopSlides(slides), [slides]);
-  const [trackWidth, setTrackWidth] = useState(0);
-  const slideWidth = Math.max(trackWidth, 1);
-  const activeLogicalRef = useRef(0);
-  const wrappingRef = useRef(false);
-  const scrollEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pointerStartRef = useRef<{ x: number; y: number; scrollLeft: number } | null>(null);
+  const activeRef = useRef(activeIndex);
+  activeRef.current = activeIndex;
+  const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const movedRef = useRef(false);
 
-  const publishLogical = useCallback(
-    (loopIndex: number) => {
-      const logical = loopIndexToLogical(loopIndex, slideCount);
-      if (logical === activeLogicalRef.current) return;
-      activeLogicalRef.current = logical;
-      onLogicalIndexChange?.(logical);
+  const goTo = useCallback(
+    (index: number) => {
+      if (slideCount <= 0) return;
+      const next = ((index % slideCount) + slideCount) % slideCount;
+      onActiveIndexChange(next);
     },
-    [onLogicalIndexChange, slideCount]
+    [onActiveIndexChange, slideCount]
   );
-
-  const scrollToLoopIndex = useCallback(
-    (loopIndex: number, behavior: ScrollBehavior) => {
-      const node = trackRef.current;
-      if (!node || slideWidth <= 1) return;
-      node.scrollTo({ left: loopIndex * slideWidth, behavior });
-      publishLogical(loopIndex);
-    },
-    [publishLogical, slideWidth]
-  );
-
-  const wrapClonesIfNeeded = useCallback(() => {
-    const node = trackRef.current;
-    if (!node || slideCount <= 1 || slideWidth <= 1 || wrappingRef.current) return;
-    const maxIndex = slideCount + 1;
-    const approx = node.scrollLeft / slideWidth;
-    if (approx < 0.5) {
-      wrappingRef.current = true;
-      node.scrollTo({ left: slideCount * slideWidth, behavior: 'auto' });
-      publishLogical(slideCount - 1);
-      requestAnimationFrame(() => {
-        wrappingRef.current = false;
-      });
-      return;
-    }
-    if (approx > maxIndex - 0.5) {
-      wrappingRef.current = true;
-      node.scrollTo({ left: slideWidth, behavior: 'auto' });
-      publishLogical(0);
-      requestAnimationFrame(() => {
-        wrappingRef.current = false;
-      });
-    }
-  }, [publishLogical, slideCount, slideWidth]);
-
-  useEffect(() => {
-    const node = trackRef.current;
-    if (!node) return;
-    const update = () => setTrackWidth(Math.round(node.getBoundingClientRect().width));
-    update();
-    if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(update);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
-    const node = trackRef.current;
-    if (!node || trackWidth <= 0) return;
-    const startIndex = slideCount > 1 ? 1 : 0;
-    wrappingRef.current = true;
-    node.scrollTo({ left: startIndex * trackWidth, behavior: 'auto' });
-    publishLogical(startIndex);
-    requestAnimationFrame(() => {
-      wrappingRef.current = false;
-    });
-  }, [trackWidth, slideCount, publishLogical]);
 
   const step = useCallback(
     (direction: -1 | 1) => {
-      if (slideCount <= 1 || wrappingRef.current) return;
-      const node = trackRef.current;
-      if (!node) return;
-      const current = Math.round(node.scrollLeft / slideWidth);
-      scrollToLoopIndex(current + direction, 'smooth');
+      goTo(activeRef.current + direction);
     },
-    [scrollToLoopIndex, slideCount, slideWidth]
-  );
-
-  const goTo = useCallback(
-    (logicalIndex: number) => {
-      if (slideCount <= 1 || wrappingRef.current) return;
-      const target = Math.max(0, Math.min(slideCount - 1, logicalIndex));
-      scrollToLoopIndex(target + (slideCount > 1 ? 1 : 0), 'smooth');
-    },
-    [scrollToLoopIndex, slideCount]
+    [goTo]
   );
 
   useEffect(() => {
@@ -340,35 +351,10 @@ function WebLiveCarousel({
     };
   }, [controlsRef, goTo, step]);
 
-  useEffect(() => {
-    return () => {
-      if (scrollEndTimerRef.current) clearTimeout(scrollEndTimerRef.current);
-    };
-  }, []);
-
-  const handleScroll = () => {
-    const node = trackRef.current;
-    if (!node || wrappingRef.current || slideWidth <= 1) return;
-    const approx = Math.round(node.scrollLeft / slideWidth);
-    publishLogical(approx);
-    onInteractStart?.();
-    if (scrollEndTimerRef.current) clearTimeout(scrollEndTimerRef.current);
-    scrollEndTimerRef.current = setTimeout(() => {
-      wrapClonesIfNeeded();
-      onInteractEnd?.();
-      scrollEndTimerRef.current = null;
-    }, 140);
-  };
-
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.pointerType === 'mouse' && event.button !== 0) return;
-    const node = trackRef.current;
-    pointerStartRef.current = {
-      x: event.clientX,
-      y: event.clientY,
-      scrollLeft: node?.scrollLeft ?? 0,
-    };
+    pointerStartRef.current = { x: event.clientX, y: event.clientY };
     movedRef.current = false;
+    onInteractStart?.();
   };
 
   const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -382,55 +368,78 @@ function WebLiveCarousel({
     }
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
     const start = pointerStartRef.current;
     pointerStartRef.current = null;
-    if (!start || movedRef.current || slideCount === 0) return;
-    const logical = activeLogicalRef.current;
-    const slide = slides[logical];
-    if (slide) onPressSlide?.(slide);
+    onInteractEnd?.();
+    if (!start || slideCount <= 1) {
+      if (start && !movedRef.current) {
+        const slide = slides[activeRef.current];
+        if (slide) onPressSlide?.(slide);
+      }
+      return;
+    }
+    const dx = event.clientX - start.x;
+    if (Math.abs(dx) >= WEB_SWIPE_THRESHOLD) {
+      step(dx > 0 ? -1 : 1);
+      return;
+    }
+    if (!movedRef.current) {
+      const slide = slides[activeRef.current];
+      if (slide) onPressSlide?.(slide);
+    }
   };
 
   return (
     <div
-      ref={trackRef}
-      className="hero-carousel-web-track hero-carousel-native-scroll"
-      style={{ height: shellHeight }}
-      onScroll={handleScroll}
+      className="hero-fade-carousel"
+      style={{
+        position: 'relative',
+        width: '100%',
+        height: shellHeight,
+        overflow: 'hidden',
+        touchAction: 'pan-y',
+      }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={() => {
         pointerStartRef.current = null;
+        onInteractEnd?.();
       }}
     >
-      {loopSlides.map((slide, idx) => (
-        <div
-          key={`${slide.id}:loop:${idx}`}
-          className="hero-carousel-web-slide"
-          style={{
-            width: trackWidth > 0 ? slideWidth : '100%',
-            flex: trackWidth > 0 ? `0 0 ${slideWidth}px` : '0 0 100%',
-            height: shellHeight,
-          }}
-        >
-          <LiveSlideFrame
-            slide={slide}
-            shellHeight={shellHeight}
-            slideWidth={slideWidth}
-            fillWidth
-            priority="high"
-            topInset={topInset}
-            disablePress
-          />
-        </div>
-      ))}
+      {slides.map((slide, idx) => {
+        const active = idx === activeIndex;
+        return (
+          <div
+            key={slide.id}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              opacity: active ? 1 : 0,
+              transition: 'opacity 520ms ease',
+              pointerEvents: active ? 'auto' : 'none',
+              zIndex: active ? 2 : 1,
+            }}
+          >
+            <LiveSlideFrame
+              slide={slide}
+              shellHeight={shellHeight}
+              slideWidth={0}
+              fillWidth
+              priority={active ? 'high' : 'low'}
+              topInset={topInset}
+              disablePress
+            />
+          </div>
+        );
+      })}
     </div>
   );
 }
 
 /**
- * Logged-in home hero with the same horizontal scroll animation as the image carousel.
+ * Logged-in home hero — editorial variety, not a repeating card strip.
  */
 export function HeroLiveSpotlight({
   slides,
@@ -444,7 +453,7 @@ export function HeroLiveSpotlight({
   );
   const shellHeight = LIVE_HERO_HEIGHT + topInset;
   const scrollRef = useRef<ScrollView>(null);
-  const currentLoopIndexRef = useRef(0);
+  const currentIndexRef = useRef(0);
   const isInteractingRef = useRef(false);
   const interactResumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const webControlsRef = useRef<{
@@ -477,21 +486,22 @@ export function HeroLiveSpotlight({
     };
   }, []);
 
-  const safeSlides = useMemo(() => slides.filter((s) => Boolean(s?.id)), [slides]);
+  const safeSlides = useMemo(() => slides.filter((s) => Boolean(s?.id)).slice(0, 3), [slides]);
   const slideCount = safeSlides.length;
-  const loopSlides = useMemo(() => buildLoopSlides(safeSlides), [safeSlides]);
-  const loopStartIndex = slideCount > 1 ? 1 : 0;
-  const carouselSlides = loopSlides;
   const slideStride = Math.max(layoutWidth, 1);
   const isLayoutReady = useWebTrack || slideStride > 1;
-  const initialScrollIndex = loopStartIndex;
 
   useEffect(() => {
     schedulePrefetchImageUris(
       safeSlides.map((slide) => slide.image),
-      Math.min(slideCount, 6)
+      Math.min(slideCount, 3)
     );
   }, [safeSlides, slideCount]);
+
+  useEffect(() => {
+    setActiveDot(0);
+    currentIndexRef.current = 0;
+  }, [safeSlides.map((s) => s.id).join('|')]);
 
   const scrollToIndex = useCallback(
     (index: number, animated: boolean) => {
@@ -499,37 +509,6 @@ export function HeroLiveSpotlight({
       scrollRef.current?.scrollTo({ x: index * slideStride, animated });
     },
     [isLayoutReady, slideCount, slideStride, useWebTrack]
-  );
-
-  const settleLoopIndex = useCallback(
-    (loopIndex: number) => {
-      if (slideCount <= 1 || useWebTrack) return;
-      if (loopIndex === 0) {
-        currentLoopIndexRef.current = slideCount;
-        scrollToIndex(slideCount, false);
-        setActiveDot(slideCount - 1);
-        return;
-      }
-      if (loopIndex === slideCount + 1) {
-        currentLoopIndexRef.current = 1;
-        scrollToIndex(1, false);
-        setActiveDot(0);
-        return;
-      }
-      setActiveDot(loopIndexToLogical(loopIndex, slideCount));
-    },
-    [scrollToIndex, slideCount, useWebTrack]
-  );
-
-  const handleScrollEnd = useCallback(
-    (offsetX: number) => {
-      if (!isLayoutReady || slideCount === 0 || useWebTrack) return;
-      const nextIndex = Math.round(offsetX / slideStride);
-      currentLoopIndexRef.current = nextIndex;
-      settleLoopIndex(nextIndex);
-      scheduleAutoplayResume();
-    },
-    [isLayoutReady, scheduleAutoplayResume, settleLoopIndex, slideCount, slideStride, useWebTrack]
   );
 
   const stepLogicalIndex = useCallback(
@@ -540,22 +519,13 @@ export function HeroLiveSpotlight({
         return;
       }
       if (!isLayoutReady) return;
-      const base = Math.round(currentLoopIndexRef.current);
-      const nextLoopIndex = base + direction;
-      currentLoopIndexRef.current = nextLoopIndex;
-      scrollToIndex(nextLoopIndex, true);
-      setActiveDot(loopIndexToLogical(nextLoopIndex, slideCount));
-      setTimeout(() => settleLoopIndex(currentLoopIndexRef.current), SCROLL_ANIM_MS);
+      const next = (currentIndexRef.current + direction + slideCount) % slideCount;
+      currentIndexRef.current = next;
+      setActiveDot(next);
+      scrollToIndex(next, true);
     },
-    [isLayoutReady, scrollToIndex, settleLoopIndex, slideCount, useWebTrack]
+    [isLayoutReady, scrollToIndex, slideCount, useWebTrack]
   );
-
-  useEffect(() => {
-    if (!isLayoutReady || slideCount === 0 || useWebTrack) return;
-    currentLoopIndexRef.current = initialScrollIndex;
-    setActiveDot(loopIndexToLogical(initialScrollIndex, slideCount));
-    scrollToIndex(initialScrollIndex, false);
-  }, [initialScrollIndex, isLayoutReady, scrollToIndex, slideCount, useWebTrack]);
 
   useEffect(() => {
     if (slideCount <= 1) return;
@@ -572,13 +542,13 @@ export function HeroLiveSpotlight({
     scheduleAutoplayResume();
     if (useWebTrack) {
       webControlsRef.current?.goTo(logicalIndex);
+      setActiveDot(logicalIndex);
       return;
     }
     if (!isLayoutReady) return;
-    const targetIndex = slideCount > 1 ? logicalIndex + 1 : 0;
-    currentLoopIndexRef.current = targetIndex;
+    currentIndexRef.current = logicalIndex;
     setActiveDot(logicalIndex);
-    scrollToIndex(targetIndex, true);
+    scrollToIndex(logicalIndex, true);
   };
 
   if (slideCount === 0) {
@@ -600,11 +570,12 @@ export function HeroLiveSpotlight({
       }}
     >
       {useWebTrack ? (
-        <WebLiveCarousel
+        <WebFadeCarousel
           slides={safeSlides}
           shellHeight={shellHeight}
           topInset={topInset}
-          onLogicalIndexChange={setActiveDot}
+          activeIndex={activeDot}
+          onActiveIndexChange={setActiveDot}
           onPressSlide={onPressSlide}
           onInteractStart={pauseAutoplay}
           onInteractEnd={scheduleAutoplayResume}
@@ -631,19 +602,33 @@ export function HeroLiveSpotlight({
           onScroll={(event) => {
             const offsetX = event.nativeEvent.contentOffset.x;
             const approx = Math.round(offsetX / Math.max(slideStride, 1));
-            setActiveDot(loopIndexToLogical(approx, slideCount));
+            const clamped = Math.max(0, Math.min(slideCount - 1, approx));
+            currentIndexRef.current = clamped;
+            setActiveDot(clamped);
           }}
-          onScrollEndDrag={(event) => handleScrollEnd(event.nativeEvent.contentOffset.x)}
-          onMomentumScrollEnd={(event) => handleScrollEnd(event.nativeEvent.contentOffset.x)}
+          onScrollEndDrag={(event) => {
+            const approx = Math.round(event.nativeEvent.contentOffset.x / Math.max(slideStride, 1));
+            const clamped = Math.max(0, Math.min(slideCount - 1, approx));
+            currentIndexRef.current = clamped;
+            setActiveDot(clamped);
+            scheduleAutoplayResume();
+          }}
+          onMomentumScrollEnd={(event) => {
+            const approx = Math.round(event.nativeEvent.contentOffset.x / Math.max(slideStride, 1));
+            const clamped = Math.max(0, Math.min(slideCount - 1, approx));
+            currentIndexRef.current = clamped;
+            setActiveDot(clamped);
+            scheduleAutoplayResume();
+          }}
         >
-          {carouselSlides.map((slide, idx) => (
-            <View key={`${slide.id}:${idx}`} style={[styles.slide, { width: slideStride, height: shellHeight }]}>
+          {safeSlides.map((slide, idx) => (
+            <View key={slide.id} style={[styles.slide, { width: slideStride, height: shellHeight }]}>
               <LiveSlideFrame
                 slide={slide}
                 shellHeight={shellHeight}
                 slideWidth={slideStride}
                 fillWidth={false}
-                priority={idx === initialScrollIndex ? 'high' : 'low'}
+                priority={idx === 0 ? 'high' : 'low'}
                 topInset={topInset}
                 onPress={() => onPressSlide?.(slide)}
               />
@@ -709,24 +694,23 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 10,
   },
-  eyebrowChip: {
+  eyebrowChipEvent: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 999,
-    backgroundColor: 'rgba(0,0,0,0.48)',
+    backgroundColor: 'rgba(40, 70, 140, 0.72)',
   },
   eyebrowText: {
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.2,
   },
-  badgeChip: {
+  eventBadgeChip: {
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 999,
-    backgroundColor: 'rgba(0,0,0,0.48)',
-  },
-  eventBadgeChip: {
     backgroundColor: BrandColors.dark.primary,
   },
   badgeText: {
@@ -735,71 +719,208 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   bottomCopy: {
-    gap: 4,
-    paddingRight: 4,
-    maxWidth: '100%',
+    gap: 6,
   },
   title: {
     color: '#ffffff',
     fontSize: 22,
-    fontWeight: '800',
     lineHeight: 26,
+    fontWeight: '800',
     letterSpacing: -0.3,
+    textShadowColor: 'rgba(0,0,0,0.45)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
+  eventTitle: {
+    color: '#ffffff',
+    fontSize: 23,
+    lineHeight: 27,
+    fontWeight: '800',
+    letterSpacing: -0.35,
+    maxWidth: '92%',
   },
   subtitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    maxWidth: '100%',
+    maxWidth: '92%',
   },
   subtitle: {
-    flexShrink: 1,
     color: '#ffffff',
     fontSize: 13,
     fontWeight: '600',
+    flexShrink: 1,
     textShadowColor: 'rgba(0,0,0,0.65)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
+    opacity: 0.95,
   },
   ctaRow: {
     marginTop: 4,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
+    alignSelf: 'flex-start',
   },
   ctaText: {
     color: '#ffffff',
     fontSize: 13,
     fontWeight: '700',
+    textShadowColor: 'rgba(0,0,0,0.55)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
-  dotsOverlay: {
+  eventAccent: {
     position: 'absolute',
-    bottom: 14,
     left: 0,
-    right: 0,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 6,
+    top: 0,
+    bottom: 0,
+    width: 4,
     zIndex: 3,
   },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: 'rgba(255,255,255,0.35)',
+  nearTop: {
+    gap: 2,
   },
-  dotActive: {
-    width: 16,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#ffffff',
+  nearEyebrow: {
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  nearDistance: {
+    color: '#ffffff',
+    fontSize: 34,
+    lineHeight: 38,
+    fontWeight: '800',
+    letterSpacing: -0.8,
+  },
+  endingBanner: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
+    backgroundColor: 'rgba(180, 40, 40, 0.82)',
+  },
+  voiceBanner: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
+    backgroundColor: 'rgba(71, 139, 235, 0.88)',
+  },
+  endingBannerText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  endingBannerBadge: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '700',
+    opacity: 0.9,
+    marginLeft: 4,
+  },
+  splitRoot: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: 'row',
+    backgroundColor: '#12161f',
+  },
+  splitCopy: {
+    width: '48%',
+    paddingHorizontal: 16,
+    justifyContent: 'flex-end',
+    gap: 6,
+  },
+  splitMedia: {
+    width: '52%',
+    height: '100%',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  splitEyebrow: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  splitDiscount: {
+    color: '#ffffff',
+    fontSize: 36,
+    lineHeight: 40,
+    fontWeight: '800',
+    letterSpacing: -1,
+  },
+  splitTitle: {
+    color: '#ffffff',
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  promoBrandPill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(71,139,235,0.92)',
+  },
+  promoBrandText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  promoTitle: {
+    color: '#ffffff',
+    fontSize: 24,
+    lineHeight: 28,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+    maxWidth: '90%',
+  },
+  promoSubtitle: {
+    color: 'rgba(255,255,255,0.86)',
+    fontSize: 14,
+    fontWeight: '500',
+    maxWidth: '88%',
   },
   panelFade: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    height: 36,
-    zIndex: 2,
+    height: 28,
+    zIndex: 3,
+  },
+  dotsOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 10,
+    zIndex: 4,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 7,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.38)',
+  },
+  dotActive: {
+    width: 16,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#ffffff',
   },
 });
