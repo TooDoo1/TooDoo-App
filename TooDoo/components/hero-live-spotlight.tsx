@@ -26,11 +26,11 @@ import { resolveHeroImageUri } from '@/lib/hero-slides';
 import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
 import { BrandColors } from '@/lib/brand-colors';
 
-export const LIVE_HERO_HEIGHT = 210;
+export const LIVE_HERO_HEIGHT = 268;
 const AUTO_MS = 5200;
 const TAP_MOVE_THRESHOLD = 12;
 const INTERACT_RESUME_MS = 2400;
-const COPY_BOTTOM_PAD = 40;
+const COPY_BOTTOM_PAD = 48;
 const DECELERATION = Platform.OS === 'android' ? 0.994 : ('normal' as const);
 const WEB_SWIPE_THRESHOLD = 42;
 
@@ -51,6 +51,8 @@ type HeroLiveSpotlightProps = {
   slides: HeroLiveSlide[];
   panelBackgroundColor: string;
   topInset?: number;
+  /** Visible content height excluding safe-area inset. */
+  contentHeight?: number;
   onPressSlide?: (slide: HeroLiveSlide) => void;
 };
 
@@ -445,13 +447,14 @@ export function HeroLiveSpotlight({
   slides,
   panelBackgroundColor,
   topInset = 0,
+  contentHeight = LIVE_HERO_HEIGHT,
   onPressSlide,
 }: HeroLiveSpotlightProps) {
   const { width: windowWidth } = useWindowDimensions();
   const [layoutWidth, setLayoutWidth] = useState(() =>
     Platform.OS === 'web' ? 0 : Math.max(windowWidth, 1)
   );
-  const shellHeight = LIVE_HERO_HEIGHT + topInset;
+  const shellHeight = contentHeight + topInset;
   const scrollRef = useRef<ScrollView>(null);
   const currentIndexRef = useRef(0);
   const isInteractingRef = useRef(false);

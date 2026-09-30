@@ -24,7 +24,7 @@ import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
 
 export type { HeroSlide };
 
-const HERO_HEIGHT = 210;
+const HERO_HEIGHT = 268;
 const HERO_AUTO_MS = 3000;
 const HERO_SCROLL_ANIM_MS = 520;
 const HERO_DECELERATION = Platform.OS === 'android' ? 0.992 : ('normal' as const);
@@ -195,16 +195,18 @@ function HeroImageCarouselInner({
   slides,
   panelBackgroundColor,
   topInset = 0,
+  contentHeight = HERO_HEIGHT,
 }: {
   slides: HeroSlide[];
   panelBackgroundColor: string;
   topInset?: number;
+  contentHeight?: number;
 }) {
   const { width: windowWidth } = useWindowDimensions();
   const [layoutWidth, setLayoutWidth] = useState(() =>
     Platform.OS === 'web' ? 0 : Math.max(windowWidth, 1)
   );
-  const shellHeight = HERO_HEIGHT + topInset;
+  const shellHeight = contentHeight + topInset;
   const scrollRef = useRef<ScrollView>(null);
   const currentLoopIndexRef = useRef(0);
   const isInteractingRef = useRef(false);
