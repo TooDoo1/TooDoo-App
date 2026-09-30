@@ -26,12 +26,12 @@ import { resolveHeroImageUri } from '@/lib/hero-slides';
 import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
 import { BrandColors } from '@/lib/brand-colors';
 
-export const LIVE_HERO_HEIGHT = 220;
+export const LIVE_HERO_HEIGHT = 232;
 const AUTO_MS = 5200;
 const TAP_MOVE_THRESHOLD = 12;
 const INTERACT_RESUME_MS = 2400;
-/** Keep copy clear of dots + bottom fade. */
-const COPY_BOTTOM_PAD = 44;
+/** Keep copy clear of pagination dots (fade sits behind text). */
+const COPY_BOTTOM_PAD = 52;
 const DECELERATION = Platform.OS === 'android' ? 0.994 : ('normal' as const);
 const WEB_SWIPE_THRESHOLD = 42;
 
@@ -386,6 +386,7 @@ function WebFadeCarousel({
         height: shellHeight,
         overflow: 'hidden',
         touchAction: 'pan-y',
+        zIndex: 2,
       }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -630,7 +631,7 @@ export function HeroLiveSpotlight({
         colors={[`${panelBackgroundColor}00`, panelBackgroundColor]}
         style={styles.panelFade}
       />
-      <View style={styles.dotsOverlay}>
+      <View style={styles.dotsOverlay} pointerEvents="box-none">
         {safeSlides.map((slide, idx) => (
           <Pressable
             key={`dot-${slide.id}`}
@@ -652,10 +653,25 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'stretch',
     overflow: 'hidden',
+    position: 'relative',
   },
   scrollView: {
     width: '100%',
     height: '100%',
+    zIndex: 2,
+  },
+  splitRoot: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: 'row',
+    backgroundColor: '#12161f',
+    zIndex: 2,
+  },
+  splitCopy: {
+    width: '48%',
+    paddingHorizontal: 16,
+    justifyContent: 'flex-end',
+    gap: 6,
+    zIndex: 5,
   },
   scrollContent: {
     flexDirection: 'row',
@@ -674,7 +690,8 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     paddingHorizontal: 18,
     justifyContent: 'space-between',
-    zIndex: 2,
+    // Above the bottom fade so titles/subtitles aren't painted over.
+    zIndex: 5,
   },
   topRow: {
     flexDirection: 'row',
@@ -816,17 +833,6 @@ const styles = StyleSheet.create({
     opacity: 0.9,
     marginLeft: 4,
   },
-  splitRoot: {
-    ...StyleSheet.absoluteFillObject,
-    flexDirection: 'row',
-    backgroundColor: '#12161f',
-  },
-  splitCopy: {
-    width: '48%',
-    paddingHorizontal: 16,
-    justifyContent: 'flex-end',
-    gap: 6,
-  },
   splitMedia: {
     width: '52%',
     height: '100%',
@@ -885,15 +891,16 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: 36,
-    zIndex: 3,
+    height: 48,
+    // Behind slide copy — only softens the photo into the panel.
+    zIndex: 1,
   },
   dotsOverlay: {
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 12,
-    zIndex: 4,
+    bottom: 10,
+    zIndex: 6,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',

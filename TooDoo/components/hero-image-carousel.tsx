@@ -24,7 +24,7 @@ import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
 
 export type { HeroSlide };
 
-const HERO_HEIGHT = 220;
+const HERO_HEIGHT = 232;
 const HERO_AUTO_MS = 3000;
 const HERO_SCROLL_ANIM_MS = 520;
 const HERO_DECELERATION = Platform.OS === 'android' ? 0.992 : ('normal' as const);
