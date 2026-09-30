@@ -2727,7 +2727,7 @@ export default function HomeScreen() {
         kind: 'voice',
         eyebrow: 'Röstsök',
         title: 'Säg vad du är sugen på',
-        subtitle: 'Bara prata — snabbare än att scrolla',
+        subtitle: 'Bara prata',
         accentColor: BrandColors.dark.primary,
         image: voiceImage,
       },

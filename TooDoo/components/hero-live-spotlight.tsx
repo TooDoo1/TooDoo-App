@@ -26,12 +26,13 @@ import { resolveHeroImageUri } from '@/lib/hero-slides';
 import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
 import { BrandColors } from '@/lib/brand-colors';
 
-export const LIVE_HERO_HEIGHT = 232;
+export const LIVE_HERO_HEIGHT = 250;
 const AUTO_MS = 5200;
 const TAP_MOVE_THRESHOLD = 12;
 const INTERACT_RESUME_MS = 2400;
-/** Keep copy clear of pagination dots (fade sits behind text). */
-const COPY_BOTTOM_PAD = 52;
+/** Space above dots — use as absolute `bottom`, not padding (RN Web). */
+const COPY_BOTTOM_PAD = 58;
+const COPY_SIDE_PAD = 18;
 const DECELERATION = Platform.OS === 'android' ? 0.994 : ('normal' as const);
 const WEB_SWIPE_THRESHOLD = 42;
 
@@ -133,13 +134,7 @@ function LiveSlideFrame({
   if (slide.kind === 'try') {
     content = (
       <View style={styles.splitRoot}>
-        <View style={[styles.splitCopy, { paddingTop: padTop, paddingBottom: COPY_BOTTOM_PAD }]}>
-          <Text style={styles.splitEyebrow}>{slide.eyebrow ?? 'Testa något nytt'}</Text>
-          {slide.badge ? <Text style={styles.splitDiscount}>{slide.badge}</Text> : null}
-          <Text style={styles.splitTitle} numberOfLines={2}>
-            {slide.title}
-          </Text>
-        </View>
+        <View style={styles.splitPane} />
         <View style={styles.splitMedia}>
           <SlideImage
             source={slide.image}
@@ -155,6 +150,16 @@ function LiveSlideFrame({
             style={StyleSheet.absoluteFill}
           />
         </View>
+        <View
+          pointerEvents="none"
+          style={[styles.bottomChrome, styles.bottomChromeTry, { bottom: COPY_BOTTOM_PAD }]}
+        >
+          <Text style={styles.splitEyebrow}>{slide.eyebrow ?? 'Testa något nytt'}</Text>
+          {slide.badge ? <Text style={styles.splitDiscount}>{slide.badge}</Text> : null}
+          <Text style={styles.splitTitle} numberOfLines={2}>
+            {slide.title}
+          </Text>
+        </View>
       </View>
     );
   } else if (slide.kind === 'search') {
@@ -168,24 +173,24 @@ function LiveSlideFrame({
           priority={priority}
         />
         <LinearGradient
-          colors={['rgba(14,19,37,0.45)', 'rgba(14,19,37,0.15)', 'rgba(14,19,37,0.9)']}
+          colors={['rgba(14,19,37,0.45)', 'rgba(14,19,37,0.12)', 'rgba(14,19,37,0.88)']}
           locations={[0, 0.42, 1]}
           style={StyleSheet.absoluteFill}
         />
-        <View style={[styles.copy, { paddingTop: padTop, paddingBottom: COPY_BOTTOM_PAD }]} pointerEvents="none">
+        <View pointerEvents="none" style={[styles.topChrome, { top: padTop }]}>
           <View style={styles.promoBrandPill}>
             <Text style={styles.promoBrandText}>TooDoo</Text>
           </View>
-          <View style={styles.bottomCopy}>
-            <Text style={styles.promoTitle} numberOfLines={2}>
-              {slide.title}
+        </View>
+        <View pointerEvents="none" style={[styles.bottomChrome, { bottom: COPY_BOTTOM_PAD }]}>
+          <Text style={styles.promoTitle} numberOfLines={2}>
+            {slide.title}
+          </Text>
+          {slide.subtitle ? (
+            <Text style={styles.promoSubtitle} numberOfLines={1}>
+              {slide.subtitle}
             </Text>
-            {slide.subtitle ? (
-              <Text style={styles.promoSubtitle} numberOfLines={1}>
-                {slide.subtitle}
-              </Text>
-            ) : null}
-          </View>
+          ) : null}
         </View>
       </>
     );
@@ -200,35 +205,33 @@ function LiveSlideFrame({
           priority={priority}
         />
         <LinearGradient
-          colors={['rgba(8,14,32,0.5)', 'rgba(8,14,32,0.15)', 'rgba(8,14,32,0.92)']}
+          colors={['rgba(8,14,32,0.5)', 'rgba(8,14,32,0.12)', 'rgba(8,14,32,0.88)']}
           locations={[0, 0.4, 1]}
           style={StyleSheet.absoluteFill}
         />
         <View style={[styles.eventAccent, { backgroundColor: kindColor }]} />
-        <View style={[styles.copy, { paddingTop: padTop, paddingBottom: COPY_BOTTOM_PAD }]} pointerEvents="none">
-          <View style={styles.topRow}>
-            <View style={styles.eyebrowChipEvent}>
-              <Ionicons name="map-outline" size={12} color="#ffffff" />
-              <Text style={[styles.eyebrowText, { color: '#ffffff', marginLeft: 5 }]}>
-                {slide.eyebrow ?? 'Karta'}
-              </Text>
-            </View>
-          </View>
-          <View style={styles.bottomCopy}>
-            <Text style={styles.eventTitle} numberOfLines={2}>
-              {slide.title}
+        <View pointerEvents="none" style={[styles.topChrome, { top: padTop }]}>
+          <View style={styles.eyebrowChipEvent}>
+            <Ionicons name="map-outline" size={12} color="#ffffff" />
+            <Text style={[styles.eyebrowText, { color: '#ffffff', marginLeft: 5 }]}>
+              {slide.eyebrow ?? 'Karta'}
             </Text>
-            {slide.subtitle ? (
-              <Text style={styles.subtitle} numberOfLines={1}>
-                {slide.subtitle}
-              </Text>
-            ) : null}
           </View>
+        </View>
+        <View pointerEvents="none" style={[styles.bottomChrome, { bottom: COPY_BOTTOM_PAD }]}>
+          <Text style={styles.title} numberOfLines={2}>
+            {slide.title}
+          </Text>
+          {slide.subtitle ? (
+            <Text style={styles.subtitle} numberOfLines={1}>
+              {slide.subtitle}
+            </Text>
+          ) : null}
         </View>
       </>
     );
   } else {
-    // voice — whole slide is tappable; no extra CTA line that gets clipped
+    // voice — whole slide is tappable
     content = (
       <>
         <SlideImage
@@ -239,25 +242,25 @@ function LiveSlideFrame({
           priority={priority}
         />
         <LinearGradient
-          colors={['rgba(20,40,80,0.5)', 'rgba(14,19,37,0.12)', 'rgba(14,19,37,0.92)']}
+          colors={['rgba(20,40,80,0.45)', 'rgba(14,19,37,0.1)', 'rgba(14,19,37,0.88)']}
           locations={[0, 0.4, 1]}
           style={StyleSheet.absoluteFill}
         />
-        <View style={[styles.copy, { paddingTop: padTop, paddingBottom: COPY_BOTTOM_PAD }]} pointerEvents="none">
+        <View pointerEvents="none" style={[styles.topChrome, { top: padTop }]}>
           <View style={styles.voiceBanner}>
             <Ionicons name="mic" size={13} color="#ffffff" />
             <Text style={styles.endingBannerText}>{slide.eyebrow ?? 'Röstsök'}</Text>
           </View>
-          <View style={styles.bottomCopy}>
-            <Text style={styles.title} numberOfLines={2}>
-              {slide.title}
+        </View>
+        <View pointerEvents="none" style={[styles.bottomChrome, { bottom: COPY_BOTTOM_PAD }]}>
+          <Text style={styles.title} numberOfLines={2}>
+            {slide.title}
+          </Text>
+          {slide.subtitle ? (
+            <Text style={styles.subtitle} numberOfLines={1}>
+              {slide.subtitle}
             </Text>
-            {slide.subtitle ? (
-              <Text style={styles.subtitle} numberOfLines={1}>
-                {slide.subtitle}
-              </Text>
-            ) : null}
-          </View>
+          ) : null}
         </View>
       </>
     );
@@ -626,11 +629,7 @@ export function HeroLiveSpotlight({
         </ScrollView>
       ) : null}
 
-      <LinearGradient
-        pointerEvents="none"
-        colors={[`${panelBackgroundColor}00`, panelBackgroundColor]}
-        style={styles.panelFade}
-      />
+      {/* No bottom color-fade — it painted over text and looked like a hard cut into the search panel. */}
       <View style={styles.dotsOverlay} pointerEvents="box-none">
         {safeSlides.map((slide, idx) => (
           <Pressable
@@ -660,19 +659,6 @@ const styles = StyleSheet.create({
     height: '100%',
     zIndex: 2,
   },
-  splitRoot: {
-    ...StyleSheet.absoluteFillObject,
-    flexDirection: 'row',
-    backgroundColor: '#12161f',
-    zIndex: 2,
-  },
-  splitCopy: {
-    width: '48%',
-    paddingHorizontal: 16,
-    justifyContent: 'flex-end',
-    gap: 6,
-    zIndex: 5,
-  },
   scrollContent: {
     flexDirection: 'row',
     alignItems: 'stretch',
@@ -686,20 +672,25 @@ const styles = StyleSheet.create({
   slideFrame: {
     overflow: 'hidden',
   },
-  copy: {
-    ...StyleSheet.absoluteFillObject,
-    paddingHorizontal: 18,
-    justifyContent: 'space-between',
-    // Above the bottom fade so titles/subtitles aren't painted over.
+  topChrome: {
+    position: 'absolute',
+    left: COPY_SIDE_PAD,
+    right: COPY_SIDE_PAD,
     zIndex: 5,
   },
-  topRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
+  bottomChrome: {
+    position: 'absolute',
+    left: COPY_SIDE_PAD,
+    right: COPY_SIDE_PAD,
+    zIndex: 5,
+    gap: 6,
+  },
+  bottomChromeTry: {
+    width: '46%',
+    right: 'auto',
   },
   eyebrowChipEvent: {
+    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
@@ -712,20 +703,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.2,
   },
-  eventBadgeChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    backgroundColor: BrandColors.dark.primary,
-  },
-  badgeText: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  bottomCopy: {
-    gap: 6,
-  },
   title: {
     color: '#ffffff',
     fontSize: 22,
@@ -735,20 +712,6 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.45)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 6,
-  },
-  eventTitle: {
-    color: '#ffffff',
-    fontSize: 22,
-    lineHeight: 26,
-    fontWeight: '800',
-    letterSpacing: -0.35,
-    maxWidth: '92%',
-  },
-  subtitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    maxWidth: '92%',
   },
   subtitle: {
     color: '#ffffff',
@@ -760,21 +723,6 @@ const styles = StyleSheet.create({
     textShadowRadius: 4,
     opacity: 0.95,
   },
-  ctaRow: {
-    marginTop: 4,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    alignSelf: 'flex-start',
-  },
-  ctaText: {
-    color: '#ffffff',
-    fontSize: 13,
-    fontWeight: '700',
-    textShadowColor: 'rgba(0,0,0,0.55)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
   eventAccent: {
     position: 'absolute',
     left: 0,
@@ -782,33 +730,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: 4,
     zIndex: 3,
-  },
-  nearTop: {
-    gap: 2,
-  },
-  nearEyebrow: {
-    color: 'rgba(255,255,255,0.78)',
-    fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
-  },
-  nearDistance: {
-    color: '#ffffff',
-    fontSize: 34,
-    lineHeight: 38,
-    fontWeight: '800',
-    letterSpacing: -0.8,
-  },
-  endingBanner: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 10,
-    backgroundColor: 'rgba(180, 40, 40, 0.82)',
   },
   voiceBanner: {
     alignSelf: 'flex-start',
@@ -826,12 +747,16 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.2,
   },
-  endingBannerBadge: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '700',
-    opacity: 0.9,
-    marginLeft: 4,
+  splitRoot: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: 'row',
+    backgroundColor: '#12161f',
+    zIndex: 2,
+  },
+  splitPane: {
+    width: '48%',
+    height: '100%',
+    backgroundColor: '#12161f',
   },
   splitMedia: {
     width: '52%',
@@ -886,20 +811,11 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     maxWidth: '88%',
   },
-  panelFade: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 48,
-    // Behind slide copy — only softens the photo into the panel.
-    zIndex: 1,
-  },
   dotsOverlay: {
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 10,
+    bottom: 12,
     zIndex: 6,
     flexDirection: 'row',
     justifyContent: 'center',
@@ -919,3 +835,4 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
   },
 });
+
