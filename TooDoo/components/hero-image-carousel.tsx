@@ -24,7 +24,7 @@ import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
 
 export type { HeroSlide };
 
-const HERO_HEIGHT = 250;
+const HERO_HEIGHT = 280;
 const HERO_AUTO_MS = 3000;
 const HERO_SCROLL_ANIM_MS = 520;
 const HERO_DECELERATION = Platform.OS === 'android' ? 0.992 : ('normal' as const);
@@ -47,15 +47,15 @@ function HeroSlideImage({
   width,
   height,
   priority = 'normal',
-  fillWidth = false,
 }: {
   source: ImageSourcePropType;
   width: number;
   height: number;
   priority?: 'high' | 'normal' | 'low';
-  fillWidth?: boolean;
 }) {
   const uri = resolveHeroImageUri(source);
+  const safeW = Math.max(width, 1);
+  const safeH = Math.max(height, 1);
 
   if (Platform.OS === 'web' && uri) {
     return (
@@ -70,8 +70,8 @@ function HeroSlideImage({
           position: 'absolute',
           top: 0,
           left: 0,
-          width: fillWidth ? '100%' : width,
-          height: fillWidth ? '100%' : height,
+          width: safeW,
+          height: safeH,
           objectFit: 'cover',
           display: 'block',
         }}
@@ -82,7 +82,7 @@ function HeroSlideImage({
   return (
     <ExpoImage
       source={source}
-      style={{ width, height }}
+      style={{ width: safeW, height: safeH }}
       contentFit="cover"
       cachePolicy="memory-disk"
       priority={priority}
@@ -95,22 +95,21 @@ function HeroSlideFrame({
   slide,
   shellHeight,
   slideWidth,
-  fillWidth,
   priority,
 }: {
   slide: HeroSlide;
   shellHeight: number;
   slideWidth: number;
-  fillWidth: boolean;
   priority: 'high' | 'normal' | 'low';
 }) {
+  const w = Math.max(slideWidth, 1);
+  const h = Math.max(shellHeight, 1);
   return (
-    <>
+    <View style={{ width: w, height: h, overflow: 'hidden' }}>
       <HeroSlideImage
         source={slide.source}
-        width={slideWidth}
-        height={shellHeight}
-        fillWidth={fillWidth}
+        width={w}
+        height={h}
         priority={priority}
       />
       <LinearGradient
@@ -123,24 +122,27 @@ function HeroSlideFrame({
           {slide.title}
         </Text>
       </View>
-    </>
+    </View>
   );
 }
 
 function WebHeroCarousel({
   slides,
+  shellWidth,
   shellHeight,
   activeDot,
   onStep,
 }: {
   slides: HeroSlide[];
+  shellWidth: number;
   shellHeight: number;
   activeDot: number;
   onStep: (direction: -1 | 1) => void;
 }) {
   const touchStartXRef = useRef<number | null>(null);
   const slideCount = slides.length;
-  const slideShare = slideCount > 0 ? 100 / slideCount : 100;
+  const w = Math.max(shellWidth, 1);
+  const h = Math.max(shellHeight, 1);
 
   const handleTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
     touchStartXRef.current = event.touches[0]?.clientX ?? null;
@@ -160,28 +162,31 @@ function WebHeroCarousel({
   return (
     <div
       className="hero-carousel-web-track"
-      style={{ height: shellHeight }}
+      style={{ width: w, height: h, maxWidth: '100%', overflow: 'hidden', position: 'relative' }}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
       <div
         className="hero-carousel-web-slider"
         style={{
-          width: `${slideCount * 100}%`,
-          transform: `translateX(-${activeDot * slideShare}%)`,
+          display: 'flex',
+          flexDirection: 'row',
+          width: w * Math.max(slideCount, 1),
+          height: h,
+          transform: `translateX(-${activeDot * w}px)`,
+          transition: 'transform 520ms cubic-bezier(0.25, 0.8, 0.25, 1)',
         }}
       >
         {slides.map((slide, idx) => (
           <div
             key={`hero-web-${idx}-${slide.title}`}
             className="hero-carousel-web-slide"
-            style={{ width: `${slideShare}%` }}
+            style={{ width: w, height: h, flexShrink: 0, overflow: 'hidden', position: 'relative' }}
           >
             <HeroSlideFrame
               slide={slide}
-              shellHeight={shellHeight}
-              slideWidth={0}
-              fillWidth
+              shellHeight={h}
+              slideWidth={w}
               priority={idx === activeDot ? 'high' : 'low'}
             />
           </div>
@@ -203,10 +208,14 @@ function HeroImageCarouselInner({
   contentHeight?: number;
 }) {
   const { width: windowWidth } = useWindowDimensions();
-  const [layoutWidth, setLayoutWidth] = useState(() =>
-    Platform.OS === 'web' ? 0 : Math.max(windowWidth, 1)
-  );
+  const [layoutWidth, setLayoutWidth] = useState(() => Math.max(windowWidth, 1));
   const shellHeight = contentHeight + topInset;
+  const shellWidth = Math.max(
+    layoutWidth > 1 ? layoutWidth : 0,
+    windowWidth,
+    typeof window !== 'undefined' ? Math.round(window.innerWidth || 0) : 0,
+    1
+  );
   const scrollRef = useRef<ScrollView>(null);
   const currentLoopIndexRef = useRef(0);
   const isInteractingRef = useRef(false);
@@ -217,13 +226,28 @@ function HeroImageCarouselInner({
   const loopSlides = useMemo(() => buildLoopSlides(slides), [slides]);
   const loopStartIndex = slideCount > 1 ? 1 : 0;
   const carouselSlides = useWebTrack ? slides : loopSlides;
-  const slideStride = Math.max(layoutWidth, 1);
+  const slideStride = Math.max(layoutWidth, shellWidth, 1);
   const isLayoutReady = useWebTrack || slideStride > 1;
   const initialScrollIndex = useWebTrack ? 0 : loopStartIndex;
 
   useEffect(() => {
     schedulePrefetchImageUris(slides.map((slide) => slide.source), slideCount);
   }, [slides, slideCount]);
+
+  useEffect(() => {
+    if (!useWebTrack) return;
+    const sync = () => {
+      const next = Math.max(Math.round(window.innerWidth || windowWidth || 0), 1);
+      setLayoutWidth((current) => (current === next ? current : next));
+    };
+    sync();
+    window.addEventListener('resize', sync);
+    window.addEventListener('orientationchange', sync);
+    return () => {
+      window.removeEventListener('resize', sync);
+      window.removeEventListener('orientationchange', sync);
+    };
+  }, [useWebTrack, windowWidth]);
 
   const scrollToIndex = useCallback(
     (index: number, animated: boolean) => {
@@ -348,9 +372,16 @@ function HeroImageCarouselInner({
   return (
     <View
       nativeID="hero-carousel-shell"
-      style={[styles.shell, { height: shellHeight, backgroundColor: panelBackgroundColor }]}
+      style={[
+        styles.shell,
+        {
+          width: shellWidth,
+          maxWidth: '100%',
+          height: shellHeight,
+          backgroundColor: panelBackgroundColor,
+        },
+      ]}
       onLayout={(event) => {
-        if (useWebTrack) return;
         const measuredWidth = Math.round(event.nativeEvent.layout.width);
         if (measuredWidth > 1) {
           setLayoutWidth((current) => (current === measuredWidth ? current : measuredWidth));
@@ -360,6 +391,7 @@ function HeroImageCarouselInner({
       {useWebTrack ? (
         <WebHeroCarousel
           slides={slides}
+          shellWidth={shellWidth}
           shellHeight={shellHeight}
           activeDot={activeDot}
           onStep={stepLogicalIndex}
@@ -395,18 +427,12 @@ function HeroImageCarouselInner({
                 slide={slide}
                 shellHeight={shellHeight}
                 slideWidth={slideStride}
-                fillWidth={false}
                 priority={idx === initialScrollIndex ? 'high' : 'low'}
               />
             </View>
           ))}
         </ScrollView>
       ) : null}
-      <LinearGradient
-        pointerEvents="none"
-        colors={[`${panelBackgroundColor}00`, panelBackgroundColor]}
-        style={styles.panelFade}
-      />
       <View style={styles.dotsOverlay}>
         {slides.map((_, idx) => (
           <Pressable

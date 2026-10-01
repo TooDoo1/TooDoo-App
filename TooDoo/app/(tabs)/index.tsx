@@ -2680,14 +2680,15 @@ export default function HomeScreen() {
 
   const liveHeroSlides = useMemo((): HeroLiveSlide[] => {
     const web = Platform.OS === 'web';
+    // food.jpg in /public/hero is a building facade — use image-1 for food/try.
     const tryImage = web
-      ? { uri: '/hero/food.jpg' }
+      ? { uri: '/hero/image-1.png' }
       : require('../../assets/images/city-night-2.jpg');
     const mapImage = web
-      ? { uri: '/hero/restaurant.jpg' }
+      ? { uri: '/hero/food.jpg' }
       : require('../../assets/images/city-night.jpg');
     const voiceImage = web
-      ? { uri: '/hero/image-1.png' }
+      ? { uri: '/hero/image.png' }
       : require('../../assets/images/city-night-3.jpg');
 
     // Rotating “try something” nudge from live categories when available.
@@ -3410,7 +3411,14 @@ export default function HomeScreen() {
           ref={scrollRef}
           className="flex-1"
           style={styles.scroll}
-          contentContainerStyle={{ paddingTop: 0, paddingBottom: scrollBottomPadding }}
+          contentContainerStyle={{
+            paddingTop: 0,
+            paddingBottom: scrollBottomPadding,
+            // RN Web: without an explicit width, % children (hero) collapse to 0px.
+            ...(Platform.OS === 'web'
+              ? { width: '100%' as const, minWidth: '100%' as const, alignSelf: 'stretch' as const }
+              : null),
+          }}
           stickyHeaderIndices={Platform.OS === 'web' ? undefined : [1]}
           onScroll={Animated.event(
             [{ nativeEvent: { contentOffset: { y: scrollY } } }],
@@ -3434,7 +3442,17 @@ export default function HomeScreen() {
         >
         <View style={{ backgroundColor: homeHeaderPanelBg }}>
           {Platform.OS === 'web' ? (
-            <View style={[styles.heroBlock, { height: heroBlockHeight }]}>
+            <View
+              style={[
+                styles.heroBlock,
+                {
+                  height: heroBlockHeight,
+                  ...(Platform.OS === 'web'
+                    ? { width: '100%', minWidth: '100%', alignSelf: 'stretch' as const }
+                    : null),
+                },
+              ]}
+            >
               {isLoggedIn && liveHeroSlides.length > 0 ? (
                 <HeroLiveSpotlight
                   slides={liveHeroSlides}
@@ -3684,6 +3702,7 @@ const styles = StyleSheet.create({
   },
   heroBlock: {
     width: '100%',
+    minWidth: '100%',
     alignSelf: 'stretch',
     overflow: 'hidden',
   },

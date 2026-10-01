@@ -15,6 +15,8 @@ body,
 #root {
   margin: 0;
   padding: 0;
+  width: 100%;
+  min-width: 100%;
   background-color: var(--app-bg);
 }
 
@@ -117,22 +119,36 @@ body {
   background: transparent !important;
 }
 
-/* Hero carousel — CSS transform track on web (RN Web ScrollView paging is unreliable). */
+/* Hero carousel — pin to viewport; RN Web ScrollView parents often report 0 width. */
 #hero-carousel-shell {
-  width: 100% !important;
-  max-width: 100% !important;
+  width: 100vw !important;
+  min-width: 100vw !important;
+  max-width: 100vw !important;
   align-self: stretch !important;
   box-sizing: border-box !important;
-  /* clip keeps sticky search working; hidden was covering bottom copy via paint order */
   overflow: clip !important;
   position: relative !important;
+  flex-shrink: 0 !important;
+}
+
+.hero-fade-carousel,
+.hero-carousel-web-track {
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
 }
 
 .hero-fade-carousel {
   position: relative;
   z-index: 2;
-  width: 100%;
   height: 100%;
+  overflow: hidden;
+}
+
+.hero-fade-carousel img,
+.hero-carousel-web-slide img {
+  max-width: none !important;
 }
 
 .hero-carousel-web-track {

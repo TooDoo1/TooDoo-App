@@ -6,7 +6,7 @@ import {
   useState,
   type MutableRefObject,
   type PointerEvent as ReactPointerEvent,
-  type ReactNode,
+  type CSSProperties,
 } from 'react';
 import {
   ImageSourcePropType,
@@ -26,12 +26,12 @@ import { resolveHeroImageUri } from '@/lib/hero-slides';
 import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
 import { BrandColors } from '@/lib/brand-colors';
 
-export const LIVE_HERO_HEIGHT = 250;
+export const LIVE_HERO_HEIGHT = 280;
 const AUTO_MS = 5200;
 const TAP_MOVE_THRESHOLD = 12;
 const INTERACT_RESUME_MS = 2400;
 /** Space above dots — use as absolute `bottom`, not padding (RN Web). */
-const COPY_BOTTOM_PAD = 58;
+const COPY_BOTTOM_PAD = 64;
 const COPY_SIDE_PAD = 18;
 const DECELERATION = Platform.OS === 'android' ? 0.994 : ('normal' as const);
 const WEB_SWIPE_THRESHOLD = 42;
@@ -62,16 +62,16 @@ function SlideImage({
   source,
   width,
   height,
-  fillWidth,
   priority,
 }: {
   source: ImageSourcePropType;
   width: number;
   height: number;
-  fillWidth?: boolean;
   priority: 'high' | 'normal' | 'low';
 }) {
   const uri = resolveHeroImageUri(source);
+  const safeW = Math.max(width, 1);
+  const safeH = Math.max(height, 1);
 
   if (Platform.OS === 'web' && uri) {
     return (
@@ -86,8 +86,8 @@ function SlideImage({
           position: 'absolute',
           top: 0,
           left: 0,
-          width: fillWidth ? '100%' : width,
-          height: fillWidth ? '100%' : height,
+          width: safeW,
+          height: safeH,
           objectFit: 'cover',
           display: 'block',
         }}
@@ -98,7 +98,7 @@ function SlideImage({
   return (
     <ExpoImage
       source={source}
-      style={{ width, height }}
+      style={{ width: safeW, height: safeH }}
       contentFit="cover"
       cachePolicy="memory-disk"
       priority={priority}
@@ -111,7 +111,6 @@ function LiveSlideFrame({
   slide,
   shellHeight,
   slideWidth,
-  fillWidth,
   priority,
   topInset,
   onPress,
@@ -120,7 +119,6 @@ function LiveSlideFrame({
   slide: HeroLiveSlide;
   shellHeight: number;
   slideWidth: number;
-  fillWidth: boolean;
   priority: 'high' | 'normal' | 'low';
   topInset: number;
   onPress?: () => void;
@@ -128,6 +126,8 @@ function LiveSlideFrame({
 }) {
   const kindColor = slide.accentColor ?? BrandColors.dark.primary;
   const padTop = Math.max(topInset + 12, 18);
+  const w = Math.max(slideWidth, 1);
+  const h = Math.max(shellHeight, 1);
 
   const topChip =
     slide.kind === 'try' ? (
@@ -154,13 +154,7 @@ function LiveSlideFrame({
 
   const content = (
     <>
-      <SlideImage
-        source={slide.image}
-        width={slideWidth}
-        height={shellHeight}
-        fillWidth={fillWidth || slideWidth <= 1}
-        priority={priority}
-      />
+      <SlideImage source={slide.image} width={w} height={h} priority={priority} />
       <LinearGradient
         colors={
           slide.kind === 'try'
@@ -194,12 +188,7 @@ function LiveSlideFrame({
     </>
   );
 
-  const frameStyle = [
-    styles.slideFrame,
-    fillWidth || slideWidth <= 1
-      ? StyleSheet.absoluteFillObject
-      : { width: slideWidth, height: shellHeight },
-  ];
+  const frameStyle = [styles.slideFrame, { width: w, height: h }];
 
   if (disablePress) {
     return <View style={frameStyle}>{content}</View>;
@@ -217,9 +206,193 @@ function LiveSlideFrame({
   );
 }
 
-/** Web: crossfade stack — no infinite clones, so it never feels like the same card looping. */
+/** Pure DOM full-bleed slide — avoids RN Web AbsoluteFill / % width collapse. */
+function WebFullBleedSlide({
+  slide,
+  width,
+  height,
+  topInset,
+  priority,
+}: {
+  slide: HeroLiveSlide;
+  width: number;
+  height: number;
+  topInset: number;
+  priority: 'high' | 'normal' | 'low';
+}) {
+  const uri = resolveHeroImageUri(slide.image);
+  const padTop = Math.max(topInset + 12, 18);
+  const w = Math.max(width, 1);
+  const h = Math.max(height, 1);
+  const accent = slide.accentColor ?? BrandColors.dark.primary;
+
+  const gradient =
+    slide.kind === 'try'
+      ? 'linear-gradient(180deg, rgba(14,19,37,0.35) 0%, rgba(14,19,37,0.1) 40%, rgba(14,19,37,0.9) 100%)'
+      : slide.kind === 'map'
+        ? 'linear-gradient(180deg, rgba(8,14,32,0.5) 0%, rgba(8,14,32,0.12) 40%, rgba(8,14,32,0.9) 100%)'
+        : 'linear-gradient(180deg, rgba(20,40,80,0.4) 0%, rgba(14,19,37,0.1) 40%, rgba(14,19,37,0.9) 100%)';
+
+  const rootStyle: CSSProperties = {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: w,
+    height: h,
+    overflow: 'hidden',
+  };
+
+  const imgStyle: CSSProperties = {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: w,
+    height: h,
+    objectFit: 'cover',
+    display: 'block',
+  };
+
+  const overlayStyle: CSSProperties = {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: w,
+    height: h,
+    background: gradient,
+    pointerEvents: 'none',
+  };
+
+  const topStyle: CSSProperties = {
+    position: 'absolute',
+    top: padTop,
+    left: COPY_SIDE_PAD,
+    right: COPY_SIDE_PAD,
+    zIndex: 5,
+    pointerEvents: 'none',
+  };
+
+  const bottomStyle: CSSProperties = {
+    position: 'absolute',
+    bottom: COPY_BOTTOM_PAD,
+    left: COPY_SIDE_PAD,
+    right: COPY_SIDE_PAD,
+    zIndex: 5,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+    pointerEvents: 'none',
+  };
+
+  const chipBase: CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '7px 12px',
+    borderRadius: 10,
+    background: 'rgba(71, 139, 235, 0.88)',
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 800,
+    letterSpacing: 0.2,
+    width: 'fit-content',
+  };
+
+  return (
+    <div style={rootStyle}>
+      {uri ? (
+        <img
+          src={uri}
+          alt=""
+          draggable={false}
+          loading={priority === 'high' ? 'eager' : 'lazy'}
+          fetchPriority={priority === 'high' ? 'high' : 'auto'}
+          decoding="async"
+          style={imgStyle}
+        />
+      ) : null}
+      <div style={overlayStyle} />
+      {slide.kind === 'map' ? (
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 4,
+            background: accent,
+            zIndex: 3,
+          }}
+        />
+      ) : null}
+      <div style={topStyle}>
+        {slide.kind === 'try' ? (
+          <div style={chipBase}>{slide.eyebrow ?? 'Testa något nytt'}</div>
+        ) : slide.kind === 'map' ? (
+          <div
+            style={{
+              ...chipBase,
+              borderRadius: 999,
+              background: 'rgba(40, 70, 140, 0.72)',
+              fontSize: 11,
+              fontWeight: 700,
+            }}
+          >
+            {slide.eyebrow ?? 'Karta'}
+          </div>
+        ) : (
+          <div style={chipBase}>{slide.eyebrow ?? 'Röstsök'}</div>
+        )}
+      </div>
+      <div style={bottomStyle}>
+        {slide.kind === 'try' && slide.badge ? (
+          <div
+            style={{
+              color: '#fff',
+              fontSize: 13,
+              fontWeight: 700,
+              letterSpacing: 0.3,
+              textTransform: 'uppercase',
+              opacity: 0.92,
+              textShadow: '0 1px 4px rgba(0,0,0,0.45)',
+            }}
+          >
+            {slide.badge}
+          </div>
+        ) : null}
+        <div
+          style={{
+            color: '#fff',
+            fontSize: 22,
+            lineHeight: '26px',
+            fontWeight: 800,
+            letterSpacing: -0.3,
+            textShadow: '0 1px 6px rgba(0,0,0,0.45)',
+          }}
+        >
+          {slide.title}
+        </div>
+        {slide.subtitle ? (
+          <div
+            style={{
+              color: '#fff',
+              fontSize: 13,
+              fontWeight: 600,
+              opacity: 0.95,
+              textShadow: '0 1px 4px rgba(0,0,0,0.65)',
+            }}
+          >
+            {slide.subtitle}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** Web: crossfade stack — pixel-sized shell so % parents cannot collapse to 0. */
 function WebFadeCarousel({
   slides,
+  shellWidth,
   shellHeight,
   topInset,
   activeIndex,
@@ -230,6 +403,7 @@ function WebFadeCarousel({
   controlsRef,
 }: {
   slides: HeroLiveSlide[];
+  shellWidth: number;
   shellHeight: number;
   topInset: number;
   activeIndex: number;
@@ -247,6 +421,8 @@ function WebFadeCarousel({
   activeRef.current = activeIndex;
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const movedRef = useRef(false);
+  const w = Math.max(shellWidth, 1);
+  const h = Math.max(shellHeight, 1);
 
   const goTo = useCallback(
     (index: number) => {
@@ -316,8 +492,9 @@ function WebFadeCarousel({
       className="hero-fade-carousel"
       style={{
         position: 'relative',
-        width: '100%',
-        height: shellHeight,
+        width: w,
+        height: h,
+        maxWidth: '100%',
         overflow: 'hidden',
         touchAction: 'pan-y',
         zIndex: 2,
@@ -337,21 +514,22 @@ function WebFadeCarousel({
             key={slide.id}
             style={{
               position: 'absolute',
-              inset: 0,
+              top: 0,
+              left: 0,
+              width: w,
+              height: h,
               opacity: active ? 1 : 0,
               transition: 'opacity 520ms ease',
               pointerEvents: active ? 'auto' : 'none',
               zIndex: active ? 2 : 1,
             }}
           >
-            <LiveSlideFrame
+            <WebFullBleedSlide
               slide={slide}
-              shellHeight={shellHeight}
-              slideWidth={0}
-              fillWidth
-              priority={active ? 'high' : 'low'}
+              width={w}
+              height={h}
               topInset={topInset}
-              disablePress
+              priority={active ? 'high' : 'low'}
             />
           </div>
         );
@@ -371,10 +549,15 @@ export function HeroLiveSpotlight({
   onPressSlide,
 }: HeroLiveSpotlightProps) {
   const { width: windowWidth } = useWindowDimensions();
-  const [layoutWidth, setLayoutWidth] = useState(() =>
-    Platform.OS === 'web' ? 0 : Math.max(windowWidth, 1)
-  );
+  const [layoutWidth, setLayoutWidth] = useState(() => Math.max(windowWidth, 1));
   const shellHeight = contentHeight + topInset;
+  /** Never trust % of a collapsed RN Web ScrollView parent — pin to viewport px. */
+  const shellWidth = Math.max(
+    layoutWidth > 1 ? layoutWidth : 0,
+    windowWidth,
+    typeof window !== 'undefined' ? Math.round(window.innerWidth || 0) : 0,
+    1
+  );
   const scrollRef = useRef<ScrollView>(null);
   const currentIndexRef = useRef(0);
   const isInteractingRef = useRef(false);
@@ -409,9 +592,24 @@ export function HeroLiveSpotlight({
     };
   }, []);
 
+  useEffect(() => {
+    if (!useWebTrack) return;
+    const sync = () => {
+      const next = Math.max(Math.round(window.innerWidth || windowWidth || 0), 1);
+      setLayoutWidth((current) => (current === next ? current : next));
+    };
+    sync();
+    window.addEventListener('resize', sync);
+    window.addEventListener('orientationchange', sync);
+    return () => {
+      window.removeEventListener('resize', sync);
+      window.removeEventListener('orientationchange', sync);
+    };
+  }, [useWebTrack, windowWidth]);
+
   const safeSlides = useMemo(() => slides.filter((s) => Boolean(s?.id)).slice(0, 3), [slides]);
   const slideCount = safeSlides.length;
-  const slideStride = Math.max(layoutWidth, 1);
+  const slideStride = Math.max(layoutWidth, shellWidth, 1);
   const isLayoutReady = useWebTrack || slideStride > 1;
 
   useEffect(() => {
@@ -476,16 +674,28 @@ export function HeroLiveSpotlight({
 
   if (slideCount === 0) {
     return (
-      <View style={[styles.shell, { height: shellHeight, backgroundColor: panelBackgroundColor }]} />
+      <View
+        style={[
+          styles.shell,
+          { width: shellWidth, height: shellHeight, backgroundColor: panelBackgroundColor },
+        ]}
+      />
     );
   }
 
   return (
     <View
       nativeID="hero-carousel-shell"
-      style={[styles.shell, { height: shellHeight, backgroundColor: panelBackgroundColor }]}
+      style={[
+        styles.shell,
+        {
+          width: shellWidth,
+          maxWidth: '100%',
+          height: shellHeight,
+          backgroundColor: panelBackgroundColor,
+        },
+      ]}
       onLayout={(event) => {
-        if (useWebTrack) return;
         const measuredWidth = Math.round(event.nativeEvent.layout.width);
         if (measuredWidth > 1) {
           setLayoutWidth((current) => (current === measuredWidth ? current : measuredWidth));
@@ -495,6 +705,7 @@ export function HeroLiveSpotlight({
       {useWebTrack ? (
         <WebFadeCarousel
           slides={safeSlides}
+          shellWidth={shellWidth}
           shellHeight={shellHeight}
           topInset={topInset}
           activeIndex={activeDot}
@@ -550,7 +761,6 @@ export function HeroLiveSpotlight({
                 slide={slide}
                 shellHeight={shellHeight}
                 slideWidth={slideStride}
-                fillWidth={false}
                 priority={idx === 0 ? 'high' : 'low'}
                 topInset={topInset}
                 onPress={() => onPressSlide?.(slide)}
@@ -560,7 +770,6 @@ export function HeroLiveSpotlight({
         </ScrollView>
       ) : null}
 
-      {/* No bottom color-fade — it painted over text and looked like a hard cut into the search panel. */}
       <View style={styles.dotsOverlay} pointerEvents="box-none">
         {safeSlides.map((slide, idx) => (
           <Pressable
@@ -602,6 +811,7 @@ const styles = StyleSheet.create({
   },
   slideFrame: {
     overflow: 'hidden',
+    position: 'relative',
   },
   topChrome: {
     position: 'absolute',
@@ -692,43 +902,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.2,
   },
-  splitRoot: {
-    ...StyleSheet.absoluteFillObject,
-    flexDirection: 'row',
-    backgroundColor: '#12161f',
-    zIndex: 2,
-  },
-  splitPane: {
-    width: '48%',
-    height: '100%',
-    backgroundColor: '#12161f',
-  },
-  splitMedia: {
-    width: '52%',
-    height: '100%',
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  splitEyebrow: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-  },
-  splitDiscount: {
-    color: '#ffffff',
-    fontSize: 28,
-    lineHeight: 32,
-    fontWeight: '800',
-    letterSpacing: -0.8,
-  },
-  splitTitle: {
-    color: '#ffffff',
-    fontSize: 15,
-    lineHeight: 19,
-    fontWeight: '700',
-  },
   promoBrandPill: {
     alignSelf: 'flex-start',
     paddingHorizontal: 12,
@@ -741,20 +914,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     letterSpacing: 0.4,
-  },
-  promoTitle: {
-    color: '#ffffff',
-    fontSize: 22,
-    lineHeight: 26,
-    fontWeight: '800',
-    letterSpacing: -0.4,
-    maxWidth: '90%',
-  },
-  promoSubtitle: {
-    color: 'rgba(255,255,255,0.86)',
-    fontSize: 14,
-    fontWeight: '500',
-    maxWidth: '88%',
   },
   dotsOverlay: {
     position: 'absolute',
@@ -780,4 +939,3 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
   },
 });
-
