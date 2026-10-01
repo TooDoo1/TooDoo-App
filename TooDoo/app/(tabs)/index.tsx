@@ -2684,11 +2684,12 @@ export default function HomeScreen() {
     const tryImage = web
       ? { uri: '/hero/image-1.png' }
       : require('../../assets/images/city-night-2.jpg');
+    // food.jpg is only 250×185 — upscales soft/tall on mobile. Prefer sharper city shot.
     const mapImage = web
-      ? { uri: '/hero/food.jpg' }
+      ? { uri: '/hero/image.png' }
       : require('../../assets/images/city-night.jpg');
     const voiceImage = web
-      ? { uri: '/hero/image.png' }
+      ? { uri: '/hero/toodoo.jpg' }
       : require('../../assets/images/city-night-3.jpg');
 
     // Rotating “try something” nudge from live categories when available.
@@ -3444,7 +3445,7 @@ export default function HomeScreen() {
               nativeID="home-hero-block"
               style={[
                 styles.heroBlock,
-                Platform.OS === 'web' ? { width: '100%', minHeight: 320 } : { height: heroBlockHeight },
+                Platform.OS === 'web' ? { width: '100%' } : { height: heroBlockHeight },
               ]}
             >
               {isLoggedIn && liveHeroSlides.length > 0 ? (

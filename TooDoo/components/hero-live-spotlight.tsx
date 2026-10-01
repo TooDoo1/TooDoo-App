@@ -26,7 +26,7 @@ import { resolveHeroImageUri } from '@/lib/hero-slides';
 import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
 import { BrandColors } from '@/lib/brand-colors';
 
-export const LIVE_HERO_HEIGHT = 340;
+export const LIVE_HERO_HEIGHT = 220;
 const AUTO_MS = 5200;
 const TAP_MOVE_THRESHOLD = 12;
 const INTERACT_RESUME_MS = 2400;
@@ -539,7 +539,7 @@ export function HeroLiveSpotlight({
   const [layoutWidth, setLayoutWidth] = useState(() => Math.max(windowWidth, 1));
   const [webHeroHeight, setWebHeroHeight] = useState(() =>
     Platform.OS === 'web'
-      ? Math.round(Math.min(440, Math.max(320, windowHeight * 0.42)))
+      ? Math.round(Math.min(260, Math.max(200, windowHeight * 0.26)))
       : contentHeight
   );
   const useWebTrack = Platform.OS === 'web';
@@ -583,7 +583,7 @@ export function HeroLiveSpotlight({
       const vv = window.visualViewport;
       const nextW = Math.max(Math.round(vv?.width || window.innerWidth || windowWidth || 0), 1);
       const nextH = Math.round(
-        Math.min(440, Math.max(320, (vv?.height || window.innerHeight || windowHeight) * 0.42))
+        Math.min(260, Math.max(200, (vv?.height || window.innerHeight || windowHeight) * 0.26))
       );
       setLayoutWidth((current) => (current === nextW ? current : nextW));
       setWebHeroHeight((current) => (current === nextH ? current : nextH));
