@@ -3409,15 +3409,13 @@ export default function HomeScreen() {
       >
         <ScrollView
           ref={scrollRef}
+          nativeID="home-scroll"
           className="flex-1"
           style={styles.scroll}
           contentContainerStyle={{
             paddingTop: 0,
             paddingBottom: scrollBottomPadding,
-            // RN Web: without an explicit width, % children (hero) collapse to 0px.
-            ...(Platform.OS === 'web'
-              ? { width: '100%' as const, minWidth: '100%' as const, alignSelf: 'stretch' as const }
-              : null),
+            ...(Platform.OS === 'web' ? { width: '100%' as const, alignSelf: 'stretch' as const } : null),
           }}
           stickyHeaderIndices={Platform.OS === 'web' ? undefined : [1]}
           onScroll={Animated.event(
@@ -3443,14 +3441,10 @@ export default function HomeScreen() {
         <View style={{ backgroundColor: homeHeaderPanelBg }}>
           {Platform.OS === 'web' ? (
             <View
+              nativeID="home-hero-block"
               style={[
                 styles.heroBlock,
-                {
-                  height: heroBlockHeight,
-                  ...(Platform.OS === 'web'
-                    ? { width: '100%', minWidth: '100%', alignSelf: 'stretch' as const }
-                    : null),
-                },
+                Platform.OS === 'web' ? { width: '100%', minHeight: 320 } : { height: heroBlockHeight },
               ]}
             >
               {isLoggedIn && liveHeroSlides.length > 0 ? (
@@ -3702,7 +3696,6 @@ const styles = StyleSheet.create({
   },
   heroBlock: {
     width: '100%',
-    minWidth: '100%',
     alignSelf: 'stretch',
     overflow: 'hidden',
   },

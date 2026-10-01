@@ -24,7 +24,7 @@ import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
 
 export type { HeroSlide };
 
-const HERO_HEIGHT = 280;
+const HERO_HEIGHT = 340;
 const HERO_AUTO_MS = 3000;
 const HERO_SCROLL_ANIM_MS = 520;
 const HERO_DECELERATION = Platform.OS === 'android' ? 0.992 : ('normal' as const);
@@ -70,9 +70,10 @@ function HeroSlideImage({
           position: 'absolute',
           top: 0,
           left: 0,
-          width: safeW,
-          height: safeH,
+          width: '100%',
+          height: '100%',
           objectFit: 'cover',
+          objectPosition: 'center center',
           display: 'block',
         }}
       />
@@ -105,7 +106,7 @@ function HeroSlideFrame({
   const w = Math.max(slideWidth, 1);
   const h = Math.max(shellHeight, 1);
   return (
-    <View style={{ width: w, height: h, overflow: 'hidden' }}>
+    <View style={Platform.OS === 'web' ? styles.webSlideFrame : { width: w, height: h, overflow: 'hidden' }}>
       <HeroSlideImage
         source={slide.source}
         width={w}
@@ -128,21 +129,18 @@ function HeroSlideFrame({
 
 function WebHeroCarousel({
   slides,
-  shellWidth,
-  shellHeight,
   activeDot,
   onStep,
 }: {
   slides: HeroSlide[];
-  shellWidth: number;
-  shellHeight: number;
+  shellWidth?: number;
+  shellHeight?: number;
   activeDot: number;
   onStep: (direction: -1 | 1) => void;
 }) {
   const touchStartXRef = useRef<number | null>(null);
   const slideCount = slides.length;
-  const w = Math.max(shellWidth, 1);
-  const h = Math.max(shellHeight, 1);
+  const slideShare = slideCount > 0 ? 100 / slideCount : 100;
 
   const handleTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
     touchStartXRef.current = event.touches[0]?.clientX ?? null;
@@ -162,7 +160,7 @@ function WebHeroCarousel({
   return (
     <div
       className="hero-carousel-web-track"
-      style={{ width: w, height: h, maxWidth: '100%', overflow: 'hidden', position: 'relative' }}
+      style={{ width: '100%', height: '100%', overflow: 'hidden', position: 'relative' }}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
@@ -171,9 +169,9 @@ function WebHeroCarousel({
         style={{
           display: 'flex',
           flexDirection: 'row',
-          width: w * Math.max(slideCount, 1),
-          height: h,
-          transform: `translateX(-${activeDot * w}px)`,
+          width: `${slideCount * 100}%`,
+          height: '100%',
+          transform: `translateX(-${activeDot * slideShare}%)`,
           transition: 'transform 520ms cubic-bezier(0.25, 0.8, 0.25, 1)',
         }}
       >
@@ -181,12 +179,18 @@ function WebHeroCarousel({
           <div
             key={`hero-web-${idx}-${slide.title}`}
             className="hero-carousel-web-slide"
-            style={{ width: w, height: h, flexShrink: 0, overflow: 'hidden', position: 'relative' }}
+            style={{
+              width: `${slideShare}%`,
+              height: '100%',
+              flexShrink: 0,
+              overflow: 'hidden',
+              position: 'relative',
+            }}
           >
             <HeroSlideFrame
               slide={slide}
-              shellHeight={h}
-              slideWidth={w}
+              shellHeight={1}
+              slideWidth={1}
               priority={idx === activeDot ? 'high' : 'low'}
             />
           </div>
@@ -210,12 +214,6 @@ function HeroImageCarouselInner({
   const { width: windowWidth } = useWindowDimensions();
   const [layoutWidth, setLayoutWidth] = useState(() => Math.max(windowWidth, 1));
   const shellHeight = contentHeight + topInset;
-  const shellWidth = Math.max(
-    layoutWidth > 1 ? layoutWidth : 0,
-    windowWidth,
-    typeof window !== 'undefined' ? Math.round(window.innerWidth || 0) : 0,
-    1
-  );
   const scrollRef = useRef<ScrollView>(null);
   const currentLoopIndexRef = useRef(0);
   const isInteractingRef = useRef(false);
@@ -226,7 +224,7 @@ function HeroImageCarouselInner({
   const loopSlides = useMemo(() => buildLoopSlides(slides), [slides]);
   const loopStartIndex = slideCount > 1 ? 1 : 0;
   const carouselSlides = useWebTrack ? slides : loopSlides;
-  const slideStride = Math.max(layoutWidth, shellWidth, 1);
+  const slideStride = Math.max(layoutWidth, 1);
   const isLayoutReady = useWebTrack || slideStride > 1;
   const initialScrollIndex = useWebTrack ? 0 : loopStartIndex;
 
@@ -375,7 +373,7 @@ function HeroImageCarouselInner({
       style={[
         styles.shell,
         {
-          width: shellWidth,
+          width: '100%',
           maxWidth: '100%',
           height: shellHeight,
           backgroundColor: panelBackgroundColor,
@@ -391,8 +389,6 @@ function HeroImageCarouselInner({
       {useWebTrack ? (
         <WebHeroCarousel
           slides={slides}
-          shellWidth={shellWidth}
-          shellHeight={shellHeight}
           activeDot={activeDot}
           onStep={stepLogicalIndex}
         />
@@ -472,6 +468,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     flexShrink: 0,
     flexGrow: 0,
+  },
+  webSlideFrame: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: 'hidden',
   },
   titleWrap: {
     position: 'absolute',

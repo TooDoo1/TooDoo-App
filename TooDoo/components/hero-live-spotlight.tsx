@@ -26,7 +26,7 @@ import { resolveHeroImageUri } from '@/lib/hero-slides';
 import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
 import { BrandColors } from '@/lib/brand-colors';
 
-export const LIVE_HERO_HEIGHT = 280;
+export const LIVE_HERO_HEIGHT = 340;
 const AUTO_MS = 5200;
 const TAP_MOVE_THRESHOLD = 12;
 const INTERACT_RESUME_MS = 2400;
@@ -86,9 +86,10 @@ function SlideImage({
           position: 'absolute',
           top: 0,
           left: 0,
-          width: safeW,
-          height: safeH,
+          width: '100%',
+          height: '100%',
           objectFit: 'cover',
+          objectPosition: 'center center',
           display: 'block',
         }}
       />
@@ -209,21 +210,17 @@ function LiveSlideFrame({
 /** Pure DOM full-bleed slide — avoids RN Web AbsoluteFill / % width collapse. */
 function WebFullBleedSlide({
   slide,
-  width,
-  height,
   topInset,
   priority,
 }: {
   slide: HeroLiveSlide;
-  width: number;
-  height: number;
+  width?: number;
+  height?: number;
   topInset: number;
   priority: 'high' | 'normal' | 'low';
 }) {
   const uri = resolveHeroImageUri(slide.image);
   const padTop = Math.max(topInset + 12, 18);
-  const w = Math.max(width, 1);
-  const h = Math.max(height, 1);
   const accent = slide.accentColor ?? BrandColors.dark.primary;
 
   const gradient =
@@ -235,29 +232,27 @@ function WebFullBleedSlide({
 
   const rootStyle: CSSProperties = {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    width: w,
-    height: h,
+    inset: 0,
+    width: '100%',
+    height: '100%',
     overflow: 'hidden',
   };
 
   const imgStyle: CSSProperties = {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    width: w,
-    height: h,
+    inset: 0,
+    width: '100%',
+    height: '100%',
     objectFit: 'cover',
+    objectPosition: 'center center',
     display: 'block',
   };
 
   const overlayStyle: CSSProperties = {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    width: w,
-    height: h,
+    inset: 0,
+    width: '100%',
+    height: '100%',
     background: gradient,
     pointerEvents: 'none',
   };
@@ -392,8 +387,6 @@ function WebFullBleedSlide({
 /** Web: crossfade stack — pixel-sized shell so % parents cannot collapse to 0. */
 function WebFadeCarousel({
   slides,
-  shellWidth,
-  shellHeight,
   topInset,
   activeIndex,
   onActiveIndexChange,
@@ -403,8 +396,8 @@ function WebFadeCarousel({
   controlsRef,
 }: {
   slides: HeroLiveSlide[];
-  shellWidth: number;
-  shellHeight: number;
+  shellWidth?: number;
+  shellHeight?: number;
   topInset: number;
   activeIndex: number;
   onActiveIndexChange: (index: number) => void;
@@ -421,8 +414,6 @@ function WebFadeCarousel({
   activeRef.current = activeIndex;
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const movedRef = useRef(false);
-  const w = Math.max(shellWidth, 1);
-  const h = Math.max(shellHeight, 1);
 
   const goTo = useCallback(
     (index: number) => {
@@ -492,9 +483,8 @@ function WebFadeCarousel({
       className="hero-fade-carousel"
       style={{
         position: 'relative',
-        width: w,
-        height: h,
-        maxWidth: '100%',
+        width: '100%',
+        height: '100%',
         overflow: 'hidden',
         touchAction: 'pan-y',
         zIndex: 2,
@@ -514,10 +504,9 @@ function WebFadeCarousel({
             key={slide.id}
             style={{
               position: 'absolute',
-              top: 0,
-              left: 0,
-              width: w,
-              height: h,
+              inset: 0,
+              width: '100%',
+              height: '100%',
               opacity: active ? 1 : 0,
               transition: 'opacity 520ms ease',
               pointerEvents: active ? 'auto' : 'none',
@@ -526,8 +515,6 @@ function WebFadeCarousel({
           >
             <WebFullBleedSlide
               slide={slide}
-              width={w}
-              height={h}
               topInset={topInset}
               priority={active ? 'high' : 'low'}
             />
@@ -548,16 +535,15 @@ export function HeroLiveSpotlight({
   contentHeight = LIVE_HERO_HEIGHT,
   onPressSlide,
 }: HeroLiveSpotlightProps) {
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [layoutWidth, setLayoutWidth] = useState(() => Math.max(windowWidth, 1));
-  const shellHeight = contentHeight + topInset;
-  /** Never trust % of a collapsed RN Web ScrollView parent — pin to viewport px. */
-  const shellWidth = Math.max(
-    layoutWidth > 1 ? layoutWidth : 0,
-    windowWidth,
-    typeof window !== 'undefined' ? Math.round(window.innerWidth || 0) : 0,
-    1
+  const [webHeroHeight, setWebHeroHeight] = useState(() =>
+    Platform.OS === 'web'
+      ? Math.round(Math.min(440, Math.max(320, windowHeight * 0.42)))
+      : contentHeight
   );
+  const useWebTrack = Platform.OS === 'web';
+  const shellHeight = useWebTrack ? webHeroHeight + topInset : contentHeight + topInset;
   const scrollRef = useRef<ScrollView>(null);
   const currentIndexRef = useRef(0);
   const isInteractingRef = useRef(false);
@@ -567,7 +553,6 @@ export function HeroLiveSpotlight({
     goTo: (logicalIndex: number) => void;
   } | null>(null);
   const [activeDot, setActiveDot] = useState(0);
-  const useWebTrack = Platform.OS === 'web';
 
   const pauseAutoplay = useCallback(() => {
     isInteractingRef.current = true;
@@ -595,21 +580,28 @@ export function HeroLiveSpotlight({
   useEffect(() => {
     if (!useWebTrack) return;
     const sync = () => {
-      const next = Math.max(Math.round(window.innerWidth || windowWidth || 0), 1);
-      setLayoutWidth((current) => (current === next ? current : next));
+      const vv = window.visualViewport;
+      const nextW = Math.max(Math.round(vv?.width || window.innerWidth || windowWidth || 0), 1);
+      const nextH = Math.round(
+        Math.min(440, Math.max(320, (vv?.height || window.innerHeight || windowHeight) * 0.42))
+      );
+      setLayoutWidth((current) => (current === nextW ? current : nextW));
+      setWebHeroHeight((current) => (current === nextH ? current : nextH));
     };
     sync();
     window.addEventListener('resize', sync);
     window.addEventListener('orientationchange', sync);
+    window.visualViewport?.addEventListener('resize', sync);
     return () => {
       window.removeEventListener('resize', sync);
       window.removeEventListener('orientationchange', sync);
+      window.visualViewport?.removeEventListener('resize', sync);
     };
-  }, [useWebTrack, windowWidth]);
+  }, [useWebTrack, windowWidth, windowHeight]);
 
   const safeSlides = useMemo(() => slides.filter((s) => Boolean(s?.id)).slice(0, 3), [slides]);
   const slideCount = safeSlides.length;
-  const slideStride = Math.max(layoutWidth, shellWidth, 1);
+  const slideStride = Math.max(layoutWidth, 1);
   const isLayoutReady = useWebTrack || slideStride > 1;
 
   useEffect(() => {
@@ -677,7 +669,7 @@ export function HeroLiveSpotlight({
       <View
         style={[
           styles.shell,
-          { width: shellWidth, height: shellHeight, backgroundColor: panelBackgroundColor },
+          { width: '100%', height: shellHeight, backgroundColor: panelBackgroundColor },
         ]}
       />
     );
@@ -689,7 +681,7 @@ export function HeroLiveSpotlight({
       style={[
         styles.shell,
         {
-          width: shellWidth,
+          width: '100%',
           maxWidth: '100%',
           height: shellHeight,
           backgroundColor: panelBackgroundColor,
@@ -705,8 +697,6 @@ export function HeroLiveSpotlight({
       {useWebTrack ? (
         <WebFadeCarousel
           slides={safeSlides}
-          shellWidth={shellWidth}
-          shellHeight={shellHeight}
           topInset={topInset}
           activeIndex={activeDot}
           onActiveIndexChange={setActiveDot}
