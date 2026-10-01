@@ -127,147 +127,78 @@ function LiveSlideFrame({
   disablePress?: boolean;
 }) {
   const kindColor = slide.accentColor ?? BrandColors.dark.primary;
-  const padTop = Math.max(topInset + 10, 16);
+  const padTop = Math.max(topInset + 12, 18);
 
-  let content: ReactNode;
-
-  if (slide.kind === 'try') {
-    content = (
-      <View style={styles.splitRoot}>
-        <View style={styles.splitPane} />
-        <View style={styles.splitMedia}>
-          <SlideImage
-            source={slide.image}
-            width={slideWidth * 0.52}
-            height={shellHeight}
-            fillWidth
-            priority={priority}
-          />
-          <LinearGradient
-            colors={['rgba(10,12,20,0.15)', 'rgba(10,12,20,0.55)']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
-        </View>
-        <View
-          pointerEvents="none"
-          style={[styles.bottomChrome, styles.bottomChromeTry, { bottom: COPY_BOTTOM_PAD }]}
-        >
-          <Text style={styles.splitEyebrow}>{slide.eyebrow ?? 'Testa något nytt'}</Text>
-          {slide.badge ? <Text style={styles.splitDiscount}>{slide.badge}</Text> : null}
-          <Text style={styles.splitTitle} numberOfLines={2}>
-            {slide.title}
-          </Text>
-        </View>
+  const topChip =
+    slide.kind === 'try' ? (
+      <View style={styles.tryBanner}>
+        <Text style={styles.endingBannerText}>{slide.eyebrow ?? 'Testa något nytt'}</Text>
+      </View>
+    ) : slide.kind === 'map' ? (
+      <View style={styles.eyebrowChipEvent}>
+        <Ionicons name="map-outline" size={12} color="#ffffff" />
+        <Text style={[styles.eyebrowText, { color: '#ffffff', marginLeft: 5 }]}>
+          {slide.eyebrow ?? 'Karta'}
+        </Text>
+      </View>
+    ) : slide.kind === 'search' ? (
+      <View style={styles.promoBrandPill}>
+        <Text style={styles.promoBrandText}>TooDoo</Text>
+      </View>
+    ) : (
+      <View style={styles.voiceBanner}>
+        <Ionicons name="mic" size={13} color="#ffffff" />
+        <Text style={styles.endingBannerText}>{slide.eyebrow ?? 'Röstsök'}</Text>
       </View>
     );
-  } else if (slide.kind === 'search') {
-    content = (
-      <>
-        <SlideImage
-          source={slide.image}
-          width={slideWidth}
-          height={shellHeight}
-          fillWidth={fillWidth}
-          priority={priority}
-        />
-        <LinearGradient
-          colors={['rgba(14,19,37,0.45)', 'rgba(14,19,37,0.12)', 'rgba(14,19,37,0.88)']}
-          locations={[0, 0.42, 1]}
-          style={StyleSheet.absoluteFill}
-        />
-        <View pointerEvents="none" style={[styles.topChrome, { top: padTop }]}>
-          <View style={styles.promoBrandPill}>
-            <Text style={styles.promoBrandText}>TooDoo</Text>
-          </View>
-        </View>
-        <View pointerEvents="none" style={[styles.bottomChrome, { bottom: COPY_BOTTOM_PAD }]}>
-          <Text style={styles.promoTitle} numberOfLines={2}>
-            {slide.title}
-          </Text>
-          {slide.subtitle ? (
-            <Text style={styles.promoSubtitle} numberOfLines={1}>
-              {slide.subtitle}
-            </Text>
-          ) : null}
-        </View>
-      </>
-    );
-  } else if (slide.kind === 'map') {
-    content = (
-      <>
-        <SlideImage
-          source={slide.image}
-          width={slideWidth}
-          height={shellHeight}
-          fillWidth={fillWidth}
-          priority={priority}
-        />
-        <LinearGradient
-          colors={['rgba(8,14,32,0.5)', 'rgba(8,14,32,0.12)', 'rgba(8,14,32,0.88)']}
-          locations={[0, 0.4, 1]}
-          style={StyleSheet.absoluteFill}
-        />
+
+  const content = (
+    <>
+      <SlideImage
+        source={slide.image}
+        width={slideWidth}
+        height={shellHeight}
+        fillWidth={fillWidth || slideWidth <= 1}
+        priority={priority}
+      />
+      <LinearGradient
+        colors={
+          slide.kind === 'try'
+            ? ['rgba(14,19,37,0.35)', 'rgba(14,19,37,0.1)', 'rgba(14,19,37,0.9)']
+            : slide.kind === 'map'
+              ? ['rgba(8,14,32,0.5)', 'rgba(8,14,32,0.12)', 'rgba(8,14,32,0.9)']
+              : ['rgba(20,40,80,0.4)', 'rgba(14,19,37,0.1)', 'rgba(14,19,37,0.9)']
+        }
+        locations={[0, 0.4, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+      {slide.kind === 'map' ? (
         <View style={[styles.eventAccent, { backgroundColor: kindColor }]} />
-        <View pointerEvents="none" style={[styles.topChrome, { top: padTop }]}>
-          <View style={styles.eyebrowChipEvent}>
-            <Ionicons name="map-outline" size={12} color="#ffffff" />
-            <Text style={[styles.eyebrowText, { color: '#ffffff', marginLeft: 5 }]}>
-              {slide.eyebrow ?? 'Karta'}
-            </Text>
-          </View>
-        </View>
-        <View pointerEvents="none" style={[styles.bottomChrome, { bottom: COPY_BOTTOM_PAD }]}>
-          <Text style={styles.title} numberOfLines={2}>
-            {slide.title}
+      ) : null}
+      <View pointerEvents="none" style={[styles.topChrome, { top: padTop }]}>
+        {topChip}
+      </View>
+      <View pointerEvents="none" style={[styles.bottomChrome, { bottom: COPY_BOTTOM_PAD }]}>
+        {slide.kind === 'try' && slide.badge ? (
+          <Text style={styles.tryBadge}>{slide.badge}</Text>
+        ) : null}
+        <Text style={styles.title} numberOfLines={2}>
+          {slide.title}
+        </Text>
+        {slide.subtitle ? (
+          <Text style={styles.subtitle} numberOfLines={1}>
+            {slide.subtitle}
           </Text>
-          {slide.subtitle ? (
-            <Text style={styles.subtitle} numberOfLines={1}>
-              {slide.subtitle}
-            </Text>
-          ) : null}
-        </View>
-      </>
-    );
-  } else {
-    // voice — whole slide is tappable
-    content = (
-      <>
-        <SlideImage
-          source={slide.image}
-          width={slideWidth}
-          height={shellHeight}
-          fillWidth={fillWidth}
-          priority={priority}
-        />
-        <LinearGradient
-          colors={['rgba(20,40,80,0.45)', 'rgba(14,19,37,0.1)', 'rgba(14,19,37,0.88)']}
-          locations={[0, 0.4, 1]}
-          style={StyleSheet.absoluteFill}
-        />
-        <View pointerEvents="none" style={[styles.topChrome, { top: padTop }]}>
-          <View style={styles.voiceBanner}>
-            <Ionicons name="mic" size={13} color="#ffffff" />
-            <Text style={styles.endingBannerText}>{slide.eyebrow ?? 'Röstsök'}</Text>
-          </View>
-        </View>
-        <View pointerEvents="none" style={[styles.bottomChrome, { bottom: COPY_BOTTOM_PAD }]}>
-          <Text style={styles.title} numberOfLines={2}>
-            {slide.title}
-          </Text>
-          {slide.subtitle ? (
-            <Text style={styles.subtitle} numberOfLines={1}>
-              {slide.subtitle}
-            </Text>
-          ) : null}
-        </View>
-      </>
-    );
-  }
+        ) : null}
+      </View>
+    </>
+  );
+
   const frameStyle = [
     styles.slideFrame,
-    fillWidth ? StyleSheet.absoluteFillObject : { width: slideWidth, height: shellHeight },
+    fillWidth || slideWidth <= 1
+      ? StyleSheet.absoluteFillObject
+      : { width: slideWidth, height: shellHeight },
   ];
 
   if (disablePress) {
@@ -685,9 +616,23 @@ const styles = StyleSheet.create({
     zIndex: 5,
     gap: 6,
   },
-  bottomChromeTry: {
-    width: '46%',
-    right: 'auto',
+  tryBanner: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
+    backgroundColor: 'rgba(71, 139, 235, 0.88)',
+  },
+  tryBadge: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+    opacity: 0.92,
+    textShadowColor: 'rgba(0,0,0,0.45)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
   eyebrowChipEvent: {
     alignSelf: 'flex-start',

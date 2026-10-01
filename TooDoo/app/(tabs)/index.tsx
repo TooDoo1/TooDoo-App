@@ -2707,7 +2707,7 @@ export default function HomeScreen() {
         eyebrow: 'Testa något nytt',
         badge: tryHint,
         title: `Sugen på ${tryHint.toLowerCase()}?`,
-        subtitle: 'Hoppa utanför det vanliga',
+        subtitle: 'Hitta något oväntat nära dig',
         accentColor: BrandColors.dark.primary,
         image: tryImage,
       },
