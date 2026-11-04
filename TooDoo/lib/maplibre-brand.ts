@@ -1,8 +1,14 @@
 import type { ThemeMode } from '@/context/theme-preference-context';
 import { OPENFREEMAP_STYLES } from '@/lib/map-style';
 
-/** Bump when style colors change so maps remount. */
-export const MAP_PAINT_VERSION = 14;
+/** Bump when style colors / layer visibility change so maps remount. */
+export const MAP_PAINT_VERSION = 15;
+
+/**
+ * OpenFreeMap Liberty POI icon+label layers for shops/restaurants/etc.
+ * Keep `poi_transit` (bus / rail / airport) and TooDoo's own markers.
+ */
+const HIDDEN_BASEMAP_POI_LAYERS = new Set(['poi_r1', 'poi_r7', 'poi_r20']);
 
 type MapPaintPalette = {
   bg: string;
@@ -107,7 +113,11 @@ export async function loadTooDooMapStyle(mode: ThemeMode = 'light'): Promise<Map
 
     style.layers = style.layers
       // Drop 3D buildings — they create dark edges that look like borders.
-      .filter((layer) => layer.id !== 'building-3d')
+      // Drop commercial basemap POIs (McDonald's, shops, …) — keep poi_transit.
+      .filter(
+        (layer) =>
+          layer.id !== 'building-3d' && !HIDDEN_BASEMAP_POI_LAYERS.has(layer.id)
+      )
       .map((layer) => {
         const paint = { ...(layer.paint ?? {}) };
         const layout = layer.layout ? { ...layer.layout } : undefined;
