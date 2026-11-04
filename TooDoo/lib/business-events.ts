@@ -98,10 +98,12 @@ export function formatEventDateRange(event: BusinessEventItem): string | null {
   if (!Number.isFinite(start.getTime())) return null;
 
   const dateFmt = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Europe/Stockholm',
     day: 'numeric',
     month: 'short',
   });
   const timeFmt = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Europe/Stockholm',
     hour: '2-digit',
     minute: '2-digit',
   });
@@ -139,6 +141,23 @@ export async function removeEventInterest(eventId: string, token: string): Promi
     headers: { Authorization: `Bearer ${token}` },
   });
   return response.ok || response.status === 404;
+}
+
+export async function fetchBusinessEventById(eventId: string): Promise<BusinessEventItem | null> {
+  const trimmed = eventId.trim();
+  if (!trimmed) return null;
+
+  try {
+    const response = await fetch(apiUrl(`/business-events/${encodeURIComponent(trimmed)}`));
+    if (!response.ok) return null;
+    const json = await response.json().catch(() => null);
+    const raw = (json as { event?: unknown } | null)?.event ?? json;
+    if (!raw || typeof raw !== 'object') return null;
+    const mapped = mapApiBusinessEvent(raw);
+    return mapped?.id ? mapped : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchBusinessEvents(options?: {

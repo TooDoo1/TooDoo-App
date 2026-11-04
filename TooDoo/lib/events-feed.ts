@@ -5,6 +5,7 @@ import {
   formatEventDateRange,
   type BusinessEventItem,
 } from '@/lib/business-events';
+import { HELSINGBORG_COORDS } from '@/lib/geo';
 import {
   fetchMunicipioEvents,
   formatMunicipioEventDateRange,
@@ -22,6 +23,8 @@ export type EventFeedItem = {
   latitude?: number;
   longitude?: number;
   businessId?: string;
+  categoryId?: string;
+  categoryName?: string;
   businessEvent?: BusinessEventItem;
   municipioEvent?: MunicipioEventItem;
 };
@@ -38,6 +41,7 @@ function toBusinessFeedItem(event: BusinessEventItem): EventFeedItem {
     latitude: event.latitude,
     longitude: event.longitude,
     businessId: event.businessId,
+    categoryName: event.categoryName,
     businessEvent: event,
   };
 }
@@ -53,9 +57,13 @@ function toMunicipioFeedItem(event: MunicipioEventItem): EventFeedItem {
     image: event.image,
     latitude: event.latitude,
     longitude: event.longitude,
+    categoryId: event.categoryId,
+    categoryName: event.categoryName,
     municipioEvent: event,
   };
 }
+
+const EVENT_TZ = 'Europe/Stockholm';
 
 function sortFeedItems(events: EventFeedItem[]): EventFeedItem[] {
   return [...events].sort((a, b) => {
@@ -70,6 +78,26 @@ function sortFeedItems(events: EventFeedItem[]): EventFeedItem[] {
   });
 }
 
+function stockholmDayKey(value: Date): string {
+  return new Intl.DateTimeFormat('sv-SE', {
+    timeZone: EVENT_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(value);
+}
+
+export function isUpcomingFeedEvent(event: EventFeedItem, now = new Date()): boolean {
+  const startMs = Date.parse(event.startsAt);
+  const endMs = Date.parse(event.endsAt);
+  if (Number.isFinite(endMs) && Number.isFinite(startMs) && endMs >= startMs && endMs >= now.getTime()) {
+    return true;
+  }
+  if (!Number.isFinite(startMs)) return false;
+  if (startMs >= now.getTime()) return true;
+  return stockholmDayKey(new Date(startMs)) >= stockholmDayKey(now);
+}
+
 export function formatFeedEventDateRange(event: EventFeedItem): string | null {
   if (event.source === 'business' && event.businessEvent) {
     return formatEventDateRange(event.businessEvent);
@@ -82,18 +110,53 @@ export function formatFeedEventDateRange(event: EventFeedItem): string | null {
 
 export function getFeedEventStartParts(
   event: EventFeedItem
-): { day: string; month: string } | null {
+): { day: string; month: string; time: string } | null {
   const start = new Date(event.startsAt);
   if (!Number.isFinite(start.getTime())) return null;
 
-  const day = new Intl.DateTimeFormat('sv-SE', { day: 'numeric' }).format(start);
-  const month = new Intl.DateTimeFormat('sv-SE', { month: 'short' })
+  const day = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: EVENT_TZ,
+    day: 'numeric',
+  }).format(start);
+  const month = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: EVENT_TZ,
+    month: 'short',
+  })
     .format(start)
     .replace('.', '')
     .toUpperCase()
     .slice(0, 3);
+  const time = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: EVENT_TZ,
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(start);
 
-  return { day, month };
+  return { day, month, time };
+}
+
+export const EVENT_FEED_DAYS = 14;
+
+/** How many events the home strip shows — always the first items of the Visa alla list. */
+export const HOME_EVENT_TICKET_COUNT = 8;
+
+/**
+ * Same city rule for the home Evenemang strip and Visa alla, so they cannot diverge.
+ */
+export function resolveEventFeedCity(
+  city?: string | null,
+  coords?: { lat: number; lng: number } | null
+): string | undefined {
+  const trimmed = city?.trim();
+  if (trimmed) return trimmed;
+  if (
+    coords &&
+    Math.abs(coords.lat - HELSINGBORG_COORDS.lat) < 0.02 &&
+    Math.abs(coords.lng - HELSINGBORG_COORDS.lng) < 0.02
+  ) {
+    return 'Helsingborg';
+  }
+  return undefined;
 }
 
 export async function fetchEventFeed(options?: {
@@ -104,21 +167,25 @@ export async function fetchEventFeed(options?: {
   radiusKm?: number;
   days?: number;
 }): Promise<EventFeedItem[]> {
+  const city = options?.city?.trim() || undefined;
   const [businessEvents, municipioEvents] = await Promise.all([
     fetchBusinessEvents(),
     fetchMunicipioEvents({
-      city: options?.city,
+      city,
       lat: options?.lat,
       lng: options?.lng,
       radiusKm: options?.radiusKm,
-      days: options?.days,
+      days: options?.days ?? EVENT_FEED_DAYS,
+      take: 100,
     }),
   ]);
 
-  const merged = sortFeedItems([
-    ...businessEvents.map(toBusinessFeedItem),
-    ...municipioEvents.map(toMunicipioFeedItem),
-  ]);
+  const merged = sortFeedItems(
+    [
+      ...businessEvents.map(toBusinessFeedItem),
+      ...municipioEvents.map(toMunicipioFeedItem),
+    ].filter((event) => isUpcomingFeedEvent(event))
+  );
 
   const limit = options?.limit;
   if (typeof limit === 'number' && limit > 0) {

@@ -12,6 +12,8 @@ import { useSharedValue, type SharedValue } from 'react-native-reanimated';
 
 type TabBarMotionContextValue = {
   stackHideProgress: SharedValue<number>;
+  /** 0 = visible, 1 = hidden from scroll-down on tab roots. */
+  scrollHideProgress: SharedValue<number>;
   /** Nested stack screens (e.g. Nära dig → map) must not reveal the bar between pops. */
   acquireStackHide: () => void;
   releaseStackHide: () => void;
@@ -23,6 +25,7 @@ const TabBarMotionContext = createContext<TabBarMotionContextValue | null>(null)
 
 export function TabBarMotionProvider({ children }: { children: ReactNode }) {
   const stackHideProgress = useSharedValue(0);
+  const scrollHideProgress = useSharedValue(0);
   const stackHideCountRef = useRef(0);
   const [tabBarProps, setTabBarPropsState] = useState<BottomTabBarProps | null>(null);
 
@@ -45,12 +48,20 @@ export function TabBarMotionProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       stackHideProgress,
+      scrollHideProgress,
       acquireStackHide,
       releaseStackHide,
       tabBarProps,
       setTabBarProps,
     }),
-    [stackHideProgress, acquireStackHide, releaseStackHide, tabBarProps, setTabBarProps]
+    [
+      stackHideProgress,
+      scrollHideProgress,
+      acquireStackHide,
+      releaseStackHide,
+      tabBarProps,
+      setTabBarProps,
+    ]
   );
 
   return <TabBarMotionContext.Provider value={value}>{children}</TabBarMotionContext.Provider>;

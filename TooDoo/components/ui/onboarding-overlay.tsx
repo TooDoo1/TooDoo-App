@@ -292,7 +292,7 @@ export function OnboardingOverlay({ onDone }: OnboardingOverlayProps) {
             { backgroundColor: theme.primary, opacity: pressed ? 0.9 : 1 },
           ]}
         >
-          <Text style={[styles.primaryButtonText, { color: theme.isDark ? '#ffffff' : '#131720' }]}>
+          <Text style={[styles.primaryButtonText, { color: '#ffffff' }]}>
             {isLastSlide ? 'Kom igång' : 'Nästa'}
           </Text>
         </Pressable>

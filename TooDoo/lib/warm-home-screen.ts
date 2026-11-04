@@ -1,5 +1,10 @@
 import { hydrateOfferCardImages } from '@/lib/business-image';
-import { fetchEventFeed, type EventFeedItem } from '@/lib/events-feed';
+import {
+	EVENT_FEED_DAYS,
+	fetchEventFeed,
+	resolveEventFeedCity,
+	type EventFeedItem,
+} from '@/lib/events-feed';
 import { getEffectiveUserCoordsIfGranted } from '@/lib/geo';
 import { heroSlides, resolveHeroImageUri } from '@/lib/hero-slides';
 import { fetchHomeScreenData, type OfferCardItem } from '@/lib/home-offers';
@@ -14,6 +19,7 @@ import {
 	setHomeScreenSnapshot,
 } from '@/lib/home-list-cache';
 import { prefetchImageUris } from '@/lib/image-prefetch';
+import { IMAGE_DISPLAY_WIDTH, sizedImageUrl } from '@/lib/image-url';
 
 export type SettledHomeAssets = {
 	deals: OfferCardItem[];
@@ -22,6 +28,14 @@ export type SettledHomeAssets = {
 };
 
 const SETTLE_BUDGET_MS = 3500;
+
+function cardImageUri(card: OfferCardItem, displayWidth: number) {
+	const raw =
+		typeof card.image === 'object' && card.image && 'uri' in card.image && typeof card.image.uri === 'string'
+			? card.image.uri
+			: undefined;
+	return sizedImageUrl(raw, displayWidth) ?? raw;
+}
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
 	return new Promise((resolve) => {
@@ -69,10 +83,10 @@ export async function settleHomeScreenAssets(options: {
 
 	await prefetchImageUris(
 		[
+			...hydratedHot.slice(0, 6).map((card) => cardImageUri(card, IMAGE_DISPLAY_WIDTH.hero)),
 			...heroSlides.map((slide) => resolveHeroImageUri(slide.source)),
-			...hydratedDeals.slice(0, 12).map((card) => card.image),
-			...hydratedNear.slice(0, 6).map((card) => card.image),
-			...hydratedHot.slice(0, 6).map((card) => card.image),
+			...hydratedDeals.slice(0, 12).map((card) => cardImageUri(card, IMAGE_DISPLAY_WIDTH.hero)),
+			...hydratedNear.slice(0, 6).map((card) => cardImageUri(card, IMAGE_DISPLAY_WIDTH.card)),
 			...events.slice(0, 6).map((event) => event.image),
 		],
 		28
@@ -120,6 +134,10 @@ function cacheNearbyFromDeals(deals: OfferCardItem[]) {
 				latitude: card.latitude,
 				longitude: card.longitude,
 				distanceKm: card.distanceKm,
+				categoryId: card.categoryId,
+				categoryIds: card.categoryIds,
+				categoryName: card.categoryName,
+				openingHours: card.openingHours,
 			};
 		})
 	);
@@ -161,9 +179,10 @@ export function warmHomeScreenDuringStartup(options?: { token?: string | null })
 
 			// Never prompt for location during splash — that freezes the homepage load.
 			const coords = await getEffectiveUserCoordsIfGranted().catch(() => null);
+			const eventCity = resolveEventFeedCity(undefined, coords);
 			const [data, events] = await Promise.all([
 				fetchHomeScreenData({ token: options?.token ?? null, coords }),
-				fetchEventFeed({ limit: 12 }).catch(() => [] as EventFeedItem[]),
+				fetchEventFeed({ days: EVENT_FEED_DAYS, city: eventCity }).catch(() => [] as EventFeedItem[]),
 			]);
 
 			setHomeScreenSnapshot({
@@ -172,7 +191,7 @@ export function warmHomeScreenDuringStartup(options?: { token?: string | null })
 				nearYouCards: data.nearYouCards,
 				hotOfferCards: data.hotOfferCards,
 			});
-			setHomeEventsCache(events);
+			setHomeEventsCache(events, eventCity);
 			setHomeHotOffersCache(data.hotOfferCards);
 			setHomeEndingSoonCache(data.nearYouCards);
 			cacheNearbyFromDeals(data.deals);

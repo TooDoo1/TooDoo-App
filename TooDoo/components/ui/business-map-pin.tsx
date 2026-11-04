@@ -6,7 +6,6 @@ import {
   OFFER_ACTIVITY_COLOR,
 } from '@/components/ui/company-activity-dots';
 import { useThemePreference } from '@/context/theme-preference-context';
-import { OFFERS_CATEGORY_ACCENT } from '@/lib/category-colors';
 import { uiTheme } from '@/lib/ui-theme';
 
 type Props = {
@@ -36,7 +35,7 @@ function MiniDot({ active, color }: { active: boolean; color: string }) {
  * (event + offer) in the top-left corner.
  */
 function BusinessMapPinComponent({
-  color = OFFERS_CATEGORY_ACCENT,
+  color = '#9b5de5',
   title,
   imageUri,
   selected = false,
@@ -61,8 +60,6 @@ function BusinessMapPinComponent({
             width: size,
             height: size,
             borderRadius: size / 2,
-            borderWidth: border,
-            borderColor: color,
           },
         ]}
       >
@@ -73,6 +70,17 @@ function BusinessMapPinComponent({
             {initial}
           </Text>
         )}
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFillObject,
+            {
+              borderRadius: size / 2,
+              borderWidth: border,
+              borderColor: color,
+            },
+          ]}
+        />
       </View>
       <View style={[styles.badge, { backgroundColor: theme.cardBg }]}>
         <MiniDot active={hasEvent} color={EVENT_ACTIVITY_COLOR} />

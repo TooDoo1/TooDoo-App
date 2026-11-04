@@ -1,5 +1,4 @@
 import { apiUrl, normalizeImageUrl } from '@/lib/api';
-import { normalizeCatalogSearchQuery } from '@/lib/catalog-search';
 import {
   fetchCategoryOptions,
   normalizeInterestIds,
@@ -18,7 +17,7 @@ export type SearchSuggestion = {
 
 export type SearchTipItem = {
   label: string;
-  kind: 'tip' | 'business' | 'event';
+  kind: 'tip' | 'business' | 'event' | 'recent' | 'popular';
   id?: string;
   subtitle?: string;
   /** Single thumbnail for a concrete business/event hit. */
@@ -30,19 +29,6 @@ export type SearchTipItem = {
 type SuggestionsResponse = {
   results?: Array<Partial<SearchSuggestion> & { label?: string }>;
   take?: number;
-};
-
-type UnifiedSearchResponse = {
-  results?: Array<
-    Partial<SearchSuggestion> & {
-      label?: string;
-      type?: string;
-      source?: string;
-      image?: string;
-      subtitle?: string;
-      city?: string;
-    }
-  >;
 };
 
 /** `GET /search/suggestions` caps `take` at 10. */
@@ -57,6 +43,12 @@ export const DEFAULT_SEARCH_TIPS = [
   'evenemang',
   'konsert',
   'lunch',
+  'fika',
+  'spa',
+  'afterwork',
+  'brunch',
+  'bowling',
+  'bio',
 ];
 
 function uniqueTipItems(values: SearchTipItem[], take: number): SearchTipItem[] {
@@ -105,34 +97,6 @@ function labelsToTips(labels: string[], take: number): SearchTipItem[] {
     labels.map((label) => ({ label, kind: 'tip' as const })),
     take
   );
-}
-
-function decodeHtmlEntities(value: string): string {
-  return value
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&#8211;/gi, '–')
-    .replace(/&#8212;/gi, '—')
-    .replace(/&#8220;/gi, '“')
-    .replace(/&#8221;/gi, '”')
-    .replace(/&#(\d+);/g, (_, code) => {
-      const n = Number(code);
-      return Number.isFinite(n) ? String.fromCharCode(n) : _;
-    })
-    .trim();
-}
-
-function uniqueImageUris(values: Array<string | undefined>, take: number) {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const raw of values) {
-    const uri = raw?.trim();
-    if (!uri || seen.has(uri)) continue;
-    seen.add(uri);
-    result.push(uri);
-    if (result.length >= take) break;
-  }
-  return result;
 }
 
 function fallbackPreviewUri(seed: string) {
@@ -200,6 +164,7 @@ export function getLocalBusinessSearchTips(
 /** Max individual shop rows above the generic tips while typing. */
 export const SEARCH_SHOP_TIPS_TAKE = 5;
 const SEARCH_GENERIC_TIPS_TAKE = 8;
+export const EMPTY_SEARCH_TIPS_TAKE = 16;
 
 export function splitSearchTips(tips: SearchTipItem[]) {
   const shops = uniqueShopTips(tips, SEARCH_SHOP_TIPS_TAKE);
@@ -266,68 +231,6 @@ async function fetchBusinessSuggestions(q: string, take: number, city?: string) 
   return uniqueTipItems(tips, take);
 }
 
-/** Unified search → tips with images + a query tip that carries a preview strip. */
-async function fetchUnifiedSearchTips(q: string, take: number, city?: string) {
-  const normalized = normalizeCatalogSearchQuery(q, { city });
-  const params = new URLSearchParams({
-    q: normalized.q,
-    take: String(Math.min(Math.max(take * 2, 10), 24)),
-  });
-  if (normalized.city) {
-    params.set('city', normalized.city);
-  }
-
-  const response = await fetch(apiUrl(`/search?${params.toString()}`));
-  if (!response.ok) {
-    return [] as SearchTipItem[];
-  }
-
-  const json = (await response.json().catch(() => ({}))) as UnifiedSearchResponse;
-  const rows = Array.isArray(json.results) ? json.results : [];
-  const hitTips: SearchTipItem[] = [];
-  const previewPool: string[] = [];
-
-  for (const row of rows) {
-    const label = decodeHtmlEntities(typeof row?.label === 'string' ? row.label : '');
-    if (!label) continue;
-
-    const type = String(row?.type ?? '').toLowerCase();
-    const source = String(row?.source ?? '')
-      .trim()
-      .toUpperCase()
-      .replace(/[\s-]+/g, '_');
-    const isEvent =
-      type === 'event' || source === 'MUNICIPIO' || source === 'VISIT_SWEDEN';
-    const id = row?.id ? String(row.id) : undefined;
-    const imageUri =
-      normalizeImageUrl(row?.image) ??
-      (id ? fallbackPreviewUri(`${isEvent ? 'event' : 'biz'}-${id}`) : undefined);
-
-    if (imageUri) previewPool.push(imageUri);
-
-    hitTips.push({
-      label,
-      kind: isEvent ? 'event' : 'business',
-      id,
-      subtitle:
-        typeof row?.subtitle === 'string'
-          ? decodeHtmlEntities(row.subtitle)
-          : typeof row?.city === 'string'
-            ? row.city
-            : undefined,
-      imageUri,
-    });
-  }
-
-  const queryTip: SearchTipItem = {
-    label: q.trim(),
-    kind: 'tip',
-    previewImages: uniqueImageUris(previewPool, 4),
-  };
-
-  return uniqueTipItems([queryTip, ...hitTips], take);
-}
-
 async function fetchPersonalizedTips(
   authFetch: (path: string, init?: RequestInit) => Promise<Response>,
   take: number
@@ -377,11 +280,8 @@ export async function fetchSearchTips(options?: {
 
   try {
     if (q.length >= 1) {
-      const [businessTips, unifiedTips] = await Promise.all([
-        fetchBusinessSuggestions(q, SEARCH_SHOP_TIPS_TAKE, options?.city),
-        fetchUnifiedSearchTips(q, SEARCH_SHOP_TIPS_TAKE, options?.city),
-      ]);
-      const shopHits = uniqueShopTips([...businessTips, ...unifiedTips], SEARCH_SHOP_TIPS_TAKE);
+      const businessTips = await fetchBusinessSuggestions(q, SEARCH_SHOP_TIPS_TAKE, options?.city);
+      const shopHits = uniqueShopTips(businessTips, SEARCH_SHOP_TIPS_TAKE);
       // Generics sit below the shop rows (pizza, sushi, …) — not instead of them.
       const generics = labelsToTips(DEFAULT_SEARCH_TIPS, SEARCH_GENERIC_TIPS_TAKE);
       if (shopHits.length > 0) {
@@ -390,16 +290,16 @@ export async function fetchSearchTips(options?: {
       return [{ label: q, kind: 'tip' as const }, ...generics];
     }
 
-    if (options?.isLoggedIn && options.authFetch) {
-      const personalized = await fetchPersonalizedTips(options.authFetch, take);
-      if (personalized.length > 0) {
-        return personalized;
-      }
-    }
-
-    const categoryTips = await fetchCategoryTips(take);
-    if (categoryTips.length > 0) {
-      return categoryTips;
+    const emptyTake = Math.max(take, EMPTY_SEARCH_TIPS_TAKE);
+    const personalized =
+      options?.isLoggedIn && options.authFetch
+        ? await fetchPersonalizedTips(options.authFetch, emptyTake)
+        : [];
+    const categoryTips = await fetchCategoryTips(emptyTake);
+    const defaults = labelsToTips(DEFAULT_SEARCH_TIPS, emptyTake);
+    const emptyTips = uniqueTipItems([...personalized, ...categoryTips, ...defaults], emptyTake);
+    if (emptyTips.length > 0) {
+      return emptyTips;
     }
   } catch {
     // fall through to local defaults (empty-query only)

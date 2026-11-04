@@ -13,7 +13,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
 import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
 import { ScreenBackButton } from '@/components/ui/screen-back-button';
-import { ListItemSeparator } from '@/components/ui/list-item-separator';
+import { CategoryFilterBar } from '@/components/ui/category-filter-bar';
+import { ALL_CATEGORIES_ID } from '@/lib/category-filters';
+import { ListItemSeparator, SEE_ALL_COLUMN_GAP } from '@/components/ui/list-item-separator';
 import { PaginatedListFooter } from '@/components/ui/paginated-list-footer';
 import { SeeAllCardActions, SeeAllListCard, SeeAllPill } from '@/components/ui/see-all-list-card';
 import { hydrateOfferCardImages } from '@/lib/business-image';
@@ -117,17 +119,21 @@ export function OfferListScreen({
     categoryId?: string | string[];
     categoryName?: string | string[];
   }>();
-  const categoryId = paramString(params.categoryId) || undefined;
-  const categoryName = paramString(params.categoryName) || undefined;
-  const hasCategoryFilter = Boolean(categoryId || categoryName);
-  const listTitle = categoryName?.trim() || title;
+  const paramCategoryId = paramString(params.categoryId) || undefined;
+  const paramCategoryName = paramString(params.categoryName) || undefined;
+  const [activeCategoryId, setActiveCategoryId] = useState(
+    paramCategoryId || ALL_CATEGORIES_ID
+  );
+  const [activeCategoryName, setActiveCategoryName] = useState(paramCategoryName);
+  const hasCategoryFilter =
+    activeCategoryId !== ALL_CATEGORIES_ID && Boolean(activeCategoryId || activeCategoryName);
   const listSubtitle = hasCategoryFilter
     ? mode === 'hot'
-      ? `Populärt inom ${categoryName}`
-      : `Inom ${categoryName}`
+      ? `Populärt inom ${activeCategoryName}`
+      : `Inom ${activeCategoryName}`
     : subtitle;
   const listEmptyText = hasCategoryFilter
-    ? `Inga träffar i ${categoryName} just nu.`
+    ? `Inga träffar i ${activeCategoryName} just nu.`
     : emptyText;
 
   const initialCache = useMemo(
@@ -215,23 +221,25 @@ export function OfferListScreen({
   const visibleCards = useMemo(() => {
     if (!hasCategoryFilter) return cards;
     return cards.filter((card) => {
-      if (categoryId && cardMatchesCategory(card, categoryId)) return true;
-      if (categoryName) {
-        const want = categoryName.trim().toLocaleLowerCase('sv-SE');
+      if (activeCategoryId && activeCategoryId !== ALL_CATEGORIES_ID && cardMatchesCategory(card, activeCategoryId)) {
+        return true;
+      }
+      if (activeCategoryName) {
+        const want = activeCategoryName.trim().toLocaleLowerCase('sv-SE');
         const have = card.categoryName?.trim().toLocaleLowerCase('sv-SE') ?? '';
         if (want && have === want) return true;
       }
       return false;
     });
-  }, [cards, categoryId, categoryName, hasCategoryFilter]);
+  }, [activeCategoryId, activeCategoryName, cards, hasCategoryFilter]);
 
   const pagination = usePaginatedList(
     visibleCards,
-    `${refreshNonce}-${categoryId ?? ''}-${categoryName ?? ''}`
+    `${refreshNonce}-${activeCategoryId}-${activeCategoryName ?? ''}`
   );
 
   usePrefetchPageImages(visibleCards, pagination.page, SEE_ALL_PAGE_SIZE, {
-    resetKey: `${refreshNonce}-${categoryId ?? ''}-${categoryName ?? ''}`,
+    resetKey: `${refreshNonce}-${activeCategoryId}-${activeCategoryName ?? ''}`,
   });
 
   const listHeader = useMemo(
@@ -246,16 +254,23 @@ export function OfferListScreen({
             lineHeight: 32,
           }}
         >
-          {listTitle}
+          {title}
         </Text>
         {listSubtitle ? (
           <Text className="mt-1.5 text-sm" style={{ color: theme.textMuted, lineHeight: 20 }}>
             {listSubtitle}
           </Text>
         ) : null}
+        <CategoryFilterBar
+          selectedId={activeCategoryId}
+          onSelect={(id, label) => {
+            setActiveCategoryId(id);
+            setActiveCategoryName(label);
+          }}
+        />
       </View>
     ),
-    [listSubtitle, listTitle, theme.text, theme.textMuted]
+    [activeCategoryId, listSubtitle, theme.text, theme.textMuted, title]
   );
 
   const renderItem = useCallback(
@@ -301,6 +316,8 @@ export function OfferListScreen({
           data={pagination.pageItems}
           keyExtractor={(item, idx) => `${item.orderIds?.[0] ?? item.id}-${pagination.page}-${idx}`}
           renderItem={renderItem}
+          numColumns={2}
+          columnWrapperStyle={{ gap: SEE_ALL_COLUMN_GAP }}
           ListHeaderComponent={listHeader}
           ListFooterComponent={listFooter}
           contentContainerStyle={{
@@ -309,7 +326,7 @@ export function OfferListScreen({
             paddingBottom: insets.bottom + 24,
           }}
           ItemSeparatorComponent={ListItemSeparator}
-          initialNumToRender={6}
+          initialNumToRender={8}
           maxToRenderPerBatch={LIST_BATCH_SIZE}
           windowSize={7}
           removeClippedSubviews

@@ -29,6 +29,8 @@ export type MunicipioEventItem = {
   longitude?: number;
   distanceKm?: number;
   image?: ImageSourcePropType;
+  categoryId?: string;
+  categoryName?: string;
 };
 
 export type FetchCachedEventsOptions = {
@@ -39,6 +41,8 @@ export type FetchCachedEventsOptions = {
   lat?: number;
   lng?: number;
   radiusKm?: number;
+  skip?: number;
+  take?: number;
 };
 
 function parseEventsPayload(json: unknown): unknown[] {
@@ -50,12 +54,14 @@ function parseEventsPayload(json: unknown): unknown[] {
 
 function toIsoFromUnixSeconds(value: unknown): string {
   if (typeof value === 'number' && Number.isFinite(value)) {
-    return new Date(value * 1000).toISOString();
+    const ms = value > 1e12 ? value : value * 1000;
+    return new Date(ms).toISOString();
   }
   if (typeof value === 'string' && value.trim()) {
     const asNumber = Number(value);
     if (Number.isFinite(asNumber) && /^\d+$/.test(value.trim())) {
-      return new Date(asNumber * 1000).toISOString();
+      const ms = asNumber > 1e12 ? asNumber : asNumber * 1000;
+      return new Date(ms).toISOString();
     }
     const parsed = Date.parse(value);
     if (Number.isFinite(parsed)) {
@@ -165,21 +171,30 @@ export function mapApiMunicipioEvent(raw: any): MunicipioEventItem | null {
     typeof raw?.distanceKm === 'number' && Number.isFinite(raw.distanceKm)
       ? raw.distanceKm
       : undefined;
+  const categoryId = String(raw?.category?.id ?? raw?.categoryId ?? '').trim() || undefined;
+  const categoryName =
+    typeof raw?.category?.name === 'string' && raw.category.name.trim()
+      ? raw.category.name.trim()
+      : typeof raw?.categoryName === 'string' && raw.categoryName.trim()
+        ? raw.categoryName.trim()
+        : undefined;
 
   return {
     id,
     source,
     ...(externalId ? { externalId } : {}),
     ...(url ? { url } : {}),
-    title: raw?.name ?? raw?.title ?? 'Evenemang',
+    title: stripHtml(String(raw?.name ?? raw?.title ?? 'Evenemang')),
     description: stripHtml(String(raw?.description ?? '')),
-    startsAt: toIsoFromUnixSeconds(raw?.startDate),
-    endsAt: toIsoFromUnixSeconds(raw?.endDate),
+    startsAt: toIsoFromUnixSeconds(raw?.startsAt ?? raw?.startDate ?? raw?.start),
+    endsAt: toIsoFromUnixSeconds(raw?.endsAt ?? raw?.endDate ?? raw?.end),
     locationLabel: locationLabel ?? sourceSubtitle(source),
     locations,
     ...(latitude != null && longitude != null ? { latitude, longitude } : {}),
     ...(distanceKm != null ? { distanceKm } : {}),
     ...(imageUri ? { image: { uri: imageUri } } : {}),
+    ...(categoryId ? { categoryId } : {}),
+    ...(categoryName ? { categoryName } : {}),
   };
 }
 
@@ -202,10 +217,12 @@ export function formatMunicipioEventDateRange(event: MunicipioEventItem): string
   if (!Number.isFinite(start.getTime())) return null;
 
   const dateFmt = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Europe/Stockholm',
     day: 'numeric',
     month: 'short',
   });
   const timeFmt = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Europe/Stockholm',
     hour: '2-digit',
     minute: '2-digit',
   });
@@ -248,6 +265,12 @@ function buildEventsQuery(options?: FetchCachedEventsOptions): string {
       params.set('radiusKm', String(Math.max(1, Math.min(200, options.radiusKm))));
     }
   }
+  if (typeof options?.skip === 'number' && Number.isFinite(options.skip) && options.skip > 0) {
+    params.set('skip', String(Math.max(0, Math.round(options.skip))));
+  }
+  if (typeof options?.take === 'number' && Number.isFinite(options.take)) {
+    params.set('take', String(Math.max(1, Math.min(100, Math.round(options.take)))));
+  }
   return params.toString();
 }
 
@@ -266,6 +289,20 @@ export async function fetchMunicipioEvents(
     parseEventsPayload(json)
       .map(mapApiMunicipioEvent)
       .filter((event): event is MunicipioEventItem => event != null)
+  );
+}
+
+/** Record that the signed-in user opened a cached public event (POST /events/:id/click). */
+export function recordCachedEventClick(
+  eventId?: string,
+  options?: {
+    authFetch?: (path: string, init?: RequestInit) => Promise<Response>;
+  }
+) {
+  const id = eventId?.trim();
+  if (!id || !options?.authFetch) return;
+  void options.authFetch(`/events/${encodeURIComponent(id)}/click`, { method: 'POST' }).catch(
+    () => undefined
   );
 }
 

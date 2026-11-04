@@ -7,6 +7,8 @@ import {
   mapApiOrderToCardItem,
   parseOrdersFromBusinessRecord,
   resolveBusinessCategoryIds,
+  resolveBusinessCategoryNames,
+  resolveBusinessSubcategoryName,
   type OfferCardItem,
 } from '@/lib/home-offers';
 
@@ -44,6 +46,11 @@ export function normalizeCatalogSearchQuery(
     q: q.slice(0, 100),
     ...(city ? { city } : {}),
   };
+}
+
+export function isWeekendSearchQuery(query: string) {
+  const n = query.trim().toLocaleLowerCase('sv-SE');
+  return n === 'helg' || n === 'helgen' || n === 'weekend';
 }
 
 function getOfferClaimedCount(card: OfferCardItem) {
@@ -109,19 +116,26 @@ export function sortSearchResultsForView(
   return cards;
 }
 
-/** Lightweight result from the unified `GET /search` + `POST /search/natural` endpoints. */
-type UnifiedSearchResult = {
+/** Lightweight result from unified search and `GET /business/for-you/now`. */
+export type UnifiedSearchResult = {
   type?: 'business' | 'order' | 'event';
   id?: string;
   label?: string;
   subtitle?: string;
   city?: string;
-  category?: { id?: string; name?: string; icon?: string } | null;
+  category?: { id?: string; name?: string; slug?: string; icon?: string } | null;
+  /** Nested on hydrated business records; search hits may omit this. */
+  categories?: Array<{
+    id?: string;
+    name?: string;
+    icon?: string;
+    subcategories?: Array<{ id?: string; name?: string; slug?: string | null }>;
+  }>;
   business?: { id?: string; name?: string };
   startDate?: number;
   endDate?: number;
   source?: string;
-  image?: string;
+  image?: string | { publicUrl?: string; url?: string } | null;
   distanceKm?: number;
 };
 
@@ -142,24 +156,42 @@ async function fetchUnifiedSearch(params: URLSearchParams): Promise<UnifiedSearc
   return Array.isArray(json.results) ? json.results : [];
 }
 
+function resultImageUri(result: UnifiedSearchResult): string | undefined {
+  const raw =
+    typeof result.image === 'string'
+      ? result.image
+      : result.image && typeof result.image === 'object'
+        ? result.image.publicUrl ?? result.image.url
+        : undefined;
+  const imageUri = normalizeImageUrl(raw);
+  // Prefer https — Visit Sweden sometimes returns http:// assets that browsers block on HTTPS pages.
+  if (imageUri && imageUri.startsWith('http://')) {
+    return `https://${imageUri.slice('http://'.length)}`;
+  }
+  return imageUri;
+}
+
+function mapEventSource(
+  source: string | undefined
+): NonNullable<OfferCardItem['eventSource']> {
+  const sourceRaw = String(source ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_');
+  if (sourceRaw === 'VISIT_SWEDEN') return 'VISIT_SWEDEN';
+  if (sourceRaw === 'BUSINESS') return 'BUSINESS';
+  return 'MUNICIPIO';
+}
+
 function mapEventSearchHitToCard(result: UnifiedSearchResult): OfferCardItem | null {
   const id = String(result.id ?? '').trim();
   if (!id) return null;
 
-  const imageUri = normalizeImageUrl(result.image);
-  // Prefer https — Visit Sweden sometimes returns http:// assets that browsers block on HTTPS pages.
-  const secureImageUri =
-    imageUri && imageUri.startsWith('http://')
-      ? `https://${imageUri.slice('http://'.length)}`
-      : imageUri;
+  const secureImageUri = resultImageUri(result);
   const locality = decodeSearchHtml(String(result.subtitle ?? result.city ?? '').trim());
-  const sourceRaw = String(result.source ?? '')
-    .trim()
-    .toUpperCase()
-    .replace(/[\s-]+/g, '_');
-  const eventSource =
-    sourceRaw === 'VISIT_SWEDEN' ? ('VISIT_SWEDEN' as const) : ('MUNICIPIO' as const);
+  const eventSource = mapEventSource(result.source);
   const title = decodeSearchHtml(result.label?.trim() || 'Evenemang');
+  const categoryName = result.category?.name?.trim() || 'Evenemang';
 
   return {
     id,
@@ -171,12 +203,45 @@ function mapEventSearchHitToCard(result: UnifiedSearchResult): OfferCardItem | n
         secureImageUri ??
         `https://picsum.photos/seed/${encodeURIComponent(`event-${id}`)}/300/200`,
     },
-    categoryName: 'Evenemang',
+    categoryId: result.category?.id,
+    categoryName,
     deal: false,
     orderIds: [],
     Adress: locality || 'Evenemang',
     Website: '',
     kortbeskrivning: locality || 'Evenemang',
+    långbeskrivning: '',
+    ...(typeof result.distanceKm === 'number' && Number.isFinite(result.distanceKm)
+      ? { distanceKm: result.distanceKm }
+      : {}),
+  };
+}
+
+function mapBusinessSearchHitToCard(result: UnifiedSearchResult): OfferCardItem | null {
+  const id = String(result.id ?? '').trim();
+  if (!id) return null;
+
+  const imageUri = resultImageUri(result);
+  const title = decodeSearchHtml(result.label?.trim() || 'Okänd verksamhet');
+  const locality = decodeSearchHtml(String(result.city ?? result.subtitle ?? '').trim());
+  const subtitle = decodeSearchHtml(String(result.subtitle ?? '').trim());
+
+  const subcategoryName = resolveBusinessSubcategoryName(result);
+
+  return {
+    id,
+    title,
+    image: {
+      uri: imageUri ?? `https://picsum.photos/seed/${encodeURIComponent(id)}/300/200`,
+    },
+    categoryId: result.category?.id,
+    categoryName: result.category?.name?.trim() || subtitle || undefined,
+    ...(subcategoryName ? { subcategoryName } : {}),
+    deal: false,
+    orderIds: [],
+    Adress: locality || 'Adress saknas',
+    Website: '',
+    kortbeskrivning: subtitle,
     långbeskrivning: '',
     ...(typeof result.distanceKm === 'number' && Number.isFinite(result.distanceKm)
       ? { distanceKm: result.distanceKm }
@@ -208,6 +273,8 @@ function mapBusinessRecordToCard(business: any, orders: any[]): OfferCardItem {
   const activeOrders = orders.filter((order) => isActiveOffer(order));
   const categoryIds = resolveBusinessCategoryIds(business);
 
+  const subcategoryName = resolveBusinessSubcategoryName(business);
+
   if (activeOrders.length > 0) {
     const base = mapApiOrderToCardItem({ ...activeOrders[0], business }, 0);
     return {
@@ -215,6 +282,8 @@ function mapBusinessRecordToCard(business: any, orders: any[]): OfferCardItem {
       id: businessId,
       categoryId: categoryIds[0] ?? base.categoryId,
       categoryIds,
+      categoryNames: resolveBusinessCategoryNames(business),
+      subcategoryName: subcategoryName ?? base.subcategoryName,
       orderIds: activeOrders.map((order, index) =>
         String(order?.id ?? order?._id ?? `${businessId}-order-${index}`)
       ),
@@ -230,6 +299,7 @@ function mapBusinessRecordToCard(business: any, orders: any[]): OfferCardItem {
       ),
       erbjudandemängd: activeOrders.map((order) => String(order?.maxRedemptions ?? 0)),
       erbjudandelängd: activeOrders.map((order) => order?.orderTimeTo ?? ''),
+      openingHours: business?.openingHours ?? base.openingHours,
     };
   }
 
@@ -239,6 +309,7 @@ function mapBusinessRecordToCard(business: any, orders: any[]): OfferCardItem {
       business?.imageUrl ??
       business?.imageAsset?.publicUrl
   );
+  const categoryNames = resolveBusinessCategoryNames(business);
 
   return {
     id: businessId,
@@ -248,7 +319,12 @@ function mapBusinessRecordToCard(business: any, orders: any[]): OfferCardItem {
     },
     categoryId: categoryIds[0] ?? business?.categoryId ?? business?.category?.id,
     categoryIds,
-    categoryName: business?.categoryName ?? business?.category?.name,
+    categoryName:
+      business?.categoryName ??
+      business?.category?.name ??
+      categoryNames[0],
+    categoryNames,
+    subcategoryName,
     deal: false,
     orderIds: [],
     Adress: formatBusinessAddress(business) || 'Adress saknas',
@@ -258,6 +334,7 @@ function mapBusinessRecordToCard(business: any, orders: any[]): OfferCardItem {
     Website: business?.website ?? '',
     kortbeskrivning: business?.description ?? '',
     långbeskrivning: business?.description ?? '',
+    openingHours: business?.openingHours,
   };
 }
 
@@ -290,8 +367,9 @@ async function hydrateBusinessCard(businessId: string): Promise<OfferCardItem | 
 
 type HydrationTask =
   | { kind: 'order'; id: string; rank: number }
-  | { kind: 'business'; id: string; rank: number }
-  | { kind: 'event'; card: OfferCardItem; rank: number };
+  | { kind: 'business'; id: string; rank: number; fallback?: UnifiedSearchResult }
+  | { kind: 'event'; card: OfferCardItem; rank: number }
+  | { kind: 'ready'; card: OfferCardItem; rank: number };
 
 async function hydrateTasks(tasks: HydrationTask[]): Promise<(OfferCardItem | null)[]> {
   const ordered: (OfferCardItem | null)[] = new Array(tasks.length).fill(null);
@@ -299,10 +377,17 @@ async function hydrateTasks(tasks: HydrationTask[]): Promise<(OfferCardItem | nu
   for (let i = 0; i < tasks.length; i += SEARCH_HYDRATE_CONCURRENCY) {
     const batch = tasks.slice(i, i + SEARCH_HYDRATE_CONCURRENCY);
     const cards = await Promise.all(
-      batch.map((task) => {
-        if (task.kind === 'event') return Promise.resolve(task.card);
-        if (task.kind === 'order') return hydrateOrderCard(task.id);
-        return hydrateBusinessCard(task.id);
+      batch.map(async (task) => {
+        if (task.kind === 'event' || task.kind === 'ready') return task.card;
+        if (task.kind === 'order') {
+          const orderCard = await hydrateOrderCard(task.id);
+          return orderCard;
+        }
+        const hydrated = await hydrateBusinessCard(task.id);
+        if (hydrated) {
+          return task.fallback ? overlaySearchDistance(hydrated, task.fallback) : hydrated;
+        }
+        return task.fallback ? mapBusinessSearchHitToCard(task.fallback) : null;
       })
     );
     cards.forEach((card, index) => {
@@ -323,12 +408,12 @@ function normalizeSearchResultType(
   if (raw === 'event' || raw === 'order' || raw === 'business') {
     return raw;
   }
-  // Cached public events always carry Municipio / Visit Sweden source.
+  // Cached public events and in-app business events carry a source discriminator.
   const source = String(result.source ?? '')
     .trim()
     .toUpperCase()
     .replace(/[\s-]+/g, '_');
-  if (source === 'MUNICIPIO' || source === 'VISIT_SWEDEN') {
+  if (source === 'MUNICIPIO' || source === 'VISIT_SWEDEN' || source === 'BUSINESS') {
     return 'event';
   }
   return 'business';
@@ -342,8 +427,15 @@ function normalizeSearchResultType(
  */
 function buildHydrationTasks(
   results: UnifiedSearchResult[],
-  hydrateLimit: number
+  hydrateLimit: number,
+  knownCards?: OfferCardItem[]
 ): HydrationTask[] {
+  const knownById = new Map<string, OfferCardItem>();
+  for (const card of knownCards ?? []) {
+    if (!card?.id || card.resultKind === 'event') continue;
+    if (!knownById.has(card.id)) knownById.set(card.id, card);
+  }
+
   const tasks: HydrationTask[] = [];
   const reservedBusinessIds = new Set<string>();
   const reservedEventIds = new Set<string>();
@@ -364,30 +456,111 @@ function buildHydrationTasks(
       continue;
     }
 
-    if (detailBudgetUsed >= hydrateLimit) {
-      // Keep scanning — later ranks may still include events.
-      continue;
-    }
-
     if (type === 'order') {
       const businessId = result.business?.id ? String(result.business.id) : undefined;
       if (businessId) {
         if (reservedBusinessIds.has(businessId)) continue;
         reservedBusinessIds.add(businessId);
+        const known = knownById.get(businessId);
+        if (known) {
+          tasks.push({ kind: 'ready', card: overlaySearchDistance(known, result), rank });
+          continue;
+        }
       }
+      if (detailBudgetUsed >= hydrateLimit) continue;
       tasks.push({ kind: 'order', id: String(result.id), rank });
       detailBudgetUsed += 1;
-    } else {
-      // Default / type: "business" — treat unknown as business for forward compatibility.
-      const businessId = String(result.id);
-      if (reservedBusinessIds.has(businessId)) continue;
-      reservedBusinessIds.add(businessId);
-      tasks.push({ kind: 'business', id: businessId, rank });
-      detailBudgetUsed += 1;
+      continue;
     }
+
+    const businessId = String(result.id);
+    if (reservedBusinessIds.has(businessId)) continue;
+    reservedBusinessIds.add(businessId);
+    const known = knownById.get(businessId);
+    if (known) {
+      tasks.push({ kind: 'ready', card: overlaySearchDistance(known, result), rank });
+      continue;
+    }
+    if (detailBudgetUsed >= hydrateLimit) {
+      const lightweight = mapBusinessSearchHitToCard(result);
+      if (lightweight) tasks.push({ kind: 'ready', card: lightweight, rank });
+      continue;
+    }
+    tasks.push({ kind: 'business', id: businessId, rank, fallback: result });
+    detailBudgetUsed += 1;
   }
 
   return tasks;
+}
+
+function overlaySearchDistance(card: OfferCardItem, result: UnifiedSearchResult): OfferCardItem {
+  if (typeof result.distanceKm === 'number' && Number.isFinite(result.distanceKm)) {
+    return { ...card, distanceKm: result.distanceKm };
+  }
+  return card;
+}
+
+const WEEKEND_COMPANY_QUERIES = ['afterwork', 'restaurang', 'bar', 'bowling'] as const;
+
+function unifiedSearchParams(q: string, take: number, city?: string) {
+  const params = new URLSearchParams({
+    q,
+    take: String(Math.min(take, 50)),
+    skip: '0',
+  });
+  if (city?.trim()) params.set('city', city.trim());
+  return params;
+}
+
+function uniqueSearchHits(hits: UnifiedSearchResult[]) {
+  const seen = new Set<string>();
+  const out: UnifiedSearchResult[] = [];
+  for (const hit of hits) {
+    const id = String(hit?.id ?? '').trim();
+    if (!id) continue;
+    const key = `${normalizeSearchResultType(hit)}:${id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(hit);
+  }
+  return out;
+}
+
+function interleaveSearchHits(
+  companies: UnifiedSearchResult[],
+  events: UnifiedSearchResult[],
+  take: number
+) {
+  const mixed: UnifiedSearchResult[] = [];
+  let i = 0;
+  let j = 0;
+  while (mixed.length < take && (i < companies.length || j < events.length)) {
+    if (i < companies.length) mixed.push(companies[i++]);
+    if (mixed.length >= take) break;
+    if (j < events.length) mixed.push(events[j++]);
+  }
+  return mixed;
+}
+
+/** "helgen" is event-intent on the backend — also pull weekend places so the mix isn't only evenemang. */
+async function fetchWeekendUnifiedResults(options: { take: number; city?: string; skip?: number }) {
+  const take = Math.min(options.take, 50);
+  const skip = options.skip ?? 0;
+  const city = options.city;
+  const [weekendHits, ...companyBuckets] = await Promise.all([
+    fetchUnifiedSearch(unifiedSearchParams('helgen', 20, city)),
+    ...WEEKEND_COMPANY_QUERIES.map((q) => fetchUnifiedSearch(unifiedSearchParams(q, 10, city))),
+  ]);
+
+  const events = uniqueSearchHits(
+    weekendHits.filter((hit) => normalizeSearchResultType(hit) === 'event')
+  );
+  const companies = uniqueSearchHits([
+    ...weekendHits.filter((hit) => normalizeSearchResultType(hit) !== 'event'),
+    ...companyBuckets.flat().filter((hit) => normalizeSearchResultType(hit) !== 'event'),
+  ]);
+
+  return interleaveSearchHits(companies, events, take + skip).slice(skip, skip + take);
 }
 
 async function finalizeSearchCards(
@@ -447,20 +620,49 @@ export async function searchCatalog(
     SEARCH_HYDRATE_LIMIT_MAX
   );
 
-  const params = new URLSearchParams({
-    q,
-    take: String(Math.min(options.take ?? 24, 50)),
-    skip: String(options.skip ?? 0),
-  });
-  if (options.categoryName) {
-    params.set('categoryName', options.categoryName);
-  }
-  if (normalized.city) {
-    params.set('city', normalized.city);
-  }
+  const results =
+    isWeekendSearchQuery(q) && !options.categoryName
+      ? await fetchWeekendUnifiedResults({
+          take: Math.min(options.take ?? 24, 50),
+          skip: options.skip ?? 0,
+          city: normalized.city,
+        })
+      : await fetchUnifiedSearch(
+          (() => {
+            const params = new URLSearchParams({
+              q,
+              take: String(Math.min(options.take ?? 24, 50)),
+              skip: String(options.skip ?? 0),
+            });
+            if (options.categoryName) {
+              params.set('categoryName', options.categoryName);
+            }
+            if (normalized.city) {
+              params.set('city', normalized.city);
+            }
+            return params;
+          })()
+        );
+  const tasks = buildHydrationTasks(results, hydrateLimit, options.knownCards);
+  return finalizeSearchCards(tasks, options.knownCards);
+}
 
-  const results = await fetchUnifiedSearch(params);
-  const tasks = buildHydrationTasks(results, hydrateLimit);
+/**
+ * Turn mixed `type: "business" | "event"` hits (search or `/business/for-you/now`)
+ * into home cards, preserving API rank. Known business cards skip a detail GET.
+ */
+export async function cardsFromUnifiedResults(
+  results: UnifiedSearchResult[],
+  options: {
+    maxHydrate?: number;
+    knownCards?: OfferCardItem[];
+  } = {}
+): Promise<OfferCardItem[]> {
+  const hydrateLimit = Math.min(
+    options.maxHydrate ?? SEARCH_HYDRATE_LIMIT,
+    SEARCH_HYDRATE_LIMIT_MAX
+  );
+  const tasks = buildHydrationTasks(results, hydrateLimit, options.knownCards);
   return finalizeSearchCards(tasks, options.knownCards);
 }
 
@@ -489,6 +691,16 @@ export async function searchNatural(
   const q = normalized.q;
   if (q.length < 2) {
     return [];
+  }
+
+  if (isWeekendSearchQuery(q) && !options.categoryName) {
+    return searchCatalog(query, {
+      city: options.city,
+      take: options.take,
+      skip: options.skip,
+      maxHydrate: options.maxHydrate,
+      knownCards: options.knownCards,
+    });
   }
 
   const hydrateLimit = Math.min(
@@ -531,6 +743,6 @@ export async function searchNatural(
 
   const json = (await response.json().catch(() => ({}))) as UnifiedSearchResponse;
   const results = Array.isArray(json.results) ? json.results : [];
-  const tasks = buildHydrationTasks(results, hydrateLimit);
+  const tasks = buildHydrationTasks(results, hydrateLimit, options.knownCards);
   return finalizeSearchCards(tasks, options.knownCards);
 }

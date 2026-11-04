@@ -12,16 +12,20 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
 import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
 import { ScreenBackButton } from '@/components/ui/screen-back-button';
-import { ListItemSeparator } from '@/components/ui/list-item-separator';
+import { CategoryFilterBar } from '@/components/ui/category-filter-bar';
+import { ALL_CATEGORIES_ID } from '@/lib/category-filters';
+import { ListItemSeparator, SEE_ALL_COLUMN_GAP } from '@/components/ui/list-item-separator';
 import { PaginatedListFooter } from '@/components/ui/paginated-list-footer';
 import { SeeAllCardActions, SeeAllListCard, SeeAllPill } from '@/components/ui/see-all-list-card';
 import { useThemePreference } from '@/context/theme-preference-context';
 import {
+  EVENT_FEED_DAYS,
   fetchEventFeed,
+  resolveEventFeedCity,
   type EventFeedItem,
 } from '@/lib/events-feed';
-import { resolveUserCityFromDevice } from '@/lib/geo';
-import { getHomeEventsCache, setHomeEventsCache } from '@/lib/home-list-cache';
+import { HELSINGBORG_COORDS, resolveUserCityFromDevice } from '@/lib/geo';
+import { getHomeEventsCache, getHomeEventsCacheCity, setHomeEventsCache } from '@/lib/home-list-cache';
 import { openEventFeedItem } from '@/lib/open-event-feed';
 import { usePaginatedList, SEE_ALL_PAGE_SIZE } from '@/lib/paginated-list';
 import { schedulePrefetchImageUris, usePrefetchPageImages } from '@/lib/image-prefetch';
@@ -53,6 +57,7 @@ const EventCard = memo(function EventCard({
       meta={
         event.startsAt
           ? new Date(event.startsAt).toLocaleDateString('sv-SE', {
+              timeZone: 'Europe/Stockholm',
               day: 'numeric',
               month: 'short',
             })
@@ -101,6 +106,8 @@ export function EventListScreen() {
   const [isLoading, setIsLoading] = useState(!cached);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [activeCategoryId, setActiveCategoryId] = useState(ALL_CATEGORIES_ID);
+  const [activeCategoryName, setActiveCategoryName] = useState<string | undefined>();
 
   useEffect(() => {
     let cancelled = false;
@@ -111,12 +118,17 @@ export function EventListScreen() {
       }
       try {
         const location = await resolveUserCityFromDevice().catch(() => null);
+        const city = resolveEventFeedCity(
+          getHomeEventsCacheCity() ?? location?.city,
+          location?.coords ?? HELSINGBORG_COORDS
+        );
         const next = await fetchEventFeed({
-          city: location?.city,
+          days: EVENT_FEED_DAYS,
+          city,
         });
         if (!cancelled) {
           setEvents(next);
-          setHomeEventsCache(next);
+          setHomeEventsCache(next, city);
           schedulePrefetchImageUris(
             next.slice(0, 12).map((event) => event.image),
             16
@@ -158,9 +170,26 @@ export function EventListScreen() {
     [router]
   );
 
-  const pagination = usePaginatedList(events, refreshNonce);
+  const visibleEvents = useMemo(() => {
+    if (activeCategoryId === ALL_CATEGORIES_ID && !activeCategoryName) return events;
+    const want = activeCategoryName?.trim().toLocaleLowerCase('sv-SE');
+    return events.filter((event) => {
+      if (activeCategoryId !== ALL_CATEGORIES_ID && event.categoryId === activeCategoryId) {
+        return true;
+      }
+      const have = event.categoryName?.trim().toLocaleLowerCase('sv-SE') ?? '';
+      return Boolean(want && have === want);
+    });
+  }, [activeCategoryId, activeCategoryName, events]);
 
-  usePrefetchPageImages(events, pagination.page, SEE_ALL_PAGE_SIZE, { resetKey: refreshNonce });
+  const pagination = usePaginatedList(
+    visibleEvents,
+    `${refreshNonce}-${activeCategoryId}-${activeCategoryName ?? ''}`
+  );
+
+  usePrefetchPageImages(visibleEvents, pagination.page, SEE_ALL_PAGE_SIZE, {
+    resetKey: `${refreshNonce}-${activeCategoryId}-${activeCategoryName ?? ''}`,
+  });
 
   const listHeader = useMemo(
     () => (
@@ -177,11 +206,20 @@ export function EventListScreen() {
           Evenemang
         </Text>
         <Text className="mt-1.5 text-sm" style={{ color: theme.textMuted, lineHeight: 20 }}>
-          Kommande aktiviteter och lokala evenemang
+          {activeCategoryName
+            ? `Kommande evenemang inom ${activeCategoryName}`
+            : 'Kommande aktiviteter och lokala evenemang'}
         </Text>
+        <CategoryFilterBar
+          selectedId={activeCategoryId}
+          onSelect={(id, label) => {
+            setActiveCategoryId(id);
+            setActiveCategoryName(label);
+          }}
+        />
       </View>
     ),
-    [theme.text, theme.textMuted]
+    [activeCategoryId, activeCategoryName, theme.text, theme.textMuted]
   );
 
   const listFooter = useMemo(
@@ -216,6 +254,8 @@ export function EventListScreen() {
               imagePriority={index < 6 ? 'high' : 'normal'}
             />
           )}
+          numColumns={2}
+          columnWrapperStyle={{ gap: SEE_ALL_COLUMN_GAP }}
           ListHeaderComponent={listHeader}
           ListFooterComponent={listFooter}
           contentContainerStyle={{
@@ -224,7 +264,7 @@ export function EventListScreen() {
             paddingBottom: insets.bottom + 24,
           }}
           ItemSeparatorComponent={ListItemSeparator}
-          initialNumToRender={6}
+          initialNumToRender={8}
           maxToRenderPerBatch={LIST_BATCH_SIZE}
           windowSize={7}
           removeClippedSubviews
@@ -237,7 +277,11 @@ export function EventListScreen() {
                 <ActivityIndicator color={theme.text} />
               </View>
             ) : (
-              <Text style={{ color: theme.textMuted }}>Inga evenemang just nu.</Text>
+              <Text style={{ color: theme.textMuted }}>
+                {activeCategoryName
+                  ? `Inga evenemang i ${activeCategoryName} just nu.`
+                  : 'Inga evenemang just nu.'}
+              </Text>
             )
           }
         />

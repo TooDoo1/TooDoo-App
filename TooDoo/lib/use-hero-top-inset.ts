@@ -22,8 +22,8 @@ function isIosWeb(): boolean {
 }
 
 function iosWebTopFallback(): number {
-  // Only home-screen PWAs need a hard fallback; in-browser Safari usually has env().
-  if (!isIosWeb() || !isStandaloneWebApp()) return 0;
+  // iOS Safari / Expo web often report 0 for env(safe-area) in the app shell.
+  if (!isIosWeb()) return 0;
   return 47;
 }
 

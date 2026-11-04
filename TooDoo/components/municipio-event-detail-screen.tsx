@@ -19,6 +19,7 @@ import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
 import { CardMedia } from '@/components/ui/card-media';
 import { IMAGE_DISPLAY_WIDTH } from '@/lib/image-url';
 import { OfferMap } from '@/components/ui/offer-map';
+import { useAuth } from '@/context/auth-context';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { navigateBackFromDetail } from '@/lib/detail-navigation';
 import { BrandColors, brandInkRgba, brandNavyRgba } from '@/lib/brand-colors';
@@ -27,6 +28,7 @@ import { buildGoogleMapsDirectionsUrl, buildGoogleMapsSearchUrl } from '@/lib/os
 import {
   fetchMunicipioEventById,
   formatMunicipioEventDateRange,
+  recordCachedEventClick,
   type MunicipioEventItem,
 } from '@/lib/municipio-events';
 import { uiTheme } from '@/lib/ui-theme';
@@ -56,6 +58,7 @@ function getEventRemainingMs(event: MunicipioEventItem, nowMs: number) {
 export function MunicipioEventDetailScreen() {
   const { mode: themeMode } = useThemePreference();
   const theme = uiTheme(themeMode);
+  const { isLoggedIn, authFetch } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
@@ -91,6 +94,9 @@ export function MunicipioEventDetailScreen() {
         const next = await fetchMunicipioEventById(eventId);
         if (!cancelled) {
           setEvent(next);
+          if (next?.id) {
+            recordCachedEventClick(next.id, { authFetch: isLoggedIn ? authFetch : undefined });
+          }
         }
       } catch {
         if (!cancelled) {
@@ -106,7 +112,7 @@ export function MunicipioEventDetailScreen() {
     return () => {
       cancelled = true;
     };
-  }, [eventId]);
+  }, [authFetch, eventId, isLoggedIn]);
 
   useEffect(() => {
     const timer = setInterval(() => {

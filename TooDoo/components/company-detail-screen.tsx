@@ -28,7 +28,6 @@ import { useThemePreference } from "@/context/theme-preference-context";
 import { uiTheme } from "@/lib/ui-theme";
 import { CardMedia } from "@/components/ui/card-media";
 import { BusinessOpeningHoursPanel } from "@/components/ui/business-opening-hours-panel";
-import { BusinessVoteControl } from "@/components/business-vote-control";
 import { schedulePrefetchImageUris } from "@/lib/image-prefetch";
 import { IMAGE_DISPLAY_WIDTH } from "@/lib/image-url";
 import { CompanyDetailTabBarSync } from "@/components/company-detail-tab-bar-sync";
@@ -316,7 +315,7 @@ export default function CompanyDetailScreen() {
       const clickId = resolvedBusinessIdRef.current;
       if (clickId && recordedClickIdRef.current !== clickId) {
         recordedClickIdRef.current = clickId;
-        recordBusinessProfileClick(clickId);
+        recordBusinessProfileClick(clickId, { authFetch });
       }
 
       setOrderImageUriById(result.images);
@@ -339,7 +338,7 @@ export default function CompanyDetailScreen() {
     return () => {
       cancelled = true;
     };
-  }, [claimBusinessIdText, businessIdFromIdParam, claimOrderIdText, realtimeRefreshNonce]);
+  }, [authFetch, claimBusinessIdText, businessIdFromIdParam, claimOrderIdText, realtimeRefreshNonce]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1135,10 +1134,6 @@ export default function CompanyDetailScreen() {
         ) : null}
       </View>
 
-      {resolvedBusinessId ? (
-        <BusinessVoteControl businessId={resolvedBusinessId} mode={mode} />
-      ) : null}
-
       <BusinessOpeningHoursPanel openingHours={hydratedBusiness?.openingHours} mode={mode} />
 
       {showOffersSection ? (
@@ -1418,7 +1413,7 @@ export default function CompanyDetailScreen() {
               style={{ backgroundColor: theme.primary }}
               onPress={() => setClaimSuccess(null)}
             >
-              <Text className="text-center font-medium" style={{ color: theme.isDark ? '#ffffff' : BrandColors.light.foreground }}>
+              <Text className="text-center font-medium" style={{ color: '#ffffff' }}>
                 Stäng
               </Text>
             </Pressable>

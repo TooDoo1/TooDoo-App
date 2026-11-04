@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { Alert, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useAuth } from '@/context/auth-context';
 import { useRealtimeSubscription } from '@/hooks/use-realtime-subscription';
@@ -10,9 +11,11 @@ import ClaimedOffers, { ConfettiAnimation, type ClaimedOfferItem } from '@/compo
 import { apiUrl, normalizeImageUrl } from '@/lib/api';
 import { StarrySkyScreenBackground } from '@/components/ui/starry-background';
 import { useThemePreference } from '@/context/theme-preference-context';
+import { brandInkRgba } from '@/lib/brand-colors';
 import { TAB_ACTIVE_COLORS } from '@/lib/tab-colors';
 import { uiTheme } from '@/lib/ui-theme';
 import { getRedeemCountdown } from '@/lib/order-claim-window';
+import { HOME_PAGE_PAD } from '@/components/home/home-feed';
 
 type ApiOrder = {
 	id?: string;
@@ -138,10 +141,12 @@ export default function MinaDealsScreen() {
 	const [claimsRealtimeNonce, setClaimsRealtimeNonce] = useState(0);
 	const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 	const router = useRouter();
+	const insets = useSafeAreaInsets();
 	const { isLoggedIn, token } = useAuth();
 	const { mode } = useThemePreference();
 	const theme = uiTheme(mode);
 	const visibleOffers = isLoggedIn ? claimedOffers : [];
+	const offersAccent = TAB_ACTIVE_COLORS.MinaDeals;
 
 	useRealtimeSubscription(
 		() => {
@@ -396,25 +401,77 @@ export default function MinaDealsScreen() {
 		<View className="flex-1" style={{ backgroundColor: theme.screenBg }}>
 			<StarrySkyScreenBackground variant={theme.isDark ? 'dark' : 'light'} />
 			<ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 160 }}>
-				<View className="px-6 pt-24 min-h-full">
-				<View className="flex-row items-center justify-center">
-					<Ionicons name="ticket" size={28} color={TAB_ACTIVE_COLORS.MinaDeals} />
-					<Text className="ml-2 text-3xl font-semibold" style={{ color: theme.text }}>
-						Mina Erbjudanden
-					</Text>
+				<View
+					style={{
+						minHeight: '100%',
+						paddingHorizontal: HOME_PAGE_PAD,
+						paddingTop: Math.max(insets.top + 20, 72),
+					}}
+				>
+				<View style={styles.hero}>
+					<Ionicons name="ticket" size={26} color={offersAccent} />
+					<View style={styles.heroCopy}>
+						<View style={styles.titleRow}>
+							<Text style={[styles.title, { color: theme.text }]}>Erbjudanden</Text>
+							{isLoggedIn && activeClaimCount > 0 ? (
+								<View
+									style={[
+										styles.countPill,
+										{
+											backgroundColor: brandInkRgba(theme.isDark ? 0.16 : 0.06),
+											borderColor: theme.border,
+										},
+									]}
+								>
+									<Text style={[styles.countText, { color: theme.textMuted }]}>
+										{activeClaimCount}
+									</Text>
+								</View>
+							) : null}
+						</View>
+						<Text style={[styles.subtitle, { color: theme.textMuted }]}>
+							{isLoggedIn
+								? activeClaimCount > 0
+									? 'Dina aktiva deals'
+									: 'Claima deals för att se dem här'
+								: 'Dina aktiva deals'}
+						</Text>
+					</View>
 				</View>
-				{/* <Text className="mt-2 text-center text-white/70">Här visas dina sparade deals.</Text> */}
 				{isLoggedIn ? (
 					<>
-						<Text className="mt-2 pt-4 text-xl text-center" style={{ color: theme.textMuted }}>
-							{activeClaimCount} aktiva erbjudanden
-						</Text>
 						{isLoadingClaims ? (
 							<View className="mt-4 rounded-2xl px-4 py-4" style={{ backgroundColor: theme.cardBg }}>
 								<Text className="text-center" style={{ color: theme.textMuted }}>Uppdaterar dina claimade erbjudanden...</Text>
 							</View>
+						) : visibleOffers.length === 0 ? (
+							<View style={styles.emptyState}>
+								<Ionicons
+									name="ticket-outline"
+									size={42}
+									color={offersAccent}
+									style={{ opacity: 0.85 }}
+								/>
+								<Text style={[styles.emptyTitle, { color: theme.text }]}>
+									Inga erbjudanden ännu
+								</Text>
+								<Text style={[styles.emptyText, { color: theme.textMuted }]}>
+									Claima deals ute i appen så dyker de upp här.
+								</Text>
+								<Pressable
+									onPress={() => router.push('/')}
+									style={({ pressed }) => [
+										styles.ctaSolid,
+										{ opacity: pressed ? 0.88 : 1 },
+									]}
+								>
+									<Text style={styles.ctaSolidLabel}>Utforska</Text>
+								</Pressable>
+							</View>
 						) : (
-							<ClaimedOffers items={visibleOffers} scrollEnabled={false} />
+							<View style={{ marginTop: 18 }}>
+								<ClaimedOffers items={visibleOffers} scrollEnabled={false} />
+							</View>
 						)}
 
 						{hasWorkerAccess ? (
@@ -476,7 +533,7 @@ export default function MinaDealsScreen() {
 											backgroundColor:
 												manualCode.trim() && !isValidating
 													? theme.accentGreen
-													: (theme.isDark ? 'rgba(255, 155, 70, 0.40)' : 'rgba(186, 219, 194, 0.40)'),
+													: (theme.isDark ? 'rgba(255, 155, 70, 0.40)' : 'rgba(47, 158, 98, 0.40)'),
 										}}
 										disabled={!manualCode.trim() || isValidating}
 										onPress={async () => {
@@ -520,13 +577,27 @@ export default function MinaDealsScreen() {
 						) : null}
 					</>
 				) : (
-					<View className="mt-8 px-4">
-						<Text className="mb-4 text-center" style={{ color: theme.textMuted }}>Logga in för att se dina claimade erbjudanden.</Text>
+					<View style={styles.emptyState}>
+						<Ionicons
+							name="ticket-outline"
+							size={42}
+							color={offersAccent}
+							style={{ opacity: 0.85 }}
+						/>
+						<Text style={[styles.emptyTitle, { color: theme.text }]}>
+							Säkra deals du gillar
+						</Text>
+						<Text style={[styles.emptyText, { color: theme.textMuted }]}>
+							Logga in så sparas dina claimade erbjudanden här.
+						</Text>
 						<Pressable
 							onPress={() => router.push('/(tabs)/Loggain')}
-							className="rounded-xl bg-[#ff3b30] px-4 py-3"
+							style={({ pressed }) => [
+								styles.ctaSolid,
+								{ opacity: pressed ? 0.88 : 1 },
+							]}
 						>
-							<Text className="text-center font-semibold text-white">Logga in för att säkra erbjudanden!</Text>
+							<Text style={styles.ctaSolidLabel}>Logga in</Text>
 						</Pressable>
 					</View>
 				)}
@@ -567,3 +638,84 @@ export default function MinaDealsScreen() {
 		</View>
 	);
 }
+
+const styles = StyleSheet.create({
+	hero: {
+		flexDirection: 'row',
+		alignItems: 'center',
+		gap: 10,
+		marginBottom: 8,
+	},
+	heroCopy: {
+		flex: 1,
+		minWidth: 0,
+	},
+	titleRow: {
+		flexDirection: 'row',
+		alignItems: 'center',
+		gap: 8,
+	},
+	title: {
+		fontSize: 28,
+		fontWeight: '800',
+		letterSpacing: -0.8,
+		lineHeight: 32,
+	},
+	countPill: {
+		minWidth: 28,
+		height: 24,
+		paddingHorizontal: 8,
+		borderRadius: 999,
+		borderWidth: StyleSheet.hairlineWidth,
+		alignItems: 'center',
+		justifyContent: 'center',
+	},
+	countText: {
+		fontSize: 12,
+		fontWeight: '700',
+		letterSpacing: -0.1,
+	},
+	subtitle: {
+		marginTop: 4,
+		fontSize: 14,
+		fontWeight: '500',
+		letterSpacing: -0.1,
+		lineHeight: 18,
+	},
+	emptyState: {
+		marginTop: 56,
+		alignItems: 'center',
+		paddingHorizontal: 18,
+		gap: 10,
+	},
+	emptyTitle: {
+		marginTop: 6,
+		fontSize: 18,
+		fontWeight: '700',
+		letterSpacing: -0.35,
+		textAlign: 'center',
+	},
+	emptyText: {
+		fontSize: 14,
+		fontWeight: '500',
+		lineHeight: 20,
+		letterSpacing: -0.1,
+		textAlign: 'center',
+		maxWidth: 280,
+	},
+	ctaSolid: {
+		marginTop: 10,
+		alignSelf: 'center',
+		borderRadius: 12,
+		backgroundColor: '#ff3b30',
+		paddingHorizontal: 22,
+		paddingVertical: 12,
+	},
+	ctaSolidLabel: {
+		color: '#ffffff',
+		fontSize: 15,
+		fontWeight: '700',
+		letterSpacing: -0.1,
+		textAlign: 'center',
+	},
+});

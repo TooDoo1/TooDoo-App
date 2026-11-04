@@ -16,6 +16,10 @@ export type OfferCardItem = {
   /** All assigned category ids (primary + secondary). Used for multi-tag filtering. */
   categoryIds?: string[];
   categoryName?: string;
+  /** All assigned category labels when a business has more than one. */
+  categoryNames?: string[];
+  /** Hidden cuisine/type label from business.subcategory (e.g. Pizza, Kebab). */
+  subcategoryName?: string;
   deal?: boolean;
   orderIds?: string[];
   erbjudandepris?: number | string[];
@@ -32,14 +36,24 @@ export type OfferCardItem = {
   erbjudandemängd?: number | string[];
   erbjudandelängd?: string | string[];
   distanceKm?: number;
+  /** Raw business opening-hours payload (normalized at display time). */
+  openingHours?: unknown;
   /** Per-offer image URIs used when expanding one business card into many offers. */
   orderImageUris?: string[];
   /**
-   * Unified search may return cached public events (`type: "event"`).
-   * When `resultKind === 'event'`, `id` is the `cached_event` surrogate id.
+   * Unified search / for-you/now may return events (`type: "event"`).
+   * Cached public events use `cached_event` id; `BUSINESS` uses `business_event` id.
    */
   resultKind?: 'business' | 'event';
-  eventSource?: 'MUNICIPIO' | 'VISIT_SWEDEN';
+  eventSource?: 'MUNICIPIO' | 'VISIT_SWEDEN' | 'BUSINESS';
+};
+
+type ApiBusinessCategory = {
+  id?: string;
+  _id?: string;
+  name?: string;
+  icon?: string;
+  subcategories?: Array<{ id?: string; name?: string; slug?: string | null } | string>;
 };
 
 type ApiBusiness = {
@@ -54,12 +68,40 @@ type ApiBusiness = {
   imageUrl?: string;
   categoryId?: string;
   categoryName?: string;
-  categories?: Array<{ id?: string; _id?: string; name?: string } | string>;
+  categories?: Array<ApiBusinessCategory | string>;
   categoryIds?: string[];
   status?: string;
   latitude?: number;
   longitude?: number;
+  openingHours?: unknown;
+  category?: { id?: string; name?: string };
 };
+
+/**
+ * First subcategory label from the nested business shape:
+ * categories[].subcategories[] (parents only in categoryNames).
+ */
+export function resolveBusinessSubcategoryName(business: any): string | undefined {
+  const categories = Array.isArray(business?.categories) ? business.categories : [];
+  for (const category of categories) {
+    if (!category || typeof category !== 'object') continue;
+    const children = Array.isArray(category.subcategories) ? category.subcategories : [];
+    for (const child of children) {
+      if (typeof child === 'string' && child.trim()) return child.trim();
+      if (child && typeof child === 'object' && typeof child.name === 'string' && child.name.trim()) {
+        return child.name.trim();
+      }
+    }
+  }
+  // Legacy / search fallbacks
+  if (typeof business?.subcategory?.name === 'string' && business.subcategory.name.trim()) {
+    return business.subcategory.name.trim();
+  }
+  if (typeof business?.subcategoryName === 'string' && business.subcategoryName.trim()) {
+    return business.subcategoryName.trim();
+  }
+  return undefined;
+}
 
 function pickAt<T>(arr: T[] | undefined, index: number): T | undefined {
   if (!arr || arr.length === 0) return undefined;
@@ -113,6 +155,43 @@ export function resolveBusinessCategoryIds(business: any): string[] {
   push(business?.category);
 
   return ids;
+}
+
+/** Collect every category label on a business (arrays + primary + id map). */
+export function resolveBusinessCategoryNames(
+  business: any,
+  categoryNameById?: Map<string, string>
+): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+
+  const push = (raw: unknown) => {
+    let name = '';
+    if (typeof raw === 'string') name = raw.trim();
+    else if (raw && typeof raw === 'object' && typeof (raw as { name?: unknown }).name === 'string') {
+      name = String((raw as { name: string }).name).trim();
+    }
+    if (!name) return;
+    const key = name.toLocaleLowerCase('sv-SE');
+    if (seen.has(key)) return;
+    seen.add(key);
+    names.push(name);
+  };
+
+  if (Array.isArray(business?.categoryNames)) {
+    business.categoryNames.forEach(push);
+  }
+  if (Array.isArray(business?.categories)) {
+    business.categories.forEach(push);
+  }
+  push(business?.categoryName);
+  push(business?.category?.name);
+
+  for (const id of resolveBusinessCategoryIds(business)) {
+    push(categoryNameById?.get(id));
+  }
+
+  return names;
 }
 
 export function cardMatchesCategory(
@@ -251,6 +330,8 @@ export function mapApiOrderToCardItem(order: any, index: number): OfferCardItem 
     categoryId: categoryIds[0] ?? business?.categoryId ?? business?.category?.id,
     categoryIds,
     categoryName: business?.categoryName ?? business?.category?.name,
+    categoryNames: resolveBusinessCategoryNames(business),
+    subcategoryName: resolveBusinessSubcategoryName(business),
     deal: true,
     orderIds: [orderId],
     erbjudandepris: [String(order?.price ?? 0)],
@@ -269,6 +350,7 @@ export function mapApiOrderToCardItem(order: any, index: number): OfferCardItem 
     erbjudandeclaimade: [String(order?.claimedRedemptions ?? order?.claimedCount ?? 0)],
     erbjudandemängd: [String(order?.maxRedemptions ?? 0)],
     erbjudandelängd: [order?.orderTimeTo ?? ''],
+    openingHours: business?.openingHours,
   };
 }
 
@@ -402,6 +484,17 @@ function resolveCarouselCards(
   return applyCarouselMode(businessOfferCards, mode, limit);
 }
 
+/** Map catalog/API businesses into home cards (no order join). */
+export function cardsFromCatalogBusinesses(
+  businesses: ApiBusiness[] | unknown[],
+  options?: {
+    cachedImageUrlById?: Map<string, string>;
+    categoryNameById?: Map<string, string>;
+  }
+): OfferCardItem[] {
+  return buildBusinessCards(businesses as ApiBusiness[], new Map(), options);
+}
+
 function buildBusinessCards(
   approvedBusinesses: ApiBusiness[],
   ordersByBusinessId: Map<string, any[]>,
@@ -468,7 +561,10 @@ function buildBusinessCards(
       categoryIds: resolvedCategoryIds,
       categoryName:
         business.categoryName ??
+        business.category?.name ??
         (resolvedCategoryId ? options?.categoryNameById?.get(resolvedCategoryId) : undefined),
+      categoryNames: resolveBusinessCategoryNames(business, options?.categoryNameById),
+      subcategoryName: resolveBusinessSubcategoryName(business),
       deal: visibleOrders.length > 0,
       orderIds,
       erbjudandepris: offerPrices,
@@ -485,6 +581,7 @@ function buildBusinessCards(
       erbjudandemängd: offerAmount,
       erbjudandelängd: offerEnd,
       orderImageUris,
+      openingHours: (business as ApiBusiness).openingHours,
     };
   });
 }
@@ -601,7 +698,11 @@ export async function fetchOfferListCards(
   if (mode === 'hot') {
     // "Populärt just nu" only ever shows the top 10 fetched popular businesses.
     if (popularBusinesses.length > 0) {
-      return buildBusinessCards(popularBusinesses, ordersByBusinessId).slice(0, 10);
+      const enriched = enrichPopularBusinessesFromCatalog(
+        popularBusinesses,
+        approvedBusinesses as ApiBusiness[]
+      );
+      return buildBusinessCards(enriched, ordersByBusinessId).slice(0, 10);
     }
     return businessCards.slice(0, 10);
   }
@@ -689,9 +790,61 @@ function parsePopularBusinesses(json: unknown): ApiBusiness[] {
         raw.image?.publicUrl ??
         raw.image?.url ??
         undefined,
-    });
+      openingHours: raw.openingHours,
+      ...(raw.subcategoryName || raw.subcategory
+        ? {
+            subcategoryName: raw.subcategoryName,
+            subcategory: raw.subcategory,
+          }
+        : {}),
+    } as ApiBusiness);
   }
   return businesses;
+}
+
+/**
+ * Popular ranking payloads are often slim (no nested categories / hours).
+ * Overlay full catalog records while preserving popular order.
+ */
+function enrichPopularBusinessesFromCatalog(
+  popular: ApiBusiness[],
+  catalog: ApiBusiness[]
+): ApiBusiness[] {
+  if (popular.length === 0) return popular;
+  const byId = new Map<string, ApiBusiness>();
+  for (const business of catalog) {
+    const id = String(business?.id ?? business?._id ?? '').trim();
+    if (id) byId.set(id, business);
+  }
+  return popular.map((row) => {
+    const id = String(row?.id ?? row?._id ?? '').trim();
+    const full = id ? byId.get(id) : undefined;
+    if (!full) return row;
+    return {
+      ...full,
+      ...row,
+      // Prefer catalog fields that the popular endpoint often omits.
+      categories: Array.isArray(row.categories) && row.categories.length > 0
+        ? row.categories
+        : full.categories,
+      categoryIds:
+        Array.isArray(row.categoryIds) && row.categoryIds.length > 0
+          ? row.categoryIds
+          : full.categoryIds,
+      categoryId: row.categoryId ?? full.categoryId,
+      categoryName: row.categoryName ?? full.categoryName,
+      category: row.category ?? full.category,
+      openingHours: row.openingHours ?? full.openingHours,
+      imageUrl: row.imageUrl ?? full.imageUrl,
+      latitude: row.latitude ?? full.latitude,
+      longitude: row.longitude ?? full.longitude,
+      description: row.description ?? full.description,
+      contactPhone: row.contactPhone ?? full.contactPhone,
+      website: row.website ?? full.website,
+      address: row.address ?? full.address,
+      city: row.city ?? full.city,
+    };
+  });
 }
 
 /** Optimized home bootstrap — shared catalog cache, batched fan-out, parallel for-you APIs. */
@@ -701,6 +854,23 @@ export async function fetchHomeScreenData(options: {
 }): Promise<HomeScreenData> {
   const { token, coords } = options;
   const nowMs = Date.now();
+
+  // Fire every network request up front — the orders/popular/close calls do not
+  // depend on the catalogs, so overlapping them removes a full round-trip batch
+  // from location switches (the catalog refetch is the slowest call when stale).
+  const popularUrl = '/business/popular?take=10';
+  const closeUrl = coords
+    ? `/orders/for-you/close?take=10&lat=${coords.lat}&lng=${coords.lng}`
+    : '/orders/for-you/close?take=10';
+  const ordersPromise = fetch(apiUrl('/orders'))
+    .then((res) => res.json().catch(() => []))
+    .catch(() => []);
+  const popularPromise = fetch(apiUrl(popularUrl)).catch(() => null);
+  const closePromise = token
+    ? fetch(apiUrl(closeUrl), {
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => null)
+    : null;
 
   const [categoriesRaw, businessesRaw] = await Promise.all([
     fetchCategoriesCatalog(),
@@ -733,37 +903,25 @@ export async function fetchHomeScreenData(options: {
   let hotFromApi: OfferCardItem[] = [];
   let popularBusinesses: ApiBusiness[] = [];
 
-  const popularUrl = '/business/popular?take=10';
+  const [ordersJson, closeRes, popularRes] = await Promise.all([
+    ordersPromise,
+    closePromise,
+    popularPromise,
+  ]);
+
+  allOrdersRaw = mergeOrdersById(parseOrdersPayload(ordersJson), ordersFromBusinessList);
+
+  const popularJson =
+    popularRes && popularRes.ok ? await popularRes.json().catch(() => ({})) : {};
+  popularBusinesses = parsePopularBusinesses(popularJson);
 
   if (token) {
-    const authHeaders = { Authorization: `Bearer ${token}` };
-    const closeUrl = coords
-      ? `/orders/for-you/close?take=10&lat=${coords.lat}&lng=${coords.lng}`
-      : '/orders/for-you/close?take=10';
-
-    const [ordersJson, closeRes, popularRes] = await Promise.all([
-      fetch(apiUrl('/orders')).then((res) => res.json().catch(() => [])),
-      fetch(apiUrl(closeUrl), { headers: authHeaders }),
-      fetch(apiUrl(popularUrl)),
-    ]);
-
-    allOrdersRaw = mergeOrdersById(parseOrdersPayload(ordersJson), ordersFromBusinessList);
-
-    const closeJson = closeRes.ok ? await closeRes.json().catch(() => ({})) : {};
-    const popularJson = popularRes.ok ? await popularRes.json().catch(() => ({})) : {};
+    const closeJson =
+      closeRes && closeRes.ok ? await closeRes.json().catch(() => ({})) : {};
     nearYouFromApi = buildCatalogOfferCardsFlat(
       parseOrdersPayload(closeJson).filter((order) => isActiveOffer(order, nowMs)),
       approvedBusinessesEarly
     );
-    popularBusinesses = parsePopularBusinesses(popularJson);
-  } else {
-    const [ordersJson, popularRes] = await Promise.all([
-      fetch(apiUrl('/orders')).then((res) => res.json().catch(() => [])),
-      fetch(apiUrl(popularUrl)),
-    ]);
-    allOrdersRaw = mergeOrdersById(parseOrdersPayload(ordersJson), ordersFromBusinessList);
-    const popularJson = popularRes.ok ? await popularRes.json().catch(() => ({})) : {};
-    popularBusinesses = parsePopularBusinesses(popularJson);
   }
 
   const activeCount = allOrdersRaw.filter((order) => isActiveOffer(order, nowMs)).length;
@@ -820,8 +978,13 @@ export async function fetchHomeScreenData(options: {
   }
 
   if (popularBusinesses.length > 0) {
-    // Build cards from the popular endpoint payload in API rank order.
-    hotFromApi = buildBusinessCards(popularBusinesses, ordersByBusinessId, {
+    // Build cards from popular rank order, enriched with full catalog fields
+    // (subcategory + opening hours are often missing from /business/popular).
+    const enrichedPopular = enrichPopularBusinessesFromCatalog(
+      popularBusinesses,
+      approvedBusinessesEarly
+    );
+    hotFromApi = buildBusinessCards(enrichedPopular, ordersByBusinessId, {
       cachedImageUrlById,
       categoryNameById,
     }).slice(0, 10);

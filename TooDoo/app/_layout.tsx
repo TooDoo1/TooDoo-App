@@ -22,6 +22,7 @@ import { TabBarStackMotionReset } from '@/components/tab-bar-stack-motion-reset'
 import { useStandalonePwa } from '@/lib/use-standalone-pwa';
 import { WebStackEdgeSwipeBack } from '@/components/web-stack-edge-swipe-back';
 import { WebHistoryBackSync } from '@/components/web-history-back-sync';
+import { HelloGreetingOverlay } from '@/components/hello-greeting-overlay';
 import LightningIntroSplash, { SPLASH_EXIT_DURATION_MS } from '@/components/ui/lightning-intro-splash';
 import { LegalConsentOverlay } from '@/components/ui/legal-consent-overlay';
 import { OnboardingOverlay } from '@/components/ui/onboarding-overlay';
@@ -123,7 +124,9 @@ function AppShell() {
 		document.documentElement.style.setProperty('--app-bg', theme.screenBg);
 		document.documentElement.style.backgroundColor = theme.screenBg;
 		document.body.style.backgroundColor = theme.screenBg;
-	}, [theme.screenBg]);
+		document.documentElement.classList.toggle('dark', theme.isDark);
+		document.documentElement.classList.toggle('light', !theme.isDark);
+	}, [theme.screenBg, theme.isDark]);
 
 	useEffect(() => {
 		SplashScreen.hideAsync().catch(() => {});
@@ -236,6 +239,9 @@ function AppShell() {
 						</Stack>
 						</View>
 						{showTabBar ? <RootFloatingTabBarOverlay /> : null}
+						<HelloGreetingOverlay
+							ready={!isSplashMounted && !showLegalConsent && !showOnboarding}
+						/>
 						<StatusBar style={effectiveScheme === 'dark' ? 'light' : 'dark'} />
 						{isSplashMounted ? (
 							<View

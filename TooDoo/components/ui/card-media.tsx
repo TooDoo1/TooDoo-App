@@ -33,6 +33,7 @@ type CardMediaProps = {
   priority?: 'low' | 'normal' | 'high';
   /** Request a CDN variant matched to on-screen width (e.g. 168 for list cards). */
   displayWidth?: number;
+  cachePolicy?: 'none' | 'disk' | 'memory' | 'memory-disk';
 };
 
 function CardMediaComponent({
@@ -41,6 +42,7 @@ function CardMediaComponent({
   svgFit = 'fill',
   priority = 'normal',
   displayWidth,
+  cachePolicy,
 }: CardMediaProps) {
   const uri = extractUri(source);
   const isSvg = Boolean(uri && isSvgUrl(uri));
@@ -75,7 +77,7 @@ function CardMediaComponent({
         contentFit={contentFit}
         style={styles.container}
         contentPosition="top center"
-        cachePolicy={Platform.OS === 'web' ? 'disk' : 'memory-disk'}
+        cachePolicy={cachePolicy ?? (Platform.OS === 'web' ? 'disk' : 'memory-disk')}
         priority={priority}
         allowDownscaling
         transition={Platform.OS === 'web' || isSvg ? 0 : 120}
@@ -91,7 +93,8 @@ function cardMediaPropsAreEqual(prev: CardMediaProps, next: CardMediaProps) {
     prev.rasterResizeMode === next.rasterResizeMode &&
     prev.svgFit === next.svgFit &&
     prev.priority === next.priority &&
-    prev.displayWidth === next.displayWidth
+    prev.displayWidth === next.displayWidth &&
+    prev.cachePolicy === next.cachePolicy
   );
 }
 

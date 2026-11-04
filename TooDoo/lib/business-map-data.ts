@@ -1,8 +1,15 @@
 import { apiUrl, normalizeImageUrl } from '@/lib/api';
-import { fetchApprovedBusinessesCatalog, fetchCategoriesCatalog } from '@/lib/catalog-cache';
+import { searchCatalog } from '@/lib/catalog-search';
 import { fetchBusinessEvents } from '@/lib/business-events';
-import { haversineKm, isPlausibleSwedenCoordinate, type Coords } from '@/lib/geo';
+import {
+  geocodeAddressCached,
+  haversineKm,
+  isPlausibleSwedenCoordinate,
+  type Coords,
+} from '@/lib/geo';
 import { resolveBusinessCategoryIds } from '@/lib/home-offers';
+import { fetchApprovedBusinessesCatalog, fetchCategoriesCatalog } from '@/lib/catalog-cache';
+import { rememberCategories } from '@/lib/category-colors';
 import {
   getHomeNearbyBusinessesCache,
   peekHomeNearbyBusinessesCache,
@@ -18,23 +25,183 @@ import {
 /** Default map center — Helsingborg city (slightly inland so the coast isn’t the middle). */
 export const MAP_DEFAULT_CENTER = { lat: 56.0465, lng: 12.715 } as const;
 
-/** Show at most this many pins at once — the 10 closest to the view center. */
+/** Show at most this many pins when zoomed out — the closest to the view center. */
 export const MAP_MAX_PINS = 10;
+
+/** When the view is street-level, show every on-screen company up to this. */
+export const MAP_MAX_PINS_ZOOMED = 48;
+
+function pinBudgetForBounds(bounds: MapViewBounds | null, base = MAP_MAX_PINS): number {
+  if (!bounds) return base;
+  const midLat = (bounds.north + bounds.south) / 2;
+  const latKm = Math.abs(bounds.north - bounds.south) * 111.32;
+  const lngKm =
+    Math.abs(bounds.east - bounds.west) * 111.32 * Math.cos((midLat * Math.PI) / 180);
+  const spanKm = Math.max(latKm, lngKm);
+  if (spanKm <= 1.4) return MAP_MAX_PINS_ZOOMED;
+  if (spanKm <= 3) return 28;
+  if (spanKm <= 6) return 16;
+  return base;
+}
 
 /** Filter map businesses by free-text search (name, address, category). */
 export function filterBusinessesByQuery(
   businesses: MapBusiness[],
   query: string
 ): MapBusiness[] {
-  const q = query.trim().toLowerCase();
+  const q = query.trim().toLocaleLowerCase('sv-SE');
   if (!q) return businesses;
   return businesses.filter((b) => {
     const haystack = [b.name, b.address, b.categoryName, b.description]
       .filter(Boolean)
       .join(' ')
-      .toLowerCase();
+      .toLocaleLowerCase('sv-SE');
     return haystack.includes(q);
   });
+}
+
+function mergeMapBusiness(primary: MapBusiness | undefined, next: MapBusiness) {
+  if (!primary) return next;
+  if (hasMapPinCoords(next) && !hasMapPinCoords(primary)) {
+    return {
+      ...next,
+      categoryName: next.categoryName || primary.categoryName,
+      categoryId: next.categoryId || primary.categoryId,
+      categoryIcon: next.categoryIcon || primary.categoryIcon,
+    };
+  }
+  return {
+    ...primary,
+    ...next,
+    latitude: hasMapPinCoords(next) ? next.latitude : primary.latitude,
+    longitude: hasMapPinCoords(next) ? next.longitude : primary.longitude,
+    pendingGeocode: hasMapPinCoords(next) ? false : primary.pendingGeocode && next.pendingGeocode,
+    categoryName: next.categoryName || primary.categoryName,
+    categoryId: next.categoryId || primary.categoryId,
+    categoryIcon: next.categoryIcon || primary.categoryIcon,
+  };
+}
+
+/** Search the live catalog (same as home search), then geocode hits so they can pin. */
+export async function searchMapBusinesses(
+  query: string,
+  known: MapBusiness[],
+  coords: Coords | null
+): Promise<MapBusiness[]> {
+  const q = query.trim();
+  if (q.length < 2) return known;
+
+  const local = filterBusinessesByQuery(known, q);
+  const byId = new Map(local.map((item) => [item.id, item]));
+
+  try {
+    const cards = await searchCatalog(q, { take: 24, maxHydrate: 16 });
+    for (const card of cards) {
+      if (card.resultKind === 'event') continue;
+      const existing = known.find((item) => item.id === card.id) ?? byId.get(card.id);
+      if (existing && hasMapPinCoords(existing)) {
+        byId.set(card.id, existing);
+        continue;
+      }
+
+      const address =
+        card.Adress && card.Adress !== 'Adress saknas' ? card.Adress : existing?.address ?? '';
+      let latitude = existing?.latitude ?? card.latitude ?? Number.NaN;
+      let longitude = existing?.longitude ?? card.longitude ?? Number.NaN;
+      let pendingGeocode = !isPlausibleSwedenCoordinate(latitude, longitude);
+
+      if (pendingGeocode && address) {
+        const geo = await geocodeAddressCached(address);
+        if (geo) {
+          latitude = geo.lat;
+          longitude = geo.lng;
+          pendingGeocode = false;
+        }
+      }
+
+      const next: MapBusiness = {
+        id: card.id,
+        name: card.title,
+        imageUri: card.image?.uri || existing?.imageUri,
+        address,
+        description: card.kortbeskrivning || existing?.description,
+        latitude,
+        longitude,
+        distanceKm:
+          !pendingGeocode && coords
+            ? haversineKm(coords.lat, coords.lng, latitude, longitude)
+            : existing?.distanceKm ?? card.distanceKm,
+        categoryName: card.categoryName || existing?.categoryName,
+        categoryId: card.categoryId || existing?.categoryId,
+        hasEvent: existing?.hasEvent,
+        hasOffer: existing?.hasOffer ?? Boolean(card.deal),
+        pendingGeocode,
+      };
+      byId.set(card.id, mergeMapBusiness(existing, next));
+    }
+  } catch {
+    // Keep local matches if catalog search fails.
+  }
+
+  if (byId.size === 0) {
+    try {
+      const raw = parseBusinesses(await fetchApprovedBusinessesCatalog());
+      const needle = q.toLocaleLowerCase('sv-SE');
+      for (const business of raw) {
+        const id = String(business?.id ?? business?._id ?? '');
+        if (!id) continue;
+        const name = String(business?.name ?? business?.title ?? '').trim();
+        const address = [business?.address, business?.city].filter(Boolean).join(', ');
+        const haystack = `${name} ${address}`.toLocaleLowerCase('sv-SE');
+        if (!haystack.includes(needle)) continue;
+        const parsed = parseLatLng(business);
+        let latitude = parsed?.lat ?? Number.NaN;
+        let longitude = parsed?.lng ?? Number.NaN;
+        let pendingGeocode = !parsed;
+        if (pendingGeocode && address) {
+          const geo = await geocodeAddressCached(address);
+          if (geo) {
+            latitude = geo.lat;
+            longitude = geo.lng;
+            pendingGeocode = false;
+          }
+        }
+        byId.set(id, {
+          id,
+          name: name || 'Företag',
+          imageUri: pickImageUri(business),
+          address,
+          description: typeof business?.description === 'string' ? business.description : '',
+          latitude,
+          longitude,
+          distanceKm:
+            !pendingGeocode && coords
+              ? haversineKm(coords.lat, coords.lng, latitude, longitude)
+              : undefined,
+          categoryName: pickCategoryName(business),
+          categoryId: resolveBusinessCategoryIds(business)[0],
+          categoryIcon: pickCategoryIcon(business),
+          pendingGeocode,
+        });
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return [...byId.values()];
+}
+
+export function mergeSearchHitsIntoMapBusinesses(
+  known: MapBusiness[],
+  hits: MapBusiness[]
+): MapBusiness[] {
+  if (hits.length === 0) return known;
+  const byId = new Map(known.map((item) => [item.id, item]));
+  for (const hit of hits) {
+    byId.set(hit.id, mergeMapBusiness(byId.get(hit.id), hit));
+  }
+  return [...byId.values()];
 }
 
 export type MapViewBounds = {
@@ -45,12 +212,11 @@ export type MapViewBounds = {
 };
 
 /**
- * Pick the businesses to render for the current viewport: everything inside
- * the (slightly padded) bounds, closest to the view center first, capped.
+ * Pick the businesses to render for the current viewport.
  *
- * `keepIds` (the previously rendered pins) get priority while still in view,
- * so small pans don't constantly swap markers in and out — recreating marker
- * DOM and reloading pin images on every move is a major lag source.
+ * Companies actually on screen are preferred. The 10-pin cap only applies when
+ * zoomed out; a tight zoom shows every company in view so a known place
+ * doesn't vanish because it wasn't among the closest ten to the center.
  */
 export function filterBusinessesForViewport(
   businesses: MapBusiness[],
@@ -58,39 +224,50 @@ export function filterBusinessesForViewport(
   maxPins = MAP_MAX_PINS,
   keepIds?: ReadonlySet<string>
 ): MapBusiness[] {
-  let centerLat = MAP_DEFAULT_CENTER.lat;
-  let centerLng = MAP_DEFAULT_CENTER.lng;
-  let inView = businesses;
+  const cap = pinBudgetForBounds(bounds, maxPins);
 
-  if (bounds) {
-    const padLat = (bounds.north - bounds.south) * 0.1;
-    const padLng = (bounds.east - bounds.west) * 0.1;
-    inView = businesses.filter(
-      (b) =>
-        b.latitude >= bounds.south - padLat &&
-        b.latitude <= bounds.north + padLat &&
-        b.longitude >= bounds.west - padLng &&
-        b.longitude <= bounds.east + padLng
-    );
-    centerLat = (bounds.north + bounds.south) / 2;
-    centerLng = (bounds.east + bounds.west) / 2;
+  if (!bounds) {
+    return businesses.slice(0, cap);
   }
 
-  if (inView.length <= maxPins) return inView;
+  const padLat = (bounds.north - bounds.south) * 0.02;
+  const padLng = (bounds.east - bounds.west) * 0.02;
+  const inView = businesses.filter(
+    (b) =>
+      b.latitude >= bounds.south - padLat &&
+      b.latitude <= bounds.north + padLat &&
+      b.longitude >= bounds.west - padLng &&
+      b.longitude <= bounds.east + padLng
+  );
 
+  if (inView.length <= cap) return inView;
+
+  const centerLat = (bounds.north + bounds.south) / 2;
+  const centerLng = (bounds.east + bounds.west) / 2;
   const byDistance = [...inView].sort(
     (a, b) =>
       haversineKm(centerLat, centerLng, a.latitude, a.longitude) -
       haversineKm(centerLat, centerLng, b.latitude, b.longitude)
   );
 
-  if (!keepIds || keepIds.size === 0) return byDistance.slice(0, maxPins);
+  const closest = byDistance.slice(0, cap);
+  if (!keepIds || keepIds.size === 0) return closest;
 
-  const kept = byDistance.filter((b) => keepIds.has(b.id)).slice(0, maxPins);
-  if (kept.length >= maxPins) return kept;
-  const keptIds = new Set(kept.map((b) => b.id));
-  const fill = byDistance.filter((b) => !keptIds.has(b.id));
-  return [...kept, ...fill.slice(0, maxPins - kept.length)];
+  const slack = 2;
+  const holdovers = byDistance
+    .slice(cap, cap + slack)
+    .filter((b) => keepIds.has(b.id));
+  if (holdovers.length === 0) return closest;
+
+  const result = [...closest];
+  let holdIdx = 0;
+  const cutoff = Math.max(0, result.length - slack);
+  for (let i = result.length - 1; i >= cutoff && holdIdx < holdovers.length; i--) {
+    if (!keepIds.has(result[i].id)) {
+      result[i] = holdovers[holdIdx++];
+    }
+  }
+  return result;
 }
 
 export type MapBusiness = {
@@ -103,8 +280,12 @@ export type MapBusiness = {
   longitude: number;
   distanceKm?: number;
   categoryName?: string;
+  categoryId?: string;
+  categoryIcon?: string;
   hasEvent?: boolean;
   hasOffer?: boolean;
+  /** Address is known but coordinates are still being geocoded. */
+  pendingGeocode?: boolean;
 };
 
 function parseBusinesses(json: unknown): any[] {
@@ -126,15 +307,45 @@ function pickImageUri(business: any): string | undefined {
   return normalizeImageUrl(raw) ?? undefined;
 }
 
+function asNumber(value: unknown): number {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string' && value.trim()) return Number(value);
+  return NaN;
+}
+
 function parseLatLng(business: any): { lat: number; lng: number } | null {
-  const lat = typeof business?.latitude === 'number' ? business.latitude : Number(business?.latitude);
-  const lng = typeof business?.longitude === 'number' ? business.longitude : Number(business?.longitude);
-  if (isPlausibleSwedenCoordinate(lat, lng)) {
-    return { lat, lng };
+  const pairs: Array<{ lat: number; lng: number }> = [];
+  const lat = asNumber(
+    business?.latitude ?? business?.lat ?? business?.geoLat ?? business?.geo?.lat
+  );
+  const lng = asNumber(
+    business?.longitude ??
+      business?.lng ??
+      business?.lon ??
+      business?.long ??
+      business?.geoLng ??
+      business?.geo?.lng ??
+      business?.geo?.lon
+  );
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    pairs.push({ lat, lng });
   }
-  // Some records store lon/lat swapped — try the reverse once.
-  if (isPlausibleSwedenCoordinate(lng, lat)) {
-    return { lat: lng, lng: lat };
+
+  const point =
+    business?.location?.coordinates ??
+    business?.geometry?.coordinates ??
+    business?.position?.coordinates ??
+    business?.geo?.coordinates;
+  if (Array.isArray(point) && point.length >= 2) {
+    const first = asNumber(point[0]);
+    const second = asNumber(point[1]);
+    // GeoJSON is [lng, lat]; also try the reverse if fields were stored swapped.
+    pairs.push({ lat: second, lng: first });
+    pairs.push({ lat: first, lng: second });
+  }
+
+  for (const pair of pairs) {
+    if (isPlausibleSwedenCoordinate(pair.lat, pair.lng)) return pair;
   }
   return null;
 }
@@ -159,9 +370,18 @@ export function cardToMapBusiness(card: NearbyBusinessCard): MapBusiness | null 
     longitude,
     distanceKm: card.distanceKm,
     categoryName: card.categoryName,
+    categoryId: card.categoryId,
     hasEvent: card.hasEvent,
     hasOffer: card.hasOffer,
   };
+}
+
+function pickCategoryIcon(business: any): string | undefined {
+  const icon =
+    business?.category?.icon ??
+    (Array.isArray(business?.categories) ? business.categories[0]?.icon : undefined) ??
+    business?.categoryIcon;
+  return typeof icon === 'string' && icon.trim() ? icon.trim() : undefined;
 }
 
 function pickCategoryName(business: any): string | undefined {
@@ -171,9 +391,14 @@ function pickCategoryName(business: any): string | undefined {
   if (typeof business?.category?.name === 'string' && business.category.name.trim()) {
     return business.category.name.trim();
   }
+  if (Array.isArray(business?.categoryNames)) {
+    const named = business.categoryNames.find(
+      (value: unknown) => typeof value === 'string' && value.trim()
+    );
+    if (named) return String(named).trim();
+  }
   if (Array.isArray(business?.categories) && business.categories[0]) {
     const first = business.categories[0];
-    if (typeof first === 'string' && first.trim()) return first.trim();
     if (typeof first?.name === 'string' && first.name.trim()) return first.name.trim();
   }
   return undefined;
@@ -205,7 +430,45 @@ async function loadActivitySets(): Promise<{
   return { eventIds, offerIds };
 }
 
-export async function loadMapBusinesses(coords: Coords | null): Promise<MapBusiness[]> {
+const GEOCODE_CONCURRENCY = 4;
+
+function sortMapBusinesses(list: MapBusiness[]) {
+  return [...list].sort((a, b) => {
+    if (a.pendingGeocode && !b.pendingGeocode) return 1;
+    if (!a.pendingGeocode && b.pendingGeocode) return -1;
+    return (a.distanceKm ?? Number.POSITIVE_INFINITY) - (b.distanceKm ?? Number.POSITIVE_INFINITY);
+  });
+}
+
+function toNearbyCard(item: MapBusiness): NearbyBusinessCard {
+  return {
+    id: item.id,
+    title: item.name,
+    image: { uri: item.imageUri ?? '' },
+    Adress: item.address,
+    kortbeskrivning: item.description,
+    långbeskrivning: item.description,
+    latitude: item.latitude,
+    longitude: item.longitude,
+    distanceKm: item.distanceKm,
+    categoryName: item.categoryName,
+    categoryId: item.categoryId,
+    hasEvent: item.hasEvent,
+    hasOffer: item.hasOffer,
+  };
+}
+
+export function hasMapPinCoords(business: MapBusiness) {
+  return (
+    !business.pendingGeocode &&
+    isPlausibleSwedenCoordinate(business.latitude, business.longitude)
+  );
+}
+
+export async function loadMapBusinesses(
+  coords: Coords | null,
+  onUpdate?: (businesses: MapBusiness[]) => void
+): Promise<MapBusiness[]> {
   const activityPromise = loadActivitySets();
 
   try {
@@ -216,8 +479,6 @@ export async function loadMapBusinesses(coords: Coords | null): Promise<MapBusin
     const { eventIds, offerIds } = await activityPromise;
     const raw = parseBusinesses(json);
 
-    // Businesses store category ids — resolve names via the categories catalog
-    // (same as the home screen) so pin colors match the category chips.
     const categoryNameById = new Map<string, string>();
     (categoriesRaw as any[]).forEach((category) => {
       const id = category?.id ?? category?._id;
@@ -225,60 +486,99 @@ export async function loadMapBusinesses(coords: Coords | null): Promise<MapBusin
         categoryNameById.set(String(id), category.name.trim());
       }
     });
-    const nextCards: NearbyBusinessCard[] = [];
-    const mapped: MapBusiness[] = [];
+
+    rememberCategories(categoriesRaw as unknown[]);
+    rememberCategories(
+      raw.flatMap((b) => [
+        b?.category,
+        ...(Array.isArray(b?.categories) ? b.categories : []),
+      ])
+    );
+
+    const ready: MapBusiness[] = [];
+    const pending: MapBusiness[] = [];
 
     for (const b of raw) {
       const id = String(b?.id ?? b?._id ?? '');
       if (!id) continue;
-      const parsed = parseLatLng(b);
-      if (!parsed) continue;
-      const { lat, lng } = parsed;
       const name = String(b?.name ?? b?.title ?? 'Företag').trim() || 'Företag';
       const address = [b?.address, b?.city].filter(Boolean).join(', ') || '';
       const description = typeof b?.description === 'string' ? b.description : '';
       const categoryName =
         pickCategoryName(b) ??
         categoryNameById.get(resolveBusinessCategoryIds(b)[0] ?? '');
-      const distanceKm =
-        coords != null ? haversineKm(coords.lat, coords.lng, lat, lng) : undefined;
+      const categoryId = resolveBusinessCategoryIds(b)[0];
+      const categoryIcon = pickCategoryIcon(b);
       const imageUri = pickImageUri(b);
       const hasEvent = eventIds.has(id);
       const hasOffer = offerIds.has(id);
-      mapped.push({
+      const parsed = parseLatLng(b);
+      const base = {
         id,
         name,
         imageUri,
         address,
         description,
-        latitude: lat,
-        longitude: lng,
-        distanceKm,
         categoryName,
+        categoryId,
+        categoryIcon,
         hasEvent,
         hasOffer,
-      });
-      nextCards.push({
-        id,
-        title: name,
-        image: { uri: imageUri ?? '' },
-        Adress: address,
-        kortbeskrivning: description,
-        långbeskrivning: description,
-        latitude: lat,
-        longitude: lng,
-        distanceKm,
-        categoryName,
-        hasEvent,
-        hasOffer,
-      });
+      };
+
+      if (parsed) {
+        ready.push({
+          ...base,
+          latitude: parsed.lat,
+          longitude: parsed.lng,
+          distanceKm:
+            coords != null
+              ? haversineKm(coords.lat, coords.lng, parsed.lat, parsed.lng)
+              : undefined,
+        });
+      } else if (address.trim()) {
+        pending.push({
+          ...base,
+          latitude: Number.NaN,
+          longitude: Number.NaN,
+          pendingGeocode: true,
+        });
+      }
     }
 
-    if (nextCards.length > 0) {
-      setHomeNearbyBusinessesCache(nextCards);
+    let current = sortMapBusinesses([...ready, ...pending]);
+    onUpdate?.(current);
+
+    for (let i = 0; i < pending.length; i += GEOCODE_CONCURRENCY) {
+      const batch = pending.slice(i, i + GEOCODE_CONCURRENCY);
+      const resolved = await Promise.all(
+        batch.map(async (item) => {
+          const geo = await geocodeAddressCached(item.address);
+          if (!geo) return item;
+          return {
+            ...item,
+            latitude: geo.lat,
+            longitude: geo.lng,
+            pendingGeocode: false,
+            distanceKm:
+              coords != null
+                ? haversineKm(coords.lat, coords.lng, geo.lat, geo.lng)
+                : undefined,
+          };
+        })
+      );
+      const byId = new Map(current.map((item) => [item.id, item]));
+      resolved.forEach((item) => byId.set(item.id, item));
+      current = sortMapBusinesses([...byId.values()]);
+      onUpdate?.(current);
     }
-    if (mapped.length > 0) {
-      return mapped.sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0));
+
+    const pinCards = current.filter(hasMapPinCoords).map(toNearbyCard);
+    if (pinCards.length > 0) {
+      setHomeNearbyBusinessesCache(pinCards);
+    }
+    if (current.some(hasMapPinCoords)) {
+      return current;
     }
   } catch {
     // fall through to cache

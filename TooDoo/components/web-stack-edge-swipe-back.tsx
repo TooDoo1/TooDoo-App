@@ -208,9 +208,14 @@ const STACK_SWIPE_SURFACE = BrandColors.dark.background;
 
 function WebStackSwipeContainerWeb({ children }: { children: ReactNode }) {
   const { translateX } = useWebStackSwipe();
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value }],
-  }));
+  const animatedStyle = useAnimatedStyle(() => {
+    if (Math.abs(translateX.value) < 0.5) {
+      return {};
+    }
+    return {
+      transform: [{ translateX: translateX.value }],
+    };
+  });
 
   return (
     <Animated.View
