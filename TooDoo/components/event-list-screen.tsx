@@ -25,7 +25,12 @@ import {
   type EventFeedItem,
 } from '@/lib/events-feed';
 import { HELSINGBORG_COORDS, resolveUserCityFromDevice } from '@/lib/geo';
-import { getHomeEventsCache, getHomeEventsCacheCity, setHomeEventsCache } from '@/lib/home-list-cache';
+import {
+  getHomeEventsCacheCity,
+  hasFreshHomeEventsCache,
+  peekHomeEventsCache,
+  setHomeEventsCache,
+} from '@/lib/home-list-cache';
 import { openEventFeedItem } from '@/lib/open-event-feed';
 import { usePaginatedList, SEE_ALL_PAGE_SIZE } from '@/lib/paginated-list';
 import { schedulePrefetchImageUris, usePrefetchPageImages } from '@/lib/image-prefetch';
@@ -101,7 +106,8 @@ export function EventListScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const cached = getHomeEventsCache();
+  const cached = peekHomeEventsCache();
+  const hadFreshCache = hasFreshHomeEventsCache();
   const [events, setEvents] = useState<EventFeedItem[]>(cached ?? []);
   const [isLoading, setIsLoading] = useState(!cached);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -113,15 +119,28 @@ export function EventListScreen() {
     let cancelled = false;
 
     void (async () => {
+      if (refreshNonce === 0 && hadFreshCache && cached && cached.length > 0) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+        return;
+      }
+
       if (!cached) {
         setIsLoading(true);
       }
       try {
-        const location = await resolveUserCityFromDevice().catch(() => null);
-        const city = resolveEventFeedCity(
-          getHomeEventsCacheCity() ?? location?.city,
-          location?.coords ?? HELSINGBORG_COORDS
-        );
+        const cachedCity = getHomeEventsCacheCity();
+        // Prefer the city home already resolved — don't block Visa alla on GPS.
+        let city = cachedCity
+          ? resolveEventFeedCity(cachedCity, HELSINGBORG_COORDS)
+          : null;
+        if (!city) {
+          const location = await resolveUserCityFromDevice().catch(() => null);
+          city = resolveEventFeedCity(
+            location?.city,
+            location?.coords ?? HELSINGBORG_COORDS
+          );
+        }
         const next = await fetchEventFeed({
           days: EVENT_FEED_DAYS,
           city,

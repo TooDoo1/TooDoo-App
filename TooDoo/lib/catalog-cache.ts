@@ -115,6 +115,17 @@ function startApprovedBusinessesRefresh(): Promise<unknown[]> {
   return inflight;
 }
 
+/** In-memory catalog snapshot — never hits the network. */
+export function peekApprovedBusinessesCatalog(): unknown[] | null {
+  if (
+    approvedBusinessesCache &&
+    approvedBusinessesCache.version === APPROVED_CATALOG_VERSION
+  ) {
+    return approvedBusinessesCache.data;
+  }
+  return null;
+}
+
 /** Shared approved-business catalog — dedupes concurrent fetches across screens. */
 export async function fetchApprovedBusinessesCatalog(force = false) {
   if (!force && isFresh(approvedBusinessesCache, APPROVED_CATALOG_VERSION)) {

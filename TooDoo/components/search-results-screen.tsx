@@ -36,14 +36,20 @@ import {
 } from '@/lib/catalog-search';
 import { resolveEventFeedCity } from '@/lib/events-feed';
 import {
+  applyHaversineDistances,
   fillMissingDistancesFromAddresses,
   formatDistanceKm,
   getEffectiveUserCoords,
   HELSINGBORG_COORDS,
   resolveUserCityFromDevice,
 } from '@/lib/geo';
+import { getHomeKnownOfferCards } from '@/lib/home-list-cache';
 import { openOfferDetail } from '@/lib/open-offer-detail';
-import { fetchRecommendedNow } from '@/lib/recommended-now';
+import {
+  fetchRecommendedNow,
+  getRecommendedNowMoment,
+  pickRecommendedNowCards,
+} from '@/lib/recommended-now';
 import { usePaginatedList, SEE_ALL_PAGE_SIZE } from '@/lib/paginated-list';
 import { schedulePrefetchImageUris, usePrefetchPageImages } from '@/lib/image-prefetch';
 import { getCategoryAccentForItem } from '@/lib/category-colors';
@@ -179,15 +185,20 @@ export function SearchResultsScreen() {
   const theme = uiTheme(themeMode);
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { authFetch, isLoggedIn } = useAuth();
+  const { authFetch } = useAuth();
 
-  const [cards, setCards] = useState<OfferCardItem[]>([]);
+  const seededRecommended = useMemo(() => {
+    if (!isRecommendedNow) return [] as OfferCardItem[];
+    return pickRecommendedNowCards(getHomeKnownOfferCards(), getRecommendedNowMoment(), 20);
+  }, [isRecommendedNow]);
+
+  const [cards, setCards] = useState<OfferCardItem[]>(seededRecommended);
   const [feedTitle, setFeedTitle] = useState<string | undefined>();
   const [feedSubtitle, setFeedSubtitle] = useState<string | undefined>();
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
     isRecommendedNow ? HELSINGBORG_COORDS : null
   );
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(seededRecommended.length === 0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [activeCategoryId, setActiveCategoryId] = useState(
@@ -230,47 +241,33 @@ export function SearchResultsScreen() {
     let cancelled = false;
 
     void (async () => {
-      setIsLoading(true);
+      if (cards.length === 0) setIsLoading(true);
       try {
         const categoryNameForFetch =
           activeCategoryId !== ALL_CATEGORIES_ID ? activeCategoryName : undefined;
         const effectiveCoords = coords ?? (isRecommendedNow ? HELSINGBORG_COORDS : null);
+        const knownCards = getHomeKnownOfferCards();
 
         if (isRecommendedNow) {
-          let profileCity: string | undefined;
-          if (!initialCity?.trim() && isLoggedIn) {
-            try {
-              const meRes = await authFetch('/user/me');
-              if (meRes.ok) {
-                const me = (await meRes.json().catch(() => ({}))) as { location?: string };
-                const loc = typeof me.location === 'string' ? me.location.trim() : '';
-                if (loc) profileCity = loc;
-              }
-            } catch {
-              // optional
-            }
-          }
-          const city = resolveEventFeedCity(
-            initialCity?.trim() || profileCity,
-            effectiveCoords
-          );
+          const city = resolveEventFeedCity(initialCity?.trim(), effectiveCoords);
           const feed = await fetchRecommendedNow({
             authFetch,
             city,
             coords: effectiveCoords,
             categoryName: categoryNameForFetch,
             take: 20,
+            knownCards,
           });
-          const results = feed?.cards ?? [];
+          const results = feed?.cards?.length ? feed.cards : seededRecommended;
           const withDistance = effectiveCoords
-            ? await fillMissingDistancesFromAddresses(results, effectiveCoords, {
-                maxGeocode: 50,
-              })
+            ? applyHaversineDistances(results, effectiveCoords)
             : results;
           if (!cancelled) {
             setFeedTitle(feed?.title);
             setFeedSubtitle(feed?.subtitle);
             setCards(withDistance);
+            setIsLoading(false);
+            setIsRefreshing(false);
             schedulePrefetchImageUris(
               withDistance.slice(0, 12).map((card) => card.image),
               16
@@ -279,27 +276,39 @@ export function SearchResultsScreen() {
           return;
         }
 
-        const city = (await resolveUserCityFromDevice().catch(() => null))?.city;
+        const city =
+          initialCity?.trim() ||
+          (await resolveUserCityFromDevice().catch(() => null))?.city;
         const results = await searchCatalog(query, {
           take: 40,
-          maxHydrate: 40,
+          maxHydrate: 12,
           city: city || undefined,
           categoryName: categoryNameForFetch,
+          knownCards,
         });
-        const withDistance = coords
-          ? await fillMissingDistancesFromAddresses(results, coords, { maxGeocode: 50 })
-          : results;
+        const withDistance = coords ? applyHaversineDistances(results, coords) : results;
         const sorted = sortSearchResultsForView(withDistance, view, coords);
         if (!cancelled) {
           setCards(sorted);
+          setIsLoading(false);
+          setIsRefreshing(false);
           schedulePrefetchImageUris(
             sorted.slice(0, 12).map((card) => card.image),
             16
           );
         }
+        // Soft distance fill in the background — never blocks first paint.
+        if (coords && sorted.length > 0) {
+          const enriched = await fillMissingDistancesFromAddresses(sorted, coords, {
+            maxGeocode: 12,
+          });
+          if (!cancelled) {
+            setCards(sortSearchResultsForView(enriched, view, coords));
+          }
+        }
       } catch {
         if (!cancelled) {
-          setCards([]);
+          if (cards.length === 0) setCards([]);
         }
       } finally {
         if (!cancelled) {
@@ -312,13 +321,14 @@ export function SearchResultsScreen() {
     return () => {
       cancelled = true;
     };
+    // Coords upgrades must not re-run the heavy recommended/search path — distances
+    // are applied separately below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     activeCategoryId,
     activeCategoryName,
     authFetch,
-    coords,
     initialCity,
-    isLoggedIn,
     isRecommendedNow,
     query,
     refreshNonce,
@@ -326,20 +336,13 @@ export function SearchResultsScreen() {
   ]);
 
   useEffect(() => {
-    if (!coords || cards.length === 0 || view !== 'near') return;
-
-    let cancelled = false;
-    void (async () => {
-      const enriched = await fillMissingDistancesFromAddresses(cards, coords, { maxGeocode: 50 });
-      if (!cancelled) {
-        setCards(sortSearchResultsForView(enriched, view, coords));
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [cards.length, coords, query, refreshNonce, view]);
+    if (!coords || cards.length === 0) return;
+    setCards((prev) =>
+      isRecommendedNow || view !== 'near'
+        ? applyHaversineDistances(prev, coords)
+        : sortSearchResultsForView(applyHaversineDistances(prev, coords), view, coords)
+    );
+  }, [coords?.lat, coords?.lng]);
 
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);

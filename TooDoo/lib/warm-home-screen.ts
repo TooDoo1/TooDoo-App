@@ -180,10 +180,18 @@ export function warmHomeScreenDuringStartup(options?: { token?: string | null })
 			// Never prompt for location during splash — that freezes the homepage load.
 			const coords = await getEffectiveUserCoordsIfGranted().catch(() => null);
 			const eventCity = resolveEventFeedCity(undefined, coords);
-			const [data, events] = await Promise.all([
-				fetchHomeScreenData({ token: options?.token ?? null, coords }),
-				fetchEventFeed({ days: EVENT_FEED_DAYS, city: eventCity }).catch(() => [] as EventFeedItem[]),
-			]);
+			const data = await fetchHomeScreenData({
+				token: options?.token ?? null,
+				coords,
+				city: eventCity,
+			});
+			const events =
+				data.source === 'home' && Array.isArray(data.events)
+					? data.events
+					: await fetchEventFeed({ days: EVENT_FEED_DAYS, city: eventCity }).catch(
+							() => [] as EventFeedItem[]
+						);
+			const cacheCity = data.resolvedCity ?? eventCity;
 
 			setHomeScreenSnapshot({
 				categoryFilters: data.categoryFilters,
@@ -191,7 +199,7 @@ export function warmHomeScreenDuringStartup(options?: { token?: string | null })
 				nearYouCards: data.nearYouCards,
 				hotOfferCards: data.hotOfferCards,
 			});
-			setHomeEventsCache(events, eventCity);
+			setHomeEventsCache(events, cacheCity);
 			setHomeHotOffersCache(data.hotOfferCards);
 			setHomeEndingSoonCache(data.nearYouCards);
 			cacheNearbyFromDeals(data.deals);

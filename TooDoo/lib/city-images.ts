@@ -80,3 +80,20 @@ export function peekCityImageUris(city: string): string[] | null {
   if (Date.now() - hit.at >= CACHE_TTL_MS) return null;
   return hit.uris;
 }
+
+/** Seed the cache from GET /home cityImages so the hero skips a second round-trip. */
+export function primeCityImageUris(city: string, uris: string[]) {
+  const trimmed = city.trim();
+  if (!trimmed) return;
+  const clean = uris.map((uri) => unwrapCityImageUrl(uri)).filter((uri): uri is string => Boolean(uri));
+  cache.set(cityCacheKey(trimmed), { at: Date.now(), uris: clean });
+}
+
+export function cityImageUrisFromRows(rows: CityImage[], take = 3): string[] {
+  return rows
+    .slice()
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+    .map((row) => unwrapCityImageUrl(row.publicUrl))
+    .filter((uri): uri is string => Boolean(uri))
+    .slice(0, Math.max(1, take));
+}

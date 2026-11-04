@@ -142,6 +142,7 @@ import {
   clearHomeSearchCache,
   getHomeEventsCache,
   getHomeEventsCacheCity,
+  getHomeKnownOfferCards,
   getHomeScreenSnapshot,
   getHomeScrollOffset,
   getHomeSearchCache,
@@ -2671,15 +2672,25 @@ export default function HomeScreen() {
       }
 
       try {
-        const [data, events] = await Promise.all([
-          fetchHomeScreenData({ token, coords: loadCoords }),
-          fetchEventFeed({
-            days: EVENT_FEED_DAYS,
-            city: resolveEventFeedCity(userCityRef.current, loadCoords),
-          }).catch(() => [] as EventFeedItem[]),
-        ]);
+        const eventCity = resolveEventFeedCity(userCityRef.current, loadCoords);
+        const data = await fetchHomeScreenData({
+          token,
+          coords: loadCoords,
+          city: eventCity,
+        });
+        const events =
+          data.source === 'home' && Array.isArray(data.events)
+            ? data.events
+            : await fetchEventFeed({
+                days: EVENT_FEED_DAYS,
+                city: eventCity,
+              }).catch(() => [] as EventFeedItem[]);
 
         if (cancelled || thisRequest !== requestId) return;
+
+        if (data.cityImageUris?.length) {
+          setCityHeroUris(data.cityImageUris);
+        }
 
         const dealsList = loadCoords
           ? sortDealsByDistance(applyHaversineDistances(data.deals, loadCoords))
@@ -2697,7 +2708,7 @@ export default function HomeScreen() {
         setNearYouCards(nearYouFromApi);
         setHotOfferCards(hotFromApi);
         setEventCards(events);
-        setHomeEventsCache(events, resolveEventFeedCity(userCityRef.current, loadCoords));
+        setHomeEventsCache(events, data.resolvedCity ?? eventCity);
         setIsLoadingData(false);
         setIsLoadingEvents(false);
         setIsRefreshing(false);
@@ -2808,22 +2819,19 @@ export default function HomeScreen() {
     if (!coords) return;
     let cancelled = false;
 
-    // Events paint independently — a slow event feed must not delay the deals.
-    const eventCity = resolveEventFeedCity(userCityRef.current, coords);
-    void fetchEventFeed({ days: EVENT_FEED_DAYS, city: eventCity })
-      .then((events) => {
-        if (cancelled) return;
-        setEventCards(events);
-        setHomeEventsCache(events, eventCity);
-      })
-      .catch(() => {
-        // Keep whatever events are already painted.
-      });
-
     void (async () => {
       try {
-        const data = await fetchHomeScreenData({ token, coords });
+        const eventCity = resolveEventFeedCity(userCityRef.current, coords);
+        const data = await fetchHomeScreenData({
+          token,
+          coords,
+          city: eventCity,
+        });
         if (cancelled) return;
+
+        if (data.cityImageUris?.length) {
+          setCityHeroUris(data.cityImageUris);
+        }
 
         // Paint immediately with distances — don't wait for image settle.
         const dealsWithDistance = sortDealsByDistance(
@@ -2845,10 +2853,24 @@ export default function HomeScreen() {
         setHomeHotOffersCache(hotWithDistance);
         setHomeEndingSoonCache(nearWithDistance);
 
+        if (data.source === 'home' && Array.isArray(data.events)) {
+          setEventCards(data.events);
+          setHomeEventsCache(data.events, data.resolvedCity ?? eventCity);
+        } else {
+          void fetchEventFeed({ days: EVENT_FEED_DAYS, city: eventCity })
+            .then((events) => {
+              if (cancelled) return;
+              setEventCards(events);
+              setHomeEventsCache(events, eventCity);
+            })
+            .catch(() => {});
+        }
+
         const settled = await settleHomeScreenAssetsWithinBudget({
           deals: dealsWithDistance,
           nearYouCards: nearWithDistance,
           hotOfferCards: hotWithDistance,
+          events: data.events,
         });
         if (cancelled) return;
 
@@ -3411,9 +3433,8 @@ export default function HomeScreen() {
         ? 'Helsingborg'
         : undefined);
 
-    setRecommendedNowFeed(null);
-    setIsLoadingRecommendedNow(true);
     const knownCards = uniqueCardsById([
+      ...getHomeKnownOfferCards(),
       ...deals,
       ...hotOfferCards,
       ...nearYouCards,
@@ -3451,12 +3472,20 @@ export default function HomeScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     authFetch,
-    coords,
     isSpecificCategorySelected,
     refreshNonce,
     selectedCategory?.label,
     userCity,
   ]);
+
+  // Recompute distances when GPS upgrades without refetching /for-you/now.
+  useEffect(() => {
+    if (!coords) return;
+    setRecommendedNowFeed((prev) => {
+      if (!prev?.cards.length) return prev;
+      return { ...prev, cards: applyHaversineDistances(prev.cards, coords) };
+    });
+  }, [coords?.lat, coords?.lng]);
 
   // Fill in öppettider / distance on Rekommenderat once home catalog cards are ready.
   useEffect(() => {
@@ -4971,7 +5000,7 @@ export default function HomeScreen() {
                     });
                   }}
                 />
-                {(isLoadingRecommendedNow || isLoadingData) && recommendedNowCards.length === 0 ? (
+                {isLoadingRecommendedNow && recommendedNowCards.length === 0 ? (
                   <Text style={{ color: theme.textMuted }}>Laddar...</Text>
                 ) : (
                   <ForYouOrderCarousel

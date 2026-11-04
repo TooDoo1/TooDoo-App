@@ -226,6 +226,11 @@ export async function fetchRecommendedNow(options: {
   take?: number;
   skip?: number;
   knownCards?: OfferCardItem[];
+  /**
+   * Detail GETs per unknown hit. Default 0 — search hits + knownCards are enough
+   * for Rekommenderat paint; opening hours merge in from the home catalog later.
+   */
+  maxHydrate?: number;
 }): Promise<RecommendedNowFeed | null> {
   const take = Math.min(Math.max(options.take ?? 8, 1), 20);
   const params = new URLSearchParams({ take: String(take) });
@@ -258,8 +263,9 @@ export async function fetchRecommendedNow(options: {
     const json = (await response.json().catch(() => ({}))) as RecommendedNowResponse;
     const results = Array.isArray(json.results) ? json.results : [];
     const cards = await cardsFromUnifiedResults(results, {
-      maxHydrate: take,
+      maxHydrate: options.maxHydrate ?? 0,
       knownCards: options.knownCards,
+      skipImageHydrate: true,
     });
 
     const fallback = getRecommendedNowMoment();

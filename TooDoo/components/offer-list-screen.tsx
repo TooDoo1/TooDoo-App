@@ -28,8 +28,17 @@ import {
   getEndingDateParts,
   type OfferCardItem,
 } from '@/lib/home-offers';
-import { formatDistanceKm, getEffectiveUserCoords } from '@/lib/geo';
-import { getHomeEndingSoonCache, getHomeHotOffersCache } from '@/lib/home-list-cache';
+import { resolveEventFeedCity } from '@/lib/events-feed';
+import { applyHaversineDistances, formatDistanceKm, getEffectiveUserCoords } from '@/lib/geo';
+import {
+  getHomeEventsCacheCity,
+  hasFreshHomeEndingSoonCache,
+  hasFreshHomeHotOffersCache,
+  peekHomeEndingSoonCache,
+  peekHomeHotOffersCache,
+  setHomeEndingSoonCache,
+  setHomeHotOffersCache,
+} from '@/lib/home-list-cache';
 import { openOfferDetail } from '@/lib/open-offer-detail';
 import { shareOfferFromCard } from '@/lib/share-offer';
 import { usePaginatedList, SEE_ALL_PAGE_SIZE } from '@/lib/paginated-list';
@@ -137,9 +146,11 @@ export function OfferListScreen({
     : emptyText;
 
   const initialCache = useMemo(
-    () => (mode === 'hot' ? getHomeHotOffersCache() : getHomeEndingSoonCache()) ?? [],
+    () => (mode === 'hot' ? peekHomeHotOffersCache() : peekHomeEndingSoonCache()) ?? [],
     [mode]
   );
+  const hadFreshCache =
+    mode === 'hot' ? hasFreshHomeHotOffersCache() : hasFreshHomeEndingSoonCache();
 
   const { mode: themeMode } = useThemePreference();
   const theme = uiTheme(themeMode);
@@ -165,25 +176,54 @@ export function OfferListScreen({
   }, []);
 
   useEffect(() => {
+    if (!coords || cards.length === 0) return;
+    setCards((prev) => applyHaversineDistances(prev, coords));
+  }, [coords?.lat, coords?.lng]);
+
+  useEffect(() => {
     let cancelled = false;
 
     (async () => {
+      // Home already warmed this list — skip a network round-trip until pull-to-refresh.
+      if (refreshNonce === 0 && hadFreshCache && initialCache.length > 0) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+        return;
+      }
+
       if (cards.length === 0) {
         setIsLoading(true);
       }
       try {
-        const list = await fetchOfferListCards(mode, { token, coords });
-        const hydrated = await hydrateOfferCardImages(list, { knownCards: list });
+        const city = resolveEventFeedCity(getHomeEventsCacheCity(), coords);
+        const list = await fetchOfferListCards(mode, {
+          token,
+          coords,
+          city,
+          limit: 50,
+        });
         if (!cancelled) {
-          setCards(hydrated);
+          setCards(list);
+          if (mode === 'hot') setHomeHotOffersCache(list);
+          else setHomeEndingSoonCache(list);
+          setIsLoading(false);
+          setIsRefreshing(false);
           schedulePrefetchImageUris(
-            hydrated.slice(0, 12).map((card) => card.image),
+            list.slice(0, 12).map((card) => card.image),
             16
           );
         }
+        // Image hydration is non-blocking — don't hold the list spinner for it.
+        const hydrated = await hydrateOfferCardImages(list, {
+          knownCards: [...initialCache, ...list],
+        });
+        if (!cancelled) {
+          setCards(hydrated);
+          if (mode === 'hot') setHomeHotOffersCache(hydrated);
+          else setHomeEndingSoonCache(hydrated);
+        }
       } catch {
         if (!cancelled && cards.length === 0) setCards([]);
-      } finally {
         if (!cancelled) {
           setIsLoading(false);
           setIsRefreshing(false);
@@ -194,7 +234,7 @@ export function OfferListScreen({
     return () => {
       cancelled = true;
     };
-  }, [mode, token, coords, refreshNonce]);
+  }, [mode, token, refreshNonce]);
 
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);

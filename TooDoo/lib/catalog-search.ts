@@ -565,7 +565,8 @@ async function fetchWeekendUnifiedResults(options: { take: number; city?: string
 
 async function finalizeSearchCards(
   tasks: HydrationTask[],
-  knownCards?: OfferCardItem[]
+  knownCards?: OfferCardItem[],
+  options?: { skipImageHydrate?: boolean }
 ): Promise<OfferCardItem[]> {
   const hydrated = await hydrateTasks(tasks);
   const rankedCards: Array<{ card: OfferCardItem; rank: number }> = [];
@@ -584,6 +585,8 @@ async function finalizeSearchCards(
     seenCardIds.add(key);
     deduped.push(card);
   }
+
+  if (options?.skipImageHydrate) return deduped;
 
   try {
     return await hydrateOfferCardImages(deduped, { knownCards });
@@ -656,6 +659,8 @@ export async function cardsFromUnifiedResults(
   options: {
     maxHydrate?: number;
     knownCards?: OfferCardItem[];
+    /** Skip per-business image GETs — use for Rekommenderat / Visa alla paint. */
+    skipImageHydrate?: boolean;
   } = {}
 ): Promise<OfferCardItem[]> {
   const hydrateLimit = Math.min(
@@ -663,7 +668,9 @@ export async function cardsFromUnifiedResults(
     SEARCH_HYDRATE_LIMIT_MAX
   );
   const tasks = buildHydrationTasks(results, hydrateLimit, options.knownCards);
-  return finalizeSearchCards(tasks, options.knownCards);
+  return finalizeSearchCards(tasks, options.knownCards, {
+    skipImageHydrate: options.skipImageHydrate,
+  });
 }
 
 type AuthFetch = (path: string, init?: RequestInit) => Promise<Response>;

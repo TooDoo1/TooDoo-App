@@ -44,7 +44,11 @@ import {
   isPlausibleSwedenCoordinate,
 } from '@/lib/geo';
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
-import { cardMatchesCategory, resolveBusinessCategoryIds } from '@/lib/home-offers';
+import {
+  cardMatchesCategory,
+  resolveBusinessCategoryIds,
+  type OfferCardItem,
+} from '@/lib/home-offers';
 import { BUSINESS_MAP_PATH } from '@/lib/stack-navigation';
 import { usePaginatedList, SEE_ALL_PAGE_SIZE } from '@/lib/paginated-list';
 import { schedulePrefetchImageUris, usePrefetchPageImages } from '@/lib/image-prefetch';
@@ -52,6 +56,7 @@ import { FAVORITE_HEART_COLOR } from '@/lib/tab-colors';
 import { shareBusiness } from '@/lib/share-offer';
 import {
   getHomeNearbyBusinessesCache,
+  getHomeScreenSnapshot,
   hasFreshHomeNearbyBusinessesCache,
   peekHomeNearbyBusinessesCache,
   setHomeNearbyBusinessesCache,
@@ -82,6 +87,30 @@ function nearbyOpeningHoursLabel(company: NearbyCompany): string | undefined {
 function paramString(value: string | string[] | undefined): string {
   if (Array.isArray(value)) return value[0] ?? '';
   return value ?? '';
+}
+
+function dealCardToNearbyCompany(card: OfferCardItem): NearbyCompany {
+  const uri =
+    typeof card.image === 'object' &&
+    card.image &&
+    'uri' in card.image &&
+    typeof card.image.uri === 'string'
+      ? card.image.uri
+      : undefined;
+  return {
+    id: card.id,
+    name: card.title,
+    imageUri: uri,
+    address: card.Adress || 'Adress saknas',
+    description: card.kortbeskrivning,
+    categoryId: card.categoryId,
+    categoryIds: card.categoryIds,
+    categoryName: card.categoryName,
+    openingHours: card.openingHours,
+    latitude: card.latitude,
+    longitude: card.longitude,
+    distanceKm: card.distanceKm,
+  };
 }
 
 function companyMatchesCategoryFilter(
@@ -336,10 +365,7 @@ export default function NaraDigScreen() {
 
     (async () => {
       const cached = peekHomeNearbyBusinessesCache();
-      const cacheHasHours = Boolean(
-        cached?.some((card) => card.openingHours != null)
-      );
-      if (refreshNonce === 0 && hasFreshHomeNearbyBusinessesCache() && cacheHasHours) {
+      if (refreshNonce === 0 && hasFreshHomeNearbyBusinessesCache() && cached && cached.length > 0) {
         if (coords) {
           setCompanies((prev) => {
             const next = withHaversineDistances(prev, coords);
@@ -352,10 +378,23 @@ export default function NaraDigScreen() {
         return;
       }
 
+      // Instant paint from home deals snapshot while catalog catches up.
       if (companies.length === 0) {
-        setIsLoading(true);
+        const snapDeals = (getHomeScreenSnapshot()?.deals as OfferCardItem[] | undefined) ?? [];
+        if (snapDeals.length > 0) {
+          const fromSnap = snapDeals.map(dealCardToNearbyCompany);
+          const sortedSnap = coords
+            ? withHaversineDistances(fromSnap, coords)
+            : sortByDistance(fromSnap);
+          setCompanies(sortedSnap);
+          setIsLoading(false);
+        } else {
+          setIsLoading(true);
+        }
       }
+
       try {
+        // Catalog is stale-while-revalidate — usually already warm from home.
         const businessesRaw = ((await fetchApprovedBusinessesCatalog()) as any[]).filter(
           (b) => (b?.status ?? 'APPROVED').toUpperCase() === 'APPROVED'
         );
@@ -367,7 +406,7 @@ export default function NaraDigScreen() {
           const address = [b?.address, b?.city].filter(Boolean).join(', ') || 'Adress saknas';
 
           const categoryIds = resolveBusinessCategoryIds(b);
-          const company: NearbyCompany = {
+          return {
             id,
             name: b?.name ?? 'Okänd verksamhet',
             imageUri: pickImageUri(b),
@@ -380,8 +419,6 @@ export default function NaraDigScreen() {
             latitude: lat,
             longitude: lng,
           };
-
-          return company;
         });
 
         const sorted = coords ? withHaversineDistances(mapped, coords) : sortByDistance(mapped);
@@ -410,14 +447,20 @@ export default function NaraDigScreen() {
     return () => {
       cancelled = true;
     };
-  }, [coords, refreshNonce]);
+  }, [refreshNonce]);
 
   useEffect(() => {
     if (!coords || companies.length === 0) return;
 
     let cancelled = false;
     const needGeocode = companies
-      .filter((c) => c.address && c.address !== 'Adress saknas')
+      .filter(
+        (c) =>
+          c.distanceKm == null &&
+          (c.latitude == null || c.longitude == null) &&
+          c.address &&
+          c.address !== 'Adress saknas'
+      )
       .slice(0, GEOCODE_MAX);
 
     if (needGeocode.length === 0) return;

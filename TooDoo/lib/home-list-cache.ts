@@ -62,12 +62,29 @@ export function getHomeHotOffersCache(): OfferCardItem[] | null {
   return isFresh(hotOffersCache) ? hotOffersCache.data : null;
 }
 
+/** Stale-ok peek for instant Visa alla paint. */
+export function peekHomeHotOffersCache(): OfferCardItem[] | null {
+  return hotOffersCache?.data ?? null;
+}
+
+export function hasFreshHomeHotOffersCache(): boolean {
+  return isFresh(hotOffersCache);
+}
+
 export function setHomeEndingSoonCache(data: OfferCardItem[]) {
   endingSoonCache = { data, at: Date.now() };
 }
 
 export function getHomeEndingSoonCache(): OfferCardItem[] | null {
   return isFresh(endingSoonCache) ? endingSoonCache.data : null;
+}
+
+export function peekHomeEndingSoonCache(): OfferCardItem[] | null {
+  return endingSoonCache?.data ?? null;
+}
+
+export function hasFreshHomeEndingSoonCache(): boolean {
+  return isFresh(endingSoonCache);
 }
 
 let eventsCacheCity: string | undefined;
@@ -79,6 +96,14 @@ export function setHomeEventsCache(data: EventFeedItem[], city?: string | null) 
 
 export function getHomeEventsCache(): EventFeedItem[] | null {
   return isFresh(eventsCache) ? eventsCache.data : null;
+}
+
+export function peekHomeEventsCache(): EventFeedItem[] | null {
+  return eventsCache?.data ?? null;
+}
+
+export function hasFreshHomeEventsCache(): boolean {
+  return isFresh(eventsCache);
 }
 
 export function getHomeEventsCacheCity(): string | undefined {
@@ -107,6 +132,28 @@ export function setHomeScreenSnapshot(data: HomeScreenSnapshot) {
 
 export function getHomeScreenSnapshot(): HomeScreenSnapshot | null {
   return isSnapshotFresh(homeScreenSnapshot) ? homeScreenSnapshot.data : null;
+}
+
+/** Cards already on home — used to skip detail GETs on Rekommenderat / search. */
+export function getHomeKnownOfferCards(): OfferCardItem[] {
+  const snapshot = homeScreenSnapshot?.data;
+  const fromSnap = snapshot
+    ? ([
+        ...(snapshot.deals as OfferCardItem[]),
+        ...(snapshot.nearYouCards as OfferCardItem[]),
+        ...(snapshot.hotOfferCards as OfferCardItem[]),
+      ] as OfferCardItem[])
+    : [];
+  const fromLists = [
+    ...(hotOffersCache?.data ?? []),
+    ...(endingSoonCache?.data ?? []),
+  ];
+  const byId = new Map<string, OfferCardItem>();
+  for (const card of [...fromSnap, ...fromLists]) {
+    if (!card?.id || card.resultKind === 'event') continue;
+    if (!byId.has(card.id)) byId.set(card.id, card);
+  }
+  return [...byId.values()];
 }
 
 export function hasFreshHomeScreenSnapshot(maxAgeMs = HOME_SNAPSHOT_TTL_MS) {
