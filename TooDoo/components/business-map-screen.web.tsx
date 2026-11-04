@@ -17,18 +17,21 @@ import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
 import {
   MapLibreMapView,
   type MapLibrePin,
-  type MapViewportBounds,
 } from '@/components/ui/maplibre-map.web';
 import { useThemePreference } from '@/context/theme-preference-context';
 import {
   filterBusinessesByQuery,
   filterBusinessesForViewport,
+  hasMapPinCoords,
   loadMapBusinesses,
   MAP_DEFAULT_CENTER,
+  mergeSearchHitsIntoMapBusinesses,
   peekCachedMapBusinesses,
+  searchMapBusinesses,
   type MapBusiness,
+  type MapViewBounds,
 } from '@/lib/business-map-data';
-import { getCategoryAccentColor, OFFERS_CATEGORY_ACCENT } from '@/lib/category-colors';
+import { getCategoryAccentForItem, OFFERS_CATEGORY_ACCENT } from '@/lib/category-colors';
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
 import { subscribeCustomLocations } from '@/lib/custom-locations';
 import {
@@ -36,6 +39,7 @@ import {
   getEffectiveUserCoordsIfGranted,
   getUserCoords,
   getUserCoordsIfGranted,
+  geocodeAddressCached,
   haversineKm,
   HELSINGBORG_COORDS,
   type Coords,
@@ -156,8 +160,10 @@ export default function BusinessMapScreen() {
     peekCachedMapBusinesses()
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [viewBounds, setViewBounds] = useState<MapViewportBounds | null>(null);
   const [searchQuery, setSearchQuery] = useState(() => paramString(params.q));
+  const [catalogHits, setCatalogHits] = useState<MapBusiness[] | null>(null);
+  const [searchingCatalog, setSearchingCatalog] = useState(false);
+  const [viewBounds, setViewBounds] = useState<MapViewBounds | null>(null);
 
   const mapCenter = useMemo(() => {
     if (userCoords) {
@@ -172,6 +178,9 @@ export default function BusinessMapScreen() {
   }, [businesses, fromNaraDig, userCoords]);
 
   const loadedCoordsRef = useRef<Coords | null>(null);
+  const loadGenRef = useRef(0);
+  const businessesRef = useRef(businesses);
+  businessesRef.current = businesses;
 
   const refreshForCoords = useCallback(async (next: Coords | null) => {
     if (!next) return;
@@ -181,22 +190,29 @@ export default function BusinessMapScreen() {
     }
     loadedCoordsRef.current = next;
     setUserCoords(next);
-    // Instantly re-rank cached pins so the camera follows before network returns.
     setBusinesses((prev) =>
       [...prev]
         .map((b) => ({
           ...b,
-          distanceKm: haversineKm(next.lat, next.lng, b.latitude, b.longitude),
+          distanceKm: hasMapPinCoords(b)
+            ? haversineKm(next.lat, next.lng, b.latitude, b.longitude)
+            : b.distanceKm,
         }))
         .sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0))
     );
+    const gen = ++loadGenRef.current;
     try {
-      const mapped = await loadMapBusinesses(next);
+      const mapped = await loadMapBusinesses(next, (partial) => {
+        if (loadGenRef.current !== gen) return;
+        setBusinesses(partial);
+        setPinsLoading(false);
+      });
+      if (loadGenRef.current !== gen) return;
       setBusinesses(mapped);
     } catch {
       // keep locally re-ranked pins
     } finally {
-      setPinsLoading(false);
+      if (loadGenRef.current === gen) setPinsLoading(false);
     }
   }, []);
 
@@ -247,8 +263,11 @@ export default function BusinessMapScreen() {
   );
 
   const selected = useMemo(
-    () => businesses.find((b) => b.id === selectedId) ?? null,
-    [businesses, selectedId]
+    () =>
+      catalogHits?.find((b) => b.id === selectedId) ??
+      businesses.find((b) => b.id === selectedId) ??
+      null,
+    [businesses, catalogHits, selectedId]
   );
 
   const [routes, setRoutes] = useState<TravelRoutes | null>(null);
@@ -282,34 +301,112 @@ export default function BusinessMapScreen() {
     [businesses, searchQuery]
   );
 
-  // Decode nearby pin avatars ahead of time — panning swaps pins in from this
-  // pool, so their images should already sit in the HTTP + decode cache.
   useEffect(() => {
-    warmMapPinImages(matchedBusinesses.map((b) => b.imageUri), 40);
-  }, [matchedBusinesses]);
+    const query = searchQuery.trim();
+    if (query.length < 2) {
+      setCatalogHits(null);
+      setSearchingCatalog(false);
+      return;
+    }
+    let cancelled = false;
+    setSearchingCatalog(true);
+    setCatalogHits(null);
+    const timer = setTimeout(() => {
+      void searchMapBusinesses(query, businessesRef.current, userCoords)
+        .then((hits) => {
+          if (cancelled) return;
+          setCatalogHits(hits);
+          if (hits.length > 0) {
+            setBusinesses((prev) => mergeSearchHitsIntoMapBusinesses(prev, hits));
+          }
+          if (hits.length === 1) {
+            setSelectedId(hits[0].id);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setSearchingCatalog(false);
+        });
+    }, 280);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchQuery, userCoords]);
 
-  // Businesses load once; pins swap in and out as the viewport moves.
-  // Previously shown pins keep their slot while in view (less marker churn).
+  const visibleMatches =
+    searchQuery.trim().length >= 2 ? catalogHits ?? matchedBusinesses : businesses;
+
   const shownIdsRef = useRef<Set<string>>(new Set());
-  const visibleBusinesses = useMemo(() => {
+  const pinBusinesses = useMemo(() => {
+    const withCoords = visibleMatches.filter(hasMapPinCoords);
+    if (searchQuery.trim().length >= 2) return withCoords;
     const next = filterBusinessesForViewport(
-      matchedBusinesses,
+      withCoords,
       viewBounds,
       undefined,
       shownIdsRef.current
     );
-    // Keep the selected pin visible even if it's outside the current top-10.
-    const withSelected =
-      selected && !next.some((b) => b.id === selected.id)
+    const selectedPin =
+      selected && hasMapPinCoords(selected) && !next.some((item) => item.id === selected.id)
         ? [...next, selected]
         : next;
-    shownIdsRef.current = new Set(withSelected.map((b) => b.id));
-    return withSelected;
-  }, [matchedBusinesses, selected, viewBounds]);
+    shownIdsRef.current = new Set(selectedPin.map((item) => item.id));
+    return selectedPin;
+  }, [searchQuery, selected, viewBounds, visibleMatches]);
+
+  useEffect(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (query.length < 2) return;
+    const pending = visibleMatches.filter((item) => item.pendingGeocode && item.address.trim());
+    if (pending.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      for (const item of pending) {
+        const geo = await geocodeAddressCached(item.address);
+        if (cancelled || !geo) continue;
+        setBusinesses((prev) =>
+          prev.map((business) =>
+            business.id === item.id
+              ? {
+                  ...business,
+                  latitude: geo.lat,
+                  longitude: geo.lng,
+                  pendingGeocode: false,
+                  distanceKm: userCoords
+                    ? haversineKm(userCoords.lat, userCoords.lng, geo.lat, geo.lng)
+                    : business.distanceKm,
+                }
+              : business
+          )
+        );
+        setCatalogHits((prev) =>
+          prev
+            ? prev.map((business) =>
+                business.id === item.id
+                  ? {
+                      ...business,
+                      latitude: geo.lat,
+                      longitude: geo.lng,
+                      pendingGeocode: false,
+                    }
+                  : business
+              )
+            : prev
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visibleMatches, searchQuery, userCoords]);
+
+  useEffect(() => {
+    warmMapPinImages(visibleMatches.map((b) => b.imageUri), 40);
+  }, [visibleMatches]);
 
   const pins: MapLibrePin[] = useMemo(
     () =>
-      visibleBusinesses.map((b) => ({
+      pinBusinesses.map((b) => ({
         id: b.id,
         latitude: b.latitude,
         longitude: b.longitude,
@@ -318,10 +415,20 @@ export default function BusinessMapScreen() {
         selected: b.id === selectedId,
         hasEvent: Boolean(b.hasEvent),
         hasOffer: Boolean(b.hasOffer),
-        color: getCategoryAccentColor(b.categoryName),
+        color: getCategoryAccentForItem(b),
       })),
-    [visibleBusinesses, selectedId]
+    [pinBusinesses, selectedId]
   );
+
+  const searchFitCoordinates = useMemo(() => {
+    if (searchQuery.trim().length < 2 || searchingCatalog || pins.length === 0) {
+      return null;
+    }
+    return pins.map((pin) => ({
+      latitude: pin.latitude,
+      longitude: pin.longitude,
+    }));
+  }, [pins, searchQuery, searchingCatalog]);
 
   const clearSelection = useCallback(() => {
     routeRequestRef.current += 1;
@@ -366,6 +473,7 @@ export default function BusinessMapScreen() {
           pins={pins}
           fitPins={false}
           fitCoordinates={nearYouFitCoordinates}
+          forceFitCoordinates={searchFitCoordinates}
           interactive
           showUserLocation={
             userCoords
@@ -414,7 +522,7 @@ export default function BusinessMapScreen() {
           </View>
         ) : null}
 
-        {!pinsLoading && matchedBusinesses.length === 0 ? (
+        {!pinsLoading && !searchingCatalog && pins.length === 0 ? (
           <View style={[styles.emptyBanner, { bottom: bottomPad + 16 }]}>
             <Text style={{ color: theme.text, textAlign: 'center' }}>
               {searchQuery.trim()

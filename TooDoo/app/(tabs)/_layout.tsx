@@ -28,7 +28,7 @@ function coloredTabOptions(
 ) {
   return {
     title,
-    tabBarActiveTintColor: '#FFFFFF',
+    tabBarActiveTintColor: activeIconColor,
     tabBarIcon: tabBarIcon(iconName, activeIconColor),
   };
 }
@@ -42,7 +42,6 @@ export default function TabLayout() {
       tabBar={(props) => <FloatingTabBar {...props} />}
       screenOptions={{
         ...(Platform.OS === 'web' ? { sceneStyle: { flex: 1 } } : {}),
-        tabBarActiveTintColor: '#FFFFFF',
         tabBarInactiveTintColor: Colors[effectiveScheme].tabIconDefault,
         tabBarLabelPosition: 'below-icon',
         tabBarStyle: {

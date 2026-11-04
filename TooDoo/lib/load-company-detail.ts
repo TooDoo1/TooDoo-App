@@ -44,12 +44,19 @@ async function fetchBusinessById(businessId: string) {
 }
 
 /** Public click counter used by GET /business/popular ranking. */
-export function recordBusinessProfileClick(businessId?: string) {
+export function recordBusinessProfileClick(
+  businessId?: string,
+  options?: {
+    authFetch?: (path: string, init?: RequestInit) => Promise<Response>;
+  }
+) {
   const id = businessId?.trim();
   if (!id) return;
-  void fetch(apiUrl(`/business/${encodeURIComponent(id)}/click`), {
-    method: 'POST',
-  }).catch(() => undefined);
+  const path = `/business/${encodeURIComponent(id)}/click`;
+  const request = options?.authFetch
+    ? options.authFetch(path, { method: 'POST' })
+    : fetch(apiUrl(path), { method: 'POST' });
+  void request.catch(() => undefined);
 }
 
 export function collectOrderMeta(

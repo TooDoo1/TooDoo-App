@@ -1,17 +1,53 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Switch, Text, View } from 'react-native';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { getFloatingTabBarScrollPadding } from '@/components/floating-tab-bar';
+import { HOME_PAGE_PAD } from '@/components/home/home-feed';
 import { ProfileMenuRow } from '@/components/profile/profile-menu-row';
-import { profileCardShadow } from '@/components/profile/profile-screen-shell';
 import { useAuth } from '@/context/auth-context';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { getProfileDisplayName, type UserProfile } from '@/lib/profile';
 import { TAB_ACTIVE_COLORS } from '@/lib/tab-colors';
 import { uiTheme } from '@/lib/ui-theme';
+
+function ProfileSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  const { mode } = useThemePreference();
+  const theme = uiTheme(mode);
+
+  return (
+    <View style={styles.section}>
+      <Text style={[styles.sectionLabel, { color: theme.textFaint }]}>{title}</Text>
+      <View
+        style={[
+          styles.sectionCard,
+          {
+            backgroundColor: theme.cardBg,
+            borderColor: theme.border,
+          },
+        ]}
+      >
+        {children}
+      </View>
+    </View>
+  );
+}
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -19,9 +55,9 @@ export default function ProfileScreen() {
   const { signOut, token, authFetch } = useAuth();
   const { mode, setMode } = useThemePreference();
   const theme = uiTheme(mode);
-  const boxShadowStyle = profileCardShadow(theme);
   const isLightMode = mode === 'light';
   const scrollBottomPadding = getFloatingTabBarScrollPadding(insets.bottom, undefined, 32);
+  const profileAccent = TAB_ACTIVE_COLORS.Profile;
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -70,6 +106,7 @@ export default function ProfileScreen() {
   };
 
   const displayName = getProfileDisplayName(profile);
+  const initial = (displayName.trim().charAt(0) || '?').toUpperCase();
 
   return (
     <ScrollView
@@ -78,41 +115,60 @@ export default function ProfileScreen() {
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ paddingBottom: scrollBottomPadding, flexGrow: 1 }}
     >
-      <View className="min-h-full px-6 pt-24">
-        <View className="flex-row items-center justify-center">
-          <Ionicons name="settings" size={28} color={TAB_ACTIVE_COLORS.Profile} />
-          <Text className="ml-2 text-3xl font-semibold" style={{ color: theme.text }}>
-            Profil
-          </Text>
+      <View
+        style={{
+          minHeight: '100%',
+          paddingHorizontal: HOME_PAGE_PAD,
+          paddingTop: Math.max(insets.top + 20, 72),
+        }}
+      >
+        <View style={styles.hero}>
+          <Ionicons name="settings" size={26} color={profileAccent} />
+          <View style={styles.heroCopy}>
+            <Text style={[styles.title, { color: theme.text }]}>Profil</Text>
+            <Text style={[styles.subtitle, { color: theme.textMuted }]}>
+              Konto och inställningar
+            </Text>
+          </View>
         </View>
 
         {isLoading ? (
-          <View className="mt-8 items-center">
+          <View style={styles.loadingWrap}>
             <ActivityIndicator color={theme.text} />
-            <Text className="mt-3" style={{ color: theme.textMuted }}>
-              Laddar profil...
-            </Text>
+            <Text style={{ marginTop: 10, color: theme.textMuted }}>Laddar profil...</Text>
           </View>
         ) : (
           <>
             <View
-              className="mt-8 rounded-2xl px-4 py-5"
-              style={[{ backgroundColor: theme.cardBg }, boxShadowStyle]}
+              style={[
+                styles.identityCard,
+                {
+                  backgroundColor: theme.cardBg,
+                  borderColor: theme.border,
+                },
+              ]}
             >
-              <Text className="text-lg font-semibold" style={{ color: theme.text }}>
-                {displayName}
-              </Text>
-              {profile?.email ? (
-                <Text className="mt-1 text-sm" style={{ color: theme.textMuted }}>
-                  {profile.email}
+              <View
+                style={[
+                  styles.avatar,
+                  { backgroundColor: `${profileAccent}22` },
+                ]}
+              >
+                <Text style={[styles.avatarLetter, { color: profileAccent }]}>{initial}</Text>
+              </View>
+              <View style={styles.identityCopy}>
+                <Text style={[styles.identityName, { color: theme.text }]} numberOfLines={1}>
+                  {displayName}
                 </Text>
-              ) : null}
+                {profile?.email ? (
+                  <Text style={[styles.identityEmail, { color: theme.textMuted }]} numberOfLines={1}>
+                    {profile.email}
+                  </Text>
+                ) : null}
+              </View>
             </View>
 
-            <View
-              className="mt-4 overflow-hidden rounded-2xl"
-              style={[{ backgroundColor: theme.cardBg }, boxShadowStyle]}
-            >
+            <ProfileSection title="Konto">
               <ProfileMenuRow
                 label="Konto"
                 description="Namn, kön och intressen"
@@ -131,7 +187,11 @@ export default function ProfileScreen() {
                 description="Byt lösenord"
                 icon="lock-closed-outline"
                 onPress={() => router.push('/profile-security')}
+                isLast
               />
+            </ProfileSection>
+
+            <ProfileSection title="Support">
               <ProfileMenuRow
                 label="Policy"
                 description="Villkor och integritet"
@@ -145,19 +205,14 @@ export default function ProfileScreen() {
                 onPress={() => router.push('/profile-support')}
                 isLast
               />
-            </View>
+            </ProfileSection>
 
-            <View
-              className="mt-4 rounded-2xl px-4 py-5"
-              style={[{ backgroundColor: theme.cardBg }, boxShadowStyle]}
-            >
-              <View className="flex-row items-center justify-between">
-                <View className="flex-1 pr-3">
-                  <Text className="text-lg font-semibold" style={{ color: theme.text }}>
-                    Notiser
-                  </Text>
-                  <Text className="mt-1 text-sm" style={{ color: theme.textMuted }}>
-                    Påminnelser om nya erbjudanden och deals som snart går ut.
+            <ProfileSection title="Inställningar">
+              <View style={styles.settingRow}>
+                <View style={styles.settingCopy}>
+                  <Text style={[styles.settingTitle, { color: theme.text }]}>Notiser</Text>
+                  <Text style={[styles.settingDesc, { color: theme.textMuted }]}>
+                    Påminnelser om deals och erbjudanden
                   </Text>
                 </View>
                 <Switch
@@ -167,19 +222,12 @@ export default function ProfileScreen() {
                   thumbColor="#ffffff"
                 />
               </View>
-            </View>
-
-            <View
-              className="mt-4 rounded-2xl px-4 py-5"
-              style={[{ backgroundColor: theme.cardBg }, boxShadowStyle]}
-            >
-              <View className="flex-row items-center justify-between">
-                <View className="flex-1 pr-3">
-                  <Text className="text-lg font-semibold" style={{ color: theme.text }}>
-                    Ljust läge
-                  </Text>
-                  <Text className="mt-1 text-sm" style={{ color: theme.textMuted }}>
-                    Växla mellan mörkt och ljust tema.
+              <View style={[styles.settingDivider, { backgroundColor: theme.border }]} />
+              <View style={styles.settingRow}>
+                <View style={styles.settingCopy}>
+                  <Text style={[styles.settingTitle, { color: theme.text }]}>Ljust läge</Text>
+                  <Text style={[styles.settingDesc, { color: theme.textMuted }]}>
+                    Växla mellan mörkt och ljust tema
                   </Text>
                 </View>
                 <Switch
@@ -189,30 +237,145 @@ export default function ProfileScreen() {
                   thumbColor="#ffffff"
                 />
               </View>
-            </View>
+            </ProfileSection>
 
-            <View
-              className="mt-4 rounded-2xl px-4 py-5"
-              style={[{ backgroundColor: theme.cardBg }, boxShadowStyle]}
+            <Pressable
+              onPress={async () => {
+                await signOut();
+                router.replace('/(tabs)/Loggain');
+              }}
+              style={({ pressed }) => [styles.logoutBtn, { opacity: pressed ? 0.88 : 1 }]}
             >
-              <Pressable
-                className="rounded-2xl bg-[#ff3b30] px-4 py-3"
-                onPress={async () => {
-                  await signOut();
-                  router.replace('/(tabs)/Loggain');
-                }}
-              >
-                <Text
-                  className="text-center font-medium"
-                  style={{ color: theme.isDark ? '#ffffff' : theme.text }}
-                >
-                  Logga ut
-                </Text>
-              </Pressable>
-            </View>
+              <Text style={styles.logoutLabel}>Logga ut</Text>
+            </Pressable>
           </>
         )}
       </View>
     </ScrollView>
   );
 }
+
+const styles = StyleSheet.create({
+  hero: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 18,
+  },
+  heroCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: -0.8,
+    lineHeight: 32,
+  },
+  subtitle: {
+    marginTop: 4,
+    fontSize: 14,
+    fontWeight: '500',
+    letterSpacing: -0.1,
+    lineHeight: 18,
+  },
+  loadingWrap: {
+    marginTop: 40,
+    alignItems: 'center',
+  },
+  identityCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarLetter: {
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+  },
+  identityCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  identityName: {
+    fontSize: 17,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+  },
+  identityEmail: {
+    marginTop: 2,
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  section: {
+    marginTop: 22,
+  },
+  sectionLabel: {
+    marginBottom: 8,
+    marginLeft: 4,
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  sectionCard: {
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+  },
+  settingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+  },
+  settingCopy: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 8,
+  },
+  settingTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: -0.2,
+  },
+  settingDesc: {
+    marginTop: 3,
+    fontSize: 13,
+    fontWeight: '500',
+    lineHeight: 18,
+  },
+  settingDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 16,
+  },
+  logoutBtn: {
+    marginTop: 28,
+    marginBottom: 8,
+    alignSelf: 'center',
+    borderRadius: 12,
+    backgroundColor: '#ff3b30',
+    paddingHorizontal: 28,
+    paddingVertical: 12,
+    minWidth: 160,
+  },
+  logoutLabel: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: -0.1,
+    textAlign: 'center',
+  },
+});

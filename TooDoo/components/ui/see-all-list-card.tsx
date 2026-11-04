@@ -42,20 +42,21 @@ export const SeeAllListCard = memo(function SeeAllListCard({
       accessibilityRole="button"
       accessibilityLabel={title}
       style={{
-        width: '100%',
-        borderRadius: 22,
+        flex: 1,
+        minWidth: 0,
+        borderRadius: 18,
         overflow: 'hidden',
         backgroundColor: theme.cardBg,
         borderWidth: 1,
         borderColor: theme.border,
       }}
     >
-      <View style={{ height: 168, width: '100%', backgroundColor: theme.cardBgMuted }}>
+      <View style={{ height: 128, width: '100%', backgroundColor: theme.cardBgMuted }}>
         <CardMedia
           source={image}
           svgFit="fill"
           priority={imagePriority}
-          displayWidth={IMAGE_DISPLAY_WIDTH.cardWide}
+          displayWidth={IMAGE_DISPLAY_WIDTH.card}
         />
         {topLeft ? (
           <View style={{ position: 'absolute', top: 12, left: 12, zIndex: 2 }}>{topLeft}</View>
@@ -78,62 +79,45 @@ export const SeeAllListCard = memo(function SeeAllListCard({
         ) : null}
       </View>
 
-      <View style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 14 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text
-              numberOfLines={2}
-              style={{
-                color: theme.text,
-                fontSize: 17,
-                fontWeight: '700',
-                letterSpacing: -0.2,
-                lineHeight: 22,
-              }}
-            >
-              {title}
-            </Text>
-            {meta ? (
-              <Text
-                numberOfLines={1}
-                style={{
-                  marginTop: 4,
-                  color: theme.textMuted,
-                  fontSize: 12,
-                  fontWeight: '600',
-                }}
-              >
-                {meta}
-              </Text>
-            ) : null}
-            {subtitle ? (
-              <Text
-                numberOfLines={2}
-                style={{
-                  marginTop: 6,
-                  color: theme.textFaint,
-                  fontSize: 13,
-                  lineHeight: 18,
-                }}
-              >
-                {subtitle}
-              </Text>
-            ) : null}
-          </View>
-          <View
+      <View style={{ paddingHorizontal: 10, paddingTop: 10, paddingBottom: 12 }}>
+        <Text
+          numberOfLines={2}
+          style={{
+            color: theme.text,
+            fontSize: 14,
+            fontWeight: '700',
+            letterSpacing: -0.2,
+            lineHeight: 18,
+          }}
+        >
+          {title}
+        </Text>
+        {meta ? (
+          <Text
+            numberOfLines={1}
             style={{
-              marginTop: 2,
-              width: 28,
-              height: 28,
-              borderRadius: 14,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: theme.cardBgMuted,
+              marginTop: 3,
+              color: theme.textMuted,
+              fontSize: 11,
+              fontWeight: '600',
             }}
           >
-            <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
-          </View>
-        </View>
+            {meta}
+          </Text>
+        ) : null}
+        {subtitle ? (
+          <Text
+            numberOfLines={1}
+            style={{
+              marginTop: 4,
+              color: theme.textFaint,
+              fontSize: 12,
+              lineHeight: 16,
+            }}
+          >
+            {subtitle}
+          </Text>
+        ) : null}
       </View>
     </Pressable>
   );
@@ -186,15 +170,15 @@ export function SeeAllIconButton({
       }}
       hitSlop={8}
       style={{
-        width: 36,
-        height: 36,
-        borderRadius: 18,
+        width: 30,
+        height: 30,
+        borderRadius: 15,
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: 'rgba(0,0,0,0.55)',
       }}
     >
-      <Ionicons name={icon} size={18} color={active ? activeColor : '#ffffff'} />
+      <Ionicons name={icon} size={15} color={active ? activeColor : '#ffffff'} />
     </Pressable>
   );
 }
@@ -214,7 +198,7 @@ export function SeeAllCardActions({
   favoriteColor?: string;
 }) {
   return (
-    <View style={{ flexDirection: 'row', gap: 8 }}>
+    <View style={{ flexDirection: 'row', gap: 6 }}>
       <SeeAllIconButton
         icon={isFavorite ? 'heart' : 'heart-outline'}
         label={isFavorite ? 'Ta bort favorit' : 'Lägg till favorit'}

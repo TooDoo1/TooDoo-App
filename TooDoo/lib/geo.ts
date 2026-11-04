@@ -26,12 +26,22 @@ function withSwedenHint(address: string): string {
   return `${address}, Sverige`;
 }
 
+const GEOCODE_FETCH_TIMEOUT_MS = 4000;
+
+function geocodeAbortSignal(): AbortSignal | undefined {
+  try {
+    return AbortSignal.timeout(GEOCODE_FETCH_TIMEOUT_MS);
+  } catch {
+    return undefined;
+  }
+}
+
 /** Photon (Komoot) — CORS-friendly and reliable from web browsers. */
 async function geocodeAddressPhoton(address: string): Promise<Coords | null> {
   try {
     const response = await fetch(
       `https://photon.komoot.io/api/?q=${encodeURIComponent(address)}&limit=5&lang=default`,
-      { headers: { Accept: 'application/json' } }
+      { headers: { Accept: 'application/json' }, signal: geocodeAbortSignal() }
     );
     if (!response.ok) return null;
     const json = (await response.json()) as {
@@ -66,6 +76,7 @@ async function geocodeAddressNominatimRaw(address: string): Promise<Coords | nul
           Accept: 'application/json',
           'User-Agent': NOMINATIM_USER_AGENT,
         },
+        signal: geocodeAbortSignal(),
       }
     );
     if (!response.ok) return null;
@@ -122,7 +133,8 @@ export function formatDistanceKm(distanceKm?: number): string | null {
 }
 
 const GEOCODE_CACHE_PREFIX = 'toodoo_geocode_';
-const webGeocodeCache = new Map<string, Coords | null>();
+/** In-memory hits for instant location picks (all platforms). */
+const memoryGeocodeCache = new Map<string, Coords>();
 
 async function cacheNativeGeocodeResult(key: string, coords: Coords | null) {
   try {
@@ -132,20 +144,29 @@ async function cacheNativeGeocodeResult(key: string, coords: Coords | null) {
   }
 }
 
+function rememberGeocode(cacheKey: string, coords: Coords) {
+  memoryGeocodeCache.set(cacheKey, coords);
+}
+
+/** Sync cache peek — used to apply a city pick without waiting on the network. */
+export function peekGeocodeCache(address: string): Coords | null {
+  const cacheKey = address.trim().toLowerCase();
+  if (!cacheKey) return null;
+  return memoryGeocodeCache.get(cacheKey) ?? null;
+}
+
 /** Geocode a postal address to coordinates, caching results (and misses). */
 export async function geocodeAddressCached(address: string): Promise<Coords | null> {
   const trimmed = address.trim();
   if (!trimmed) return null;
   const cacheKey = trimmed.toLowerCase();
 
+  const memoryHit = memoryGeocodeCache.get(cacheKey);
+  if (memoryHit) return memoryHit;
+
   if (Platform.OS === 'web') {
-    // Don't cache misses — CORS/rate-limit failures would lock out retries.
-    if (webGeocodeCache.has(cacheKey)) {
-      const hit = webGeocodeCache.get(cacheKey);
-      if (hit) return hit;
-    }
     const result = await geocodeAddressNominatim(trimmed);
-    if (result) webGeocodeCache.set(cacheKey, result);
+    if (result) rememberGeocode(cacheKey, result);
     return result;
   }
 
@@ -156,6 +177,7 @@ export async function geocodeAddressCached(address: string): Promise<Coords | nu
     if (cached) {
       const parsed = JSON.parse(cached);
       if (parsed && typeof parsed.lat === 'number' && typeof parsed.lng === 'number') {
+        rememberGeocode(cacheKey, parsed);
         return parsed;
       }
       // Ignore cached misses so a previous Nominatim failure can recover via Photon.
@@ -172,7 +194,8 @@ export async function geocodeAddressCached(address: string): Promise<Coords | nu
       isPlausibleSwedenCoordinate(first.latitude, first.longitude)
     ) {
       const coords: Coords = { lat: first.latitude, lng: first.longitude };
-      await cacheNativeGeocodeResult(key, coords);
+      rememberGeocode(cacheKey, coords);
+      void cacheNativeGeocodeResult(key, coords);
       return coords;
     }
   } catch {
@@ -181,7 +204,8 @@ export async function geocodeAddressCached(address: string): Promise<Coords | nu
 
   const fallback = await geocodeAddressNominatim(trimmed);
   if (fallback) {
-    await cacheNativeGeocodeResult(key, fallback);
+    rememberGeocode(cacheKey, fallback);
+    void cacheNativeGeocodeResult(key, fallback);
   }
   return fallback;
 }
@@ -375,6 +399,9 @@ export async function getEffectiveUserCoords(): Promise<Coords> {
   const { getActiveCustomLocationCoords } = await import('@/lib/custom-locations');
   const custom = await getActiveCustomLocationCoords();
   if (custom) return custom;
+  const { getRegionSelectionCoords } = await import('@/lib/region-selection');
+  const region = await getRegionSelectionCoords();
+  if (region) return region;
   return (await getUserCoords()) ?? HELSINGBORG_COORDS;
 }
 
@@ -386,6 +413,9 @@ export async function getEffectiveUserCoordsIfGranted(): Promise<Coords | null> 
   const { getActiveCustomLocationCoords } = await import('@/lib/custom-locations');
   const custom = await getActiveCustomLocationCoords();
   if (custom) return custom;
+  const { getRegionSelectionCoords } = await import('@/lib/region-selection');
+  const region = await getRegionSelectionCoords();
+  if (region) return region;
   return getUserCoordsIfGranted();
 }
 
@@ -394,6 +424,9 @@ export async function resolveMapOriginCoords(): Promise<Coords | null> {
   const { getActiveCustomLocationCoords } = await import('@/lib/custom-locations');
   const custom = await getActiveCustomLocationCoords();
   if (custom) return custom;
+  const { getRegionSelectionCoords } = await import('@/lib/region-selection');
+  const region = await getRegionSelectionCoords();
+  if (region) return region;
 
   const grantedCoords = await getUserCoordsIfGranted();
   if (grantedCoords) return grantedCoords;

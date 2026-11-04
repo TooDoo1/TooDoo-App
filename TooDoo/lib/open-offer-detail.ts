@@ -1,11 +1,13 @@
 import type { Router } from 'expo-router';
 
+import { fetchBusinessEventById } from '@/lib/business-events';
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
 import type { OfferCardItem } from '@/lib/home-offers';
 import { isPlaceholderNavigationId } from '@/lib/home-offers';
 import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
 import { IMAGE_DISPLAY_WIDTH, sizedImageUrl } from '@/lib/image-url';
 import { loadCompanyDetail } from '@/lib/load-company-detail';
+import { openEventDetail } from '@/lib/open-event-detail';
 
 function compactParams(params: Record<string, string | undefined>) {
   return Object.fromEntries(
@@ -19,15 +21,22 @@ function compactParams(params: Record<string, string | undefined>) {
 export function openOfferDetail(
   router: Router,
   card: OfferCardItem,
-  returnTo: 'index' | 'heta' | 'slutarsnart' = 'index'
+  returnTo: 'index' | 'heta' | 'slutarsnart' | 'favoriter' = 'index'
 ) {
-  // Unified search can return cached public events (`type: "event"`).
+  // Unified search / for-you/now can return events (`type: "event"`).
   if (card.resultKind === 'event') {
+    const eventReturnTo = returnTo === 'index' ? 'index' : 'evenemang';
+    if (card.eventSource === 'BUSINESS') {
+      void fetchBusinessEventById(card.id).then((event) => {
+        if (event) openEventDetail(router, event, eventReturnTo);
+      });
+      return;
+    }
     router.push({
       pathname: '/municipio-event-detail',
       params: {
         id: card.id,
-        returnTo: returnTo === 'index' ? 'index' : 'evenemang',
+        returnTo: eventReturnTo,
       },
     });
     return;

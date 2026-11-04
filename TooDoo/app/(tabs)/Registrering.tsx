@@ -1,5 +1,14 @@
 import { useState } from 'react';
-import { Alert, Pressable, Text, TextInput, View } from 'react-native';
+import {
+	Alert,
+	Platform,
+	Pressable,
+	StyleSheet,
+	Text,
+	TextInput,
+	View,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '@/context/auth-context';
 import { apiUrl } from '@/lib/api';
@@ -7,6 +16,8 @@ import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
 import { RegistrationScreenShell } from '@/components/registration-screen-shell';
 import { PasswordInput } from '@/components/ui/password-input';
 import { useThemePreference } from '@/context/theme-preference-context';
+import { brandInkRgba } from '@/lib/brand-colors';
+import { TAB_ACTIVE_COLORS } from '@/lib/tab-colors';
 import { uiTheme } from '@/lib/ui-theme';
 
 export default function RegistreringScreen() {
@@ -14,13 +25,23 @@ export default function RegistreringScreen() {
 	const { setPendingRegistration, signIn } = useAuth();
 	const { mode } = useThemePreference();
 	const theme = uiTheme(mode);
-	const { accountType, returnTo, returnParams } = useLocalSearchParams<{ accountType?: string; returnTo?: string; returnParams?: string }>();
+	const { accountType, returnTo, returnParams } = useLocalSearchParams<{
+		accountType?: string;
+		returnTo?: string;
+		returnParams?: string;
+	}>();
 	const isCompanyRegistration = accountType === 'company';
 	const [email, setEmail] = useState('');
 	const [password, setPassword] = useState('');
 	const [confirmPassword, setConfirmPassword] = useState('');
 	const [companyName, setCompanyName] = useState('');
-    const [isSubmittingRegister, setIsSubmittingRegister] = useState(false);
+	const [isSubmittingRegister, setIsSubmittingRegister] = useState(false);
+
+	const fieldStyle = {
+		borderColor: theme.border,
+		backgroundColor: brandInkRgba(theme.isDark ? 0.1 : 0.04),
+		color: theme.text,
+	};
 
 	const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 
@@ -92,15 +113,23 @@ export default function RegistreringScreen() {
 					}),
 				});
 
-				const registerData = (await registerResponse.json().catch(() => ({}))) as { error?: string };
+				const registerData = (await registerResponse.json().catch(() => ({}))) as {
+					error?: string;
+				};
 
 				if (registerResponse.status !== 201) {
 					if (registerResponse.status === 409) {
-						Alert.alert('E-post upptagen', registerData.error ?? 'Email already exists');
+						Alert.alert(
+							'E-post upptagen',
+							registerData.error ?? 'Email already exists'
+						);
 						return;
 					}
 
-					Alert.alert('Fel', registerData.error ?? 'Kunde inte registrera manager-konto just nu.');
+					Alert.alert(
+						'Fel',
+						registerData.error ?? 'Kunde inte registrera manager-konto just nu.'
+					);
 					return;
 				}
 
@@ -123,13 +152,20 @@ export default function RegistreringScreen() {
 				};
 
 				if (loginResponse.status === 200 && loginData.token) {
-					await signIn(loginData.token, loginData.refreshToken ?? null, loginData.user?.role ?? null);
+					await signIn(
+						loginData.token,
+						loginData.refreshToken ?? null,
+						loginData.user?.role ?? null
+					);
 					Alert.alert('Konto skapat', 'Manager-kontot skapades och du är nu inloggad.');
 					router.replace('/(tabs)/Profile');
 					return;
 				}
 
-				Alert.alert('Konto skapat', 'Kontot skapades, men automatisk inloggning misslyckades. Logga in manuellt.');
+				Alert.alert(
+					'Konto skapat',
+					'Kontot skapades, men automatisk inloggning misslyckades. Logga in manuellt.'
+				);
 				router.replace('/(tabs)/Loggain');
 			} catch {
 				Alert.alert('Nätverksfel', 'Kunde inte ansluta till servern.');
@@ -152,41 +188,65 @@ export default function RegistreringScreen() {
 	return (
 		<RegistrationScreenShell
 			header={
-				<>
-					<Text className="text-3xl font-semibold" style={{ color: theme.text }}>
-						Registrering:
-					</Text>
-					<Text className="mt-2" style={{ color: theme.textMuted }}>
-						Skapa ett konto för att spara och använda dina erbjudanden.
-					</Text>
-				</>
+				<View style={styles.hero}>
+					<Ionicons
+						name="person-add"
+						size={26}
+						color={TAB_ACTIVE_COLORS.Profile}
+					/>
+					<View style={styles.heroCopy}>
+						<Text style={[styles.title, { color: theme.text }]}>Registrering</Text>
+						<Text style={[styles.subtitle, { color: theme.textMuted }]}>
+							{isCompanyRegistration
+								? 'Skapa ett företagskonto'
+								: 'Skapa konto för att spara deals och favoriter'}
+						</Text>
+					</View>
+				</View>
 			}
 			footer={
-				<>
+				<View style={styles.footerActions}>
 					<Pressable
-						className="rounded-2xl bg-[#ff3b30] px-4 py-3"
 						onPress={handleRegister}
 						disabled={isSubmittingRegister}
+						style={({ pressed }) => [
+							styles.ctaPrimary,
+							{ opacity: isSubmittingRegister || pressed ? 0.88 : 1 },
+						]}
 					>
-						<Text className="text-center font-medium text-white">Skapa konto</Text>
+						<Text style={styles.ctaPrimaryLabel}>
+							{isSubmittingRegister ? 'Skapar konto…' : 'Skapa konto'}
+						</Text>
 					</Pressable>
 					<Pressable
-						className="mt-3 rounded-2xl px-4 py-3"
 						onPress={handleBack}
-						style={{ backgroundColor: theme.primary, borderWidth: 0 }}
+						style={({ pressed }) => [
+							styles.ctaSecondary,
+							{
+								borderColor: theme.border,
+								backgroundColor: brandInkRgba(theme.isDark ? 0.08 : 0.04),
+								opacity: pressed ? 0.85 : 1,
+							},
+						]}
 					>
-						<Text className="text-center font-medium" style={{ color: '#ffffff' }}>Tillbaka</Text>
+						<Text style={[styles.ctaSecondaryLabel, { color: theme.text }]}>
+							Tillbaka
+						</Text>
 					</Pressable>
-				</>
+				</View>
 			}
 		>
-			<View className="rounded-2xl px-4 py-5" style={{ backgroundColor: theme.cardBg }}>
-				<Text className="text-lg" style={{ color: theme.text }}>Skapa konto:</Text>
-				<Text className="text-xs" style={{ color: theme.textMuted }}>
-					Säkra dina erbjudanden idag genom att registrera dig!
+			<View style={styles.formBlock}>
+				<Text style={[styles.formTitle, { color: theme.text }]}>
+					{isCompanyRegistration ? 'Företagskonto' : 'Nytt konto'}
+				</Text>
+				<Text style={[styles.formSubtitle, { color: theme.textMuted }]}>
+					{isCompanyRegistration
+						? 'Fyll i uppgifterna för att komma igång.'
+						: 'Sedan väljer du intressen i nästa steg.'}
 				</Text>
 
-				<Text className="pt-4 text-xl" style={{ color: theme.text }}>E-post:</Text>
+				<Text style={[styles.fieldLabel, { color: theme.textMuted }]}>E-post</Text>
 				<TextInput
 					value={email}
 					onChangeText={setEmail}
@@ -194,62 +254,161 @@ export default function RegistreringScreen() {
 					placeholderTextColor={theme.textFaint}
 					keyboardType="email-address"
 					autoCapitalize="none"
-					className="mt-2 rounded-2xl border px-4 py-3"
-					style={{
-						borderColor: theme.border,
-						backgroundColor: theme.cardBgMuted,
-						color: theme.text,
-						fontSize: 16,
-					}}
+					autoCorrect={false}
+					style={[styles.field, fieldStyle]}
 				/>
 
 				{isCompanyRegistration ? (
 					<>
-						<Text className="pt-4 text-xl" style={{ color: theme.text }}>Företagsnamn:</Text>
+						<Text style={[styles.fieldLabel, { color: theme.textMuted }]}>
+							Företagsnamn
+						</Text>
 						<TextInput
 							value={companyName}
 							onChangeText={setCompanyName}
 							placeholder="Ange företagsnamn"
 							placeholderTextColor={theme.textFaint}
-							className="mt-2 rounded-2xl border px-4 py-3"
-							style={{
-								borderColor: theme.border,
-								backgroundColor: theme.cardBgMuted,
-								color: theme.text,
-								fontSize: 16,
-							}}
+							style={[styles.field, fieldStyle]}
 						/>
 					</>
 				) : null}
 
-				<Text className="pt-4 text-xl" style={{ color: theme.text }}>Lösenord:</Text>
+				<Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Lösenord</Text>
 				<PasswordInput
 					value={password}
 					onChangeText={setPassword}
-					placeholder="Välj lösenord"
+					placeholder="Minst 8 tecken"
 					placeholderTextColor={theme.textFaint}
-					wrapperStyle={{
-						borderColor: theme.border,
-						backgroundColor: theme.cardBgMuted,
-					}}
-					style={{ color: theme.text }}
+					wrapperClassName=""
+					wrapperStyle={[styles.field, styles.passwordField, fieldStyle]}
+					style={{ color: theme.text, fontSize: 15 }}
 					toggleColor={theme.textMuted}
 				/>
 
-				<Text className="pt-4 text-xl" style={{ color: theme.text }}>Bekräfta lösenord:</Text>
+				<Text style={[styles.fieldLabel, { color: theme.textMuted }]}>
+					Bekräfta lösenord
+				</Text>
 				<PasswordInput
 					value={confirmPassword}
 					onChangeText={setConfirmPassword}
-					placeholder="Bekräfta lösenord"
+					placeholder="Upprepa lösenord"
 					placeholderTextColor={theme.textFaint}
-					wrapperStyle={{
-						borderColor: theme.border,
-						backgroundColor: theme.cardBgMuted,
-					}}
-					style={{ color: theme.text }}
+					wrapperClassName=""
+					wrapperStyle={[styles.field, styles.passwordField, fieldStyle]}
+					style={{ color: theme.text, fontSize: 15 }}
 					toggleColor={theme.textMuted}
 				/>
+
+				<View style={styles.loginHint}>
+					<Text style={{ color: theme.textMuted, fontSize: 14 }}>Har du redan konto? </Text>
+					<Pressable onPress={() => router.replace('/(tabs)/Loggain')}>
+						<Text style={{ color: theme.link, fontSize: 14, fontWeight: '700' }}>
+							Logga in
+						</Text>
+					</Pressable>
+				</View>
 			</View>
 		</RegistrationScreenShell>
 	);
 }
+
+const styles = StyleSheet.create({
+	hero: {
+		flexDirection: 'row',
+		alignItems: 'center',
+		gap: 10,
+	},
+	heroCopy: {
+		flex: 1,
+		minWidth: 0,
+	},
+	title: {
+		fontSize: 28,
+		fontWeight: '800',
+		letterSpacing: -0.8,
+		lineHeight: 32,
+	},
+	subtitle: {
+		marginTop: 4,
+		fontSize: 14,
+		fontWeight: '500',
+		letterSpacing: -0.1,
+		lineHeight: 18,
+	},
+	formBlock: {
+		paddingTop: 4,
+	},
+	formTitle: {
+		fontSize: 18,
+		fontWeight: '700',
+		letterSpacing: -0.3,
+	},
+	formSubtitle: {
+		marginTop: 4,
+		marginBottom: 14,
+		fontSize: 13,
+		fontWeight: '500',
+		lineHeight: 18,
+	},
+	fieldLabel: {
+		marginTop: 12,
+		marginBottom: 6,
+		fontSize: 12,
+		fontWeight: '700',
+		letterSpacing: 0.2,
+		textTransform: 'uppercase',
+	},
+	field: {
+		borderWidth: StyleSheet.hairlineWidth,
+		borderRadius: 12,
+		paddingHorizontal: 14,
+		paddingVertical: Platform.OS === 'web' ? 12 : 11,
+		fontSize: 15,
+		fontWeight: '500',
+	},
+	passwordField: {
+		flexDirection: 'row',
+		alignItems: 'center',
+		paddingVertical: Platform.OS === 'web' ? 10 : 8,
+	},
+	loginHint: {
+		marginTop: 22,
+		flexDirection: 'row',
+		justifyContent: 'center',
+		alignItems: 'center',
+		flexWrap: 'wrap',
+	},
+	footerActions: {
+		gap: 10,
+		alignItems: 'center',
+	},
+	ctaPrimary: {
+		alignSelf: 'center',
+		borderRadius: 12,
+		backgroundColor: '#ff3b30',
+		paddingHorizontal: 28,
+		paddingVertical: 12,
+		minWidth: 180,
+	},
+	ctaPrimaryLabel: {
+		color: '#ffffff',
+		fontSize: 15,
+		fontWeight: '700',
+		letterSpacing: -0.1,
+		textAlign: 'center',
+	},
+	ctaSecondary: {
+		alignSelf: 'center',
+		borderRadius: 12,
+		borderWidth: StyleSheet.hairlineWidth,
+		paddingHorizontal: 22,
+		paddingVertical: 11,
+		minWidth: 140,
+	},
+	ctaSecondaryLabel: {
+		fontSize: 14,
+		fontWeight: '700',
+		letterSpacing: -0.1,
+		textAlign: 'center',
+	},
+});

@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
-import { Platform, ScrollView, View } from 'react-native';
+import { Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { HOME_PAGE_PAD } from '@/components/home/home-feed';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { uiTheme } from '@/lib/ui-theme';
 
@@ -31,12 +32,10 @@ export function RegistrationScreenShell({
     >
       <View
         style={{
-          paddingTop: Math.max(insets.top, 12) + 8,
-          paddingHorizontal: 24,
-          paddingBottom: 12,
+          paddingTop: Math.max(insets.top + 12, 56),
+          paddingHorizontal: HOME_PAGE_PAD,
+          paddingBottom: 14,
           backgroundColor: theme.screenBg,
-          borderBottomWidth: 1,
-          borderBottomColor: theme.border,
         }}
       >
         {header}
@@ -45,9 +44,9 @@ export function RegistrationScreenShell({
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{
-          paddingHorizontal: 24,
-          paddingTop: 16,
-          paddingBottom: 16,
+          paddingHorizontal: HOME_PAGE_PAD,
+          paddingTop: 8,
+          paddingBottom: 20,
           flexGrow: 1,
         }}
         keyboardShouldPersistTaps="handled"
@@ -59,11 +58,11 @@ export function RegistrationScreenShell({
 
       <View
         style={{
-          paddingHorizontal: 24,
+          paddingHorizontal: HOME_PAGE_PAD,
           paddingTop: 12,
           paddingBottom: footerBottomPadding,
           backgroundColor: theme.screenBg,
-          borderTopWidth: 1,
+          borderTopWidth: StyleSheet.hairlineWidth,
           borderTopColor: theme.border,
         }}
       >

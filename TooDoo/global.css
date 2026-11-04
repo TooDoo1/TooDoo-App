@@ -89,11 +89,71 @@ body {
   overscroll-behavior-x: none;
 }
 
-/* Home search bar — RN stickyHeaderIndices does not stack above content on mobile web. */
-.home-sticky-search {
-  position: -webkit-sticky;
-  position: sticky;
-  z-index: 20;
+/* Pinned home header — overlays scroll; banner2 paints through (transparent panel). */
+.home-pinned-header,
+#home-search-panel.home-pinned-header {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  width: 100% !important;
+  background-color: transparent !important;
+  border: none !important;
+  border-bottom: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  overflow: hidden !important;
+}
+
+html.light .home-pinned-header,
+html.light #home-search-panel.home-pinned-header {
+  background-color: transparent !important;
+  border-bottom: none !important;
+}
+
+/* Don't force overflow on #home-scroll — RN Web owns the scrollport; overriding it kills scrolling. */
+
+/* Quiet wash layer — fills the pinned header edge-to-edge. */
+.home-header-mesh-layer {
+  position: absolute !important;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  z-index: 0 !important;
+  pointer-events: none !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+#home-greeting {
+  position: relative !important;
+  overflow: hidden !important;
+  background-color: transparent !important;
+  border: none !important;
+}
+
+#home-greeting::before,
+#home-greeting::after {
+  content: none !important;
+  display: none !important;
+}
+
+#home-search-panel.home-pinned-header {
+  overflow: hidden !important;
+  left: 0 !important;
+  right: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+}
+
+/* Single quiet vertical wash — no orbs / drift. RN layer paints the gradient. */
+#home-search-panel.home-pinned-header::before,
+#home-search-panel.home-pinned-header::after {
+  content: none !important;
+  display: none !important;
 }
 
 /* Pressables keep focus after router.push; Safari draws a bright blue edge on swipe back. */
@@ -260,4 +320,163 @@ select {
 .wheel-picker-item-active {
   color: #ffffff !important;
   opacity: 1 !important;
+}
+
+/* Just nu coverflow — native CSS snap, not JS drag. */
+.toodoo-featured-coverflow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x pan-y;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  box-sizing: border-box;
+}
+
+/* iOS ignores scrollLeft while mandatory snap is active — brief teleport window. */
+.toodoo-featured-coverflow.is-wrapping {
+  scroll-snap-type: none !important;
+}
+
+.toodoo-featured-coverflow::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.toodoo-featured-spacer {
+  flex-shrink: 0;
+  pointer-events: none;
+  scroll-snap-align: none;
+}
+
+.toodoo-featured-preload {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.toodoo-featured-preload .toodoo-featured-photo {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.toodoo-featured-slide {
+  position: relative;
+  flex-shrink: 0;
+  scroll-snap-align: center;
+  scroll-snap-stop: always;
+  transform: scale(1);
+  transform-origin: center center;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.toodoo-featured-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.toodoo-hello-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 420;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  pointer-events: none;
+  user-select: none;
+}
+
+.toodoo-hello-banner {
+  flex: 0 0 auto;
+  width: max-content;
+  max-width: min(88vw, 300px);
+  height: auto;
+  padding: 10px 16px 9px;
+  border-radius: 14px;
+  border: 1px solid rgba(10, 15, 28, 0.55);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.48);
+  text-align: center;
+  white-space: nowrap;
+  animation: toodoo-hello-fly 3.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.toodoo-hello-title {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.4px;
+  line-height: 24px;
+  white-space: nowrap;
+}
+
+.toodoo-hello-tagline {
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+  line-height: 17px;
+  animation: toodoo-hello-tag 3.2s ease forwards;
+}
+
+@keyframes toodoo-hello-fly {
+  0% {
+    transform: translateY(-180px);
+    opacity: 0;
+  }
+  14% {
+    transform: translateY(10px);
+    opacity: 1;
+  }
+  20% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  76% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-220px);
+    opacity: 0;
+  }
+}
+
+@keyframes toodoo-hello-tag {
+  0%,
+  18% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  30%,
+  76% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(0);
+  }
 }

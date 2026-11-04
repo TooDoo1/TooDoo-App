@@ -22,6 +22,8 @@ export type NearbyBusinessCard = {
   categoryId?: string;
   categoryIds?: string[];
   categoryName?: string;
+  categoryIcon?: string;
+  openingHours?: unknown;
   hasEvent?: boolean;
   hasOffer?: boolean;
 };
@@ -68,12 +70,19 @@ export function getHomeEndingSoonCache(): OfferCardItem[] | null {
   return isFresh(endingSoonCache) ? endingSoonCache.data : null;
 }
 
-export function setHomeEventsCache(data: EventFeedItem[]) {
+let eventsCacheCity: string | undefined;
+
+export function setHomeEventsCache(data: EventFeedItem[], city?: string | null) {
   eventsCache = { data, at: Date.now() };
+  eventsCacheCity = city?.trim() || undefined;
 }
 
 export function getHomeEventsCache(): EventFeedItem[] | null {
   return isFresh(eventsCache) ? eventsCache.data : null;
+}
+
+export function getHomeEventsCacheCity(): string | undefined {
+  return eventsCacheCity;
 }
 
 export type HomeFilterCategory = { id: string; label: string };
@@ -112,6 +121,19 @@ export function setHomeScrollOffset(y: number) {
 
 export function getHomeScrollOffset() {
   return homeScrollOffsetY;
+}
+
+/** Horizontal rail offsets on home (Nära dig, etc.) — survive detail push/pop. */
+const homeRailScrollX = new Map<string, number>();
+
+export function setHomeRailScrollOffset(key: string, x: number) {
+  if (!key) return;
+  homeRailScrollX.set(key, Math.max(0, x));
+}
+
+export function getHomeRailScrollOffset(key: string) {
+  if (!key) return 0;
+  return homeRailScrollX.get(key) ?? 0;
 }
 
 export type HomeSearchCache = {

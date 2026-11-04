@@ -14,28 +14,36 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
 import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
 import { ScreenBackButton } from '@/components/ui/screen-back-button';
-import { ListItemSeparator } from '@/components/ui/list-item-separator';
+import { CategoryFilterBar } from '@/components/ui/category-filter-bar';
+import { ALL_CATEGORIES_ID } from '@/lib/category-filters';
+import { ListItemSeparator, SEE_ALL_COLUMN_GAP } from '@/components/ui/list-item-separator';
 import { PaginatedListFooter } from '@/components/ui/paginated-list-footer';
 import { SeeAllCardActions, SeeAllListCard, SeeAllPill } from '@/components/ui/see-all-list-card';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { brandInkRgba } from '@/lib/brand-colors';
+import { useAuth } from '@/context/auth-context';
 import {
+  cardMatchesCategory,
   computeDiscountLabel,
   getDiscountBadgeColor,
   type OfferCardItem,
 } from '@/lib/home-offers';
 import {
+  isWeekendSearchQuery,
   searchCatalog,
   sortSearchResultsForView,
   type SearchResultsView,
 } from '@/lib/catalog-search';
+import { resolveEventFeedCity } from '@/lib/events-feed';
 import {
   fillMissingDistancesFromAddresses,
   formatDistanceKm,
   getEffectiveUserCoords,
+  HELSINGBORG_COORDS,
   resolveUserCityFromDevice,
 } from '@/lib/geo';
 import { openOfferDetail } from '@/lib/open-offer-detail';
+import { fetchRecommendedNow } from '@/lib/recommended-now';
 import { usePaginatedList, SEE_ALL_PAGE_SIZE } from '@/lib/paginated-list';
 import { schedulePrefetchImageUris, usePrefetchPageImages } from '@/lib/image-prefetch';
 import { getCategoryAccentForItem } from '@/lib/category-colors';
@@ -141,23 +149,69 @@ function SearchResultCard({
 }
 
 export function SearchResultsScreen() {
-  const { q, view: viewParam } = useLocalSearchParams<{ q?: string; view?: string }>();
+  const {
+    q,
+    view: viewParam,
+    categoryId,
+    categoryName,
+    source: sourceParam,
+    city: cityParam,
+  } = useLocalSearchParams<{
+    q?: string;
+    view?: string;
+    categoryId?: string;
+    categoryName?: string;
+    source?: string;
+    city?: string;
+  }>();
   const query = Array.isArray(q) ? q[0] : q ?? '';
   const viewRaw = Array.isArray(viewParam) ? viewParam[0] : viewParam;
+  const initialCategoryId = Array.isArray(categoryId) ? categoryId[0] : categoryId;
+  const initialCategoryName = Array.isArray(categoryName) ? categoryName[0] : categoryName;
+  const sourceRaw = Array.isArray(sourceParam) ? sourceParam[0] : sourceParam;
+  const isRecommendedNow = sourceRaw === 'now';
+  const initialCity = Array.isArray(cityParam) ? cityParam[0] : cityParam;
   const view: SearchResultsView =
     viewRaw === 'near' || viewRaw === 'hot' ? viewRaw : 'all';
-  const config = VIEW_CONFIG[view];
+  const weekendQuery = !isRecommendedNow && isWeekendSearchQuery(query);
 
   const { mode: themeMode } = useThemePreference();
   const theme = uiTheme(themeMode);
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { authFetch, isLoggedIn } = useAuth();
 
   const [cards, setCards] = useState<OfferCardItem[]>([]);
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [feedTitle, setFeedTitle] = useState<string | undefined>();
+  const [feedSubtitle, setFeedSubtitle] = useState<string | undefined>();
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
+    isRecommendedNow ? HELSINGBORG_COORDS : null
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [activeCategoryId, setActiveCategoryId] = useState(
+    initialCategoryId?.trim() || ALL_CATEGORIES_ID
+  );
+  const [activeCategoryName, setActiveCategoryName] = useState<string | undefined>(
+    initialCategoryName?.trim() || undefined
+  );
+
+  const config = isRecommendedNow
+    ? {
+        title: feedTitle ?? 'Rekommenderat just nu',
+        icon: 'sparkles' as const,
+        subtitle: feedSubtitle,
+        emptyText: 'Inga förslag just nu.',
+      }
+    : weekendQuery
+      ? {
+          title: 'Helgen',
+          icon: 'sunny' as const,
+          subtitle: 'Evenemang och ställen',
+          emptyText: 'Inga helgförslag just nu.',
+        }
+      : VIEW_CONFIG[view];
 
   useEffect(() => {
     let cancelled = false;
@@ -178,11 +232,59 @@ export function SearchResultsScreen() {
     void (async () => {
       setIsLoading(true);
       try {
+        const categoryNameForFetch =
+          activeCategoryId !== ALL_CATEGORIES_ID ? activeCategoryName : undefined;
+        const effectiveCoords = coords ?? (isRecommendedNow ? HELSINGBORG_COORDS : null);
+
+        if (isRecommendedNow) {
+          let profileCity: string | undefined;
+          if (!initialCity?.trim() && isLoggedIn) {
+            try {
+              const meRes = await authFetch('/user/me');
+              if (meRes.ok) {
+                const me = (await meRes.json().catch(() => ({}))) as { location?: string };
+                const loc = typeof me.location === 'string' ? me.location.trim() : '';
+                if (loc) profileCity = loc;
+              }
+            } catch {
+              // optional
+            }
+          }
+          const city = resolveEventFeedCity(
+            initialCity?.trim() || profileCity,
+            effectiveCoords
+          );
+          const feed = await fetchRecommendedNow({
+            authFetch,
+            city,
+            coords: effectiveCoords,
+            categoryName: categoryNameForFetch,
+            take: 20,
+          });
+          const results = feed?.cards ?? [];
+          const withDistance = effectiveCoords
+            ? await fillMissingDistancesFromAddresses(results, effectiveCoords, {
+                maxGeocode: 50,
+              })
+            : results;
+          if (!cancelled) {
+            setFeedTitle(feed?.title);
+            setFeedSubtitle(feed?.subtitle);
+            setCards(withDistance);
+            schedulePrefetchImageUris(
+              withDistance.slice(0, 12).map((card) => card.image),
+              16
+            );
+          }
+          return;
+        }
+
         const city = (await resolveUserCityFromDevice().catch(() => null))?.city;
         const results = await searchCatalog(query, {
           take: 40,
           maxHydrate: 40,
           city: city || undefined,
+          categoryName: categoryNameForFetch,
         });
         const withDistance = coords
           ? await fillMissingDistancesFromAddresses(results, coords, { maxGeocode: 50 })
@@ -210,7 +312,18 @@ export function SearchResultsScreen() {
     return () => {
       cancelled = true;
     };
-  }, [coords, query, refreshNonce, view]);
+  }, [
+    activeCategoryId,
+    activeCategoryName,
+    authFetch,
+    coords,
+    initialCity,
+    isLoggedIn,
+    isRecommendedNow,
+    query,
+    refreshNonce,
+    view,
+  ]);
 
   useEffect(() => {
     if (!coords || cards.length === 0 || view !== 'near') return;
@@ -254,7 +367,7 @@ export function SearchResultsScreen() {
         >
           {config.title}
         </Text>
-        {query ? (
+        {query && !weekendQuery && !isRecommendedNow ? (
           <Text className="mt-1.5 text-sm" style={{ color: theme.textMuted, lineHeight: 20 }}>
             Sökning: {query}
           </Text>
@@ -267,9 +380,25 @@ export function SearchResultsScreen() {
             {config.subtitle}
           </Text>
         ) : null}
+        <CategoryFilterBar
+          selectedId={activeCategoryId}
+          onSelect={(id, label) => {
+            setActiveCategoryId(id);
+            setActiveCategoryName(label);
+          }}
+        />
       </View>
     ),
-    [config.subtitle, config.title, query, theme.text, theme.textMuted]
+    [
+      activeCategoryId,
+      config.subtitle,
+      config.title,
+      isRecommendedNow,
+      query,
+      theme.text,
+      theme.textMuted,
+      weekendQuery,
+    ]
   );
 
   const getBadgeLabel = useCallback(
@@ -281,10 +410,32 @@ export function SearchResultsScreen() {
     [view]
   );
 
-  const pagination = usePaginatedList(cards, `${refreshNonce}-${query}-${view}`);
+  const visibleCards = useMemo(() => {
+    if (isRecommendedNow) return cards;
+    if (activeCategoryId === ALL_CATEGORIES_ID && !activeCategoryName) return cards;
+    return cards.filter((card) => {
+      if (
+        activeCategoryId !== ALL_CATEGORIES_ID &&
+        cardMatchesCategory(card, activeCategoryId)
+      ) {
+        return true;
+      }
+      if (activeCategoryName) {
+        const want = activeCategoryName.trim().toLocaleLowerCase('sv-SE');
+        const have = card.categoryName?.trim().toLocaleLowerCase('sv-SE') ?? '';
+        if (want && have === want) return true;
+      }
+      return false;
+    });
+  }, [activeCategoryId, activeCategoryName, cards, isRecommendedNow]);
 
-  usePrefetchPageImages(cards, pagination.page, SEE_ALL_PAGE_SIZE, {
-    resetKey: `${refreshNonce}-${query}-${view}`,
+  const pagination = usePaginatedList(
+    visibleCards,
+    `${refreshNonce}-${query}-${view}-${activeCategoryId}-${activeCategoryName ?? ''}`
+  );
+
+  usePrefetchPageImages(visibleCards, pagination.page, SEE_ALL_PAGE_SIZE, {
+    resetKey: `${refreshNonce}-${query}-${view}-${activeCategoryId}-${activeCategoryName ?? ''}`,
   });
 
   const listFooter = useMemo(
@@ -322,6 +473,8 @@ export function SearchResultsScreen() {
               imagePriority={index < 6 ? 'high' : 'normal'}
             />
           )}
+          numColumns={2}
+          columnWrapperStyle={{ gap: SEE_ALL_COLUMN_GAP }}
           ListHeaderComponent={listHeader}
           ListFooterComponent={listFooter}
           contentContainerStyle={{
@@ -330,7 +483,7 @@ export function SearchResultsScreen() {
             paddingBottom: insets.bottom + 24,
           }}
           ItemSeparatorComponent={ListItemSeparator}
-          initialNumToRender={6}
+          initialNumToRender={8}
           maxToRenderPerBatch={LIST_BATCH_SIZE}
           windowSize={7}
           removeClippedSubviews
@@ -344,7 +497,9 @@ export function SearchResultsScreen() {
               </View>
             ) : (
               <Text className="mt-10" style={{ color: theme.textMuted }}>
-                {config.emptyText}
+                {activeCategoryName
+                  ? `Inga träffar i ${activeCategoryName} just nu.`
+                  : config.emptyText}
               </Text>
             )
           }

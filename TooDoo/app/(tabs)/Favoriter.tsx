@@ -1,22 +1,29 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { getFloatingTabBarScrollPadding } from '@/components/floating-tab-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { StarrySkyScreenBackground } from '@/components/ui/starry-background';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { uiTheme } from '@/lib/ui-theme';
 import { useAuth } from '@/context/auth-context';
 import { useFavorites } from '@/context/favorites-context';
 import { apiUrl, normalizeImageUrl } from '@/lib/api';
-import { CardMedia } from '@/components/ui/card-media';
 import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
-import { IMAGE_DISPLAY_WIDTH } from '@/lib/image-url';
-import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
-import { OFFERS_CATEGORY_ACCENT } from '@/lib/category-colors';
 import { FAVORITE_HEART_COLOR } from '@/lib/tab-colors';
+import { brandInkRgba } from '@/lib/brand-colors';
+import { HOME_PAGE_PAD, HomeCardGrid } from '@/components/home/home-feed';
+import { cardsFromCatalogBusinesses, type OfferCardItem } from '@/lib/home-offers';
+import { openOfferDetail } from '@/lib/open-offer-detail';
 
 async function fetchFavoriteBusinesses(
   authFetch: (path: string, init?: RequestInit) => Promise<Response>,
@@ -59,7 +66,7 @@ export default function FavoriterScreen() {
   const insets = useSafeAreaInsets();
   const scrollBottomPadding = getFloatingTabBarScrollPadding(insets.bottom, undefined, 24);
   const { token, isLoggedIn, role, authFetch } = useAuth();
-  const { favoriteBusinessIds, isFavorite, toggleFavorite } = useFavorites();
+  const { favoriteBusinessIds } = useFavorites();
 
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -68,6 +75,11 @@ export default function FavoriterScreen() {
 
   const favoriteIds = useMemo(() => Array.from(favoriteBusinessIds), [favoriteBusinessIds]);
   const favoriteIdsKey = favoriteIds.join('|');
+
+  const favoriteCards = useMemo(
+    () => cardsFromCatalogBusinesses(companies) as OfferCardItem[],
+    [companies]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -128,148 +140,108 @@ export default function FavoriterScreen() {
           />
         }
       >
-        <View className="min-h-full px-6 pt-24">
-          <View className="flex-row items-center justify-center">
-            <Ionicons name="heart" size={28} color={FAVORITE_HEART_COLOR} />
-            <Text className="ml-2 text-3xl font-semibold" style={{ color: theme.text }}>
-              Favoriter
-            </Text>
+        <View
+          style={{
+            minHeight: '100%',
+            paddingHorizontal: HOME_PAGE_PAD,
+            paddingTop: Math.max(insets.top + 20, 72),
+          }}
+        >
+          <View style={styles.hero}>
+            <Ionicons name="heart" size={26} color={FAVORITE_HEART_COLOR} />
+
+            <View style={styles.heroCopy}>
+              <View style={styles.titleRow}>
+                <Text style={[styles.title, { color: theme.text }]}>Favoriter</Text>
+                {isLoggedIn && role === 'USER' && favoriteCards.length > 0 ? (
+                  <View
+                    style={[
+                      styles.countPill,
+                      {
+                        backgroundColor: brandInkRgba(theme.isDark ? 0.16 : 0.06),
+                        borderColor: theme.border,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.countText, { color: theme.textMuted }]}>
+                      {favoriteCards.length}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text style={[styles.subtitle, { color: theme.textMuted }]}>
+                {isLoggedIn && role === 'USER'
+                  ? favoriteCards.length > 0
+                    ? 'Dina sparade ställen'
+                    : 'Spara ställen du vill hitta igen'
+                  : 'Dina sparade ställen'}
+              </Text>
+            </View>
           </View>
 
-          {isLoggedIn && role === 'USER' ? (
-            <Text className="mt-2 pt-4 text-center text-xl" style={{ color: theme.textMuted }}>
-              Alla verksamheter du har hjärtat.
-            </Text>
-          ) : null}
-
           {!isLoggedIn || role !== 'USER' ? (
-            <View className="mt-8 px-4">
-              <Text className="mb-4 text-center" style={{ color: theme.textMuted }}>
-                Logga in för att spara och se dina favoriter.
+            <View style={styles.emptyState}>
+              <Ionicons
+                name="heart-outline"
+                size={42}
+                color={FAVORITE_HEART_COLOR}
+                style={{ opacity: 0.85 }}
+              />
+              <Text style={[styles.emptyTitle, { color: theme.text }]}>
+                Spara ställen du gillar
+              </Text>
+              <Text style={[styles.emptyText, { color: theme.textMuted }]}>
+                Logga in så synkas dina favoriter mellan enheter.
               </Text>
               <Pressable
-                className="rounded-xl px-4 py-3"
                 onPress={() => router.push('/(tabs)/Loggain')}
-                style={{ backgroundColor: OFFERS_CATEGORY_ACCENT }}
+                style={({ pressed }) => [
+                  styles.ctaSolid,
+                  { opacity: pressed ? 0.88 : 1 },
+                ]}
               >
-                <Text className="text-center font-semibold text-white">Logga in för att favoritisera!</Text>
+                <Text style={styles.ctaSolidLabel}>Logga in</Text>
               </Pressable>
             </View>
           ) : isLoading && companies.length === 0 ? (
-            <View className="mt-10 items-center">
+            <View style={{ marginTop: 36, alignItems: 'center' }}>
               <ActivityIndicator color={theme.text} />
             </View>
           ) : companies.length === 0 ? (
-            <View className="mt-8 px-4">
-              <Text className="mb-4 text-center" style={{ color: theme.textMuted }}>
-                Du har inga favoriter ännu. Utforska verksamheter och spara dem här.
+            <View style={styles.emptyState}>
+              <Ionicons
+                name="heart-outline"
+                size={42}
+                color={FAVORITE_HEART_COLOR}
+                style={{ opacity: 0.85 }}
+              />
+              <Text style={[styles.emptyTitle, { color: theme.text }]}>
+                Inga favoriter ännu
+              </Text>
+              <Text style={[styles.emptyText, { color: theme.textMuted }]}>
+                Utforska och tryck på hjärtat för att spara ställen här.
               </Text>
               <Pressable
-                className="rounded-xl px-4 py-3"
                 onPress={() => router.push('/')}
-                style={{ backgroundColor: OFFERS_CATEGORY_ACCENT }}
+                style={({ pressed }) => [
+                  styles.ctaSolid,
+                  { opacity: pressed ? 0.88 : 1 },
+                ]}
               >
-                <Text className="text-center font-semibold text-white">Favoritisera</Text>
+                <Text style={styles.ctaSolidLabel}>Utforska</Text>
               </Pressable>
             </View>
           ) : (
-            <View className="mt-5" style={{ gap: 12 }}>
-              {companies.map((company, idx) => {
-                const id = String(company?.id ?? company?._id ?? `business-${idx}`);
-                const imageUri = normalizeImageUrl(company?.image?.publicUrl ?? company?.image?.url ?? company?.imageUrl);
-                const address = [company?.address, company?.city].filter(Boolean).join(', ') || 'Adress saknas';
-
-                return (
-                  <Pressable
-                    key={id}
-                    onPress={() =>
-                      router.push({
-                        pathname: COMPANY_DETAIL_PATH,
-                        params: {
-                          returnTo: 'favoriter',
-                          id,
-                          claimBusinessId: id,
-                          title: company?.name ?? 'Okänd verksamhet',
-                          deal: '1',
-                          imageUri: imageUri ?? '',
-                          Adress: address,
-                          latitude: company?.latitude?.toString(),
-                          longitude: company?.longitude?.toString(),
-                          Telefon: company?.contactPhone ?? '',
-                          Website: company?.website ?? '',
-                          kortbeskrivning: company?.description ?? '',
-                          långbeskrivning: company?.description ?? '',
-                          mapResetNonce: `${Date.now()}-${Math.random()}`,
-                        },
-                      })
-                    }
-                    className="overflow-hidden rounded-2xl"
-                    style={{
-                      width: '100%',
-                      backgroundColor: theme.cardBg,
-                      borderWidth: 1,
-                      borderColor: theme.border,
-                    }}
-                  >
-                    <View className="relative h-44 w-full">
-                      <CardMedia
-                        source={{
-                          uri: imageUri ?? `https://picsum.photos/seed/${encodeURIComponent(id)}/336/224`,
-                        }}
-                        svgFit="fill"
-                        priority={idx < 4 ? 'high' : 'normal'}
-                        displayWidth={IMAGE_DISPLAY_WIDTH.cardWide}
-                      />
-                      <View className="absolute inset-0 bg-black/20" />
-
-                      {isLoggedIn && role === 'USER' ? (
-                        <View
-                          className="absolute right-2 top-2 h-8 w-8 items-center justify-center rounded-full"
-                          style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
-                        >
-                          <Pressable
-                            onPress={async (e: any) => {
-                              e?.stopPropagation?.();
-                              await toggleFavorite(id);
-                            }}
-                            hitSlop={10}
-                            style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center' }}
-                          >
-                            <Ionicons
-                              name={isFavorite(id) ? 'heart' : 'heart-outline'}
-                              size={18}
-                              color={isFavorite(id) ? FAVORITE_HEART_COLOR : '#ffffff'}
-                            />
-                          </Pressable>
-                        </View>
-                      ) : null}
-
-                      <LinearGradient
-                        colors={['rgba(0,0,0,0.00)', 'rgba(0,0,0,0.85)']}
-                        start={{ x: 0.5, y: 0 }}
-                        end={{ x: 0.5, y: 1 }}
-                        style={{
-                          position: 'absolute',
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          height: '55%',
-                          paddingHorizontal: 10,
-                          paddingBottom: 10,
-                          justifyContent: 'flex-end',
-                        }}
-                      >
-                        <Text className="text-sm font-semibold text-white" numberOfLines={1}>
-                          {company?.name ?? 'Okänd verksamhet'}
-                        </Text>
-                        <Text className="mt-0.5 text-[11px] text-white/80" numberOfLines={1}>
-                          {address}
-                        </Text>
-                      </LinearGradient>
-                    </View>
-                  </Pressable>
-                );
-              })}
+            <View style={{ marginTop: 18 }}>
+              <HomeCardGrid
+                cards={favoriteCards}
+                onCardPress={(card) => openOfferDetail(router, card, 'favoriter')}
+                emptyText="Du har inga favoriter ännu."
+                maxItems={null}
+                columns={1}
+                compact
+                showFavoriteButton
+              />
             </View>
           )}
         </View>
@@ -277,3 +249,84 @@ export default function FavoriterScreen() {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  hero: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 8,
+  },
+  heroCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: -0.8,
+    lineHeight: 32,
+  },
+  countPill: {
+    minWidth: 28,
+    height: 24,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  countText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: -0.1,
+  },
+  subtitle: {
+    marginTop: 4,
+    fontSize: 14,
+    fontWeight: '500',
+    letterSpacing: -0.1,
+    lineHeight: 18,
+  },
+  emptyState: {
+    marginTop: 56,
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    gap: 10,
+  },
+  emptyTitle: {
+    marginTop: 6,
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: -0.35,
+    textAlign: 'center',
+  },
+  emptyText: {
+    fontSize: 14,
+    fontWeight: '500',
+    lineHeight: 20,
+    letterSpacing: -0.1,
+    textAlign: 'center',
+    maxWidth: 280,
+  },
+  ctaSolid: {
+    marginTop: 10,
+    alignSelf: 'center',
+    borderRadius: 12,
+    backgroundColor: '#ff3b30',
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+  },
+  ctaSolidLabel: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: -0.1,
+    textAlign: 'center',
+  },
+});

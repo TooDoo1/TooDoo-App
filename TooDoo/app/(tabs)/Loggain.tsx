@@ -9,19 +9,23 @@ import {
 	ScrollView,
 	Easing,
 	Platform,
+	StyleSheet,
 	type StyleProp,
 	type TextStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/auth-context';
 import { apiUrl } from '@/lib/api';
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
 import { PasswordInput } from '@/components/ui/password-input';
 import { useThemePreference } from '@/context/theme-preference-context';
-import { BrandColors } from '@/lib/brand-colors';
+import { brandInkRgba } from '@/lib/brand-colors';
 import { TAB_ACTIVE_COLORS } from '@/lib/tab-colors';
 import { uiTheme } from '@/lib/ui-theme';
+import { getFloatingTabBarScrollPadding } from '@/components/floating-tab-bar';
+import { HOME_PAGE_PAD } from '@/components/home/home-feed';
 
 const USER_EXTRAS_MAX_HEIGHT = 280;
 const USER_EXTRAS_TUCK_PX = 12;
@@ -82,12 +86,12 @@ export default function LoggainScreen() {
 	const { signIn } = useAuth();
 	const { mode } = useThemePreference();
 	const theme = uiTheme(mode);
-	const boxShadowStyle = {
-		shadowColor: theme.isDark ? 'rgba(0,0,0,0.65)' : 'rgba(0,0,0,0.25)',
-		shadowOffset: { width: 0, height: theme.isDark ? 10 : 6 },
-		shadowOpacity: theme.isDark ? 0.35 : 0.14,
-		shadowRadius: theme.isDark ? 18 : 12,
-		elevation: theme.isDark ? 12 : 7,
+	const insets = useSafeAreaInsets();
+	const scrollBottomPadding = getFloatingTabBarScrollPadding(insets.bottom, undefined, 24);
+	const fieldStyle = {
+		borderColor: theme.border,
+		backgroundColor: brandInkRgba(theme.isDark ? 0.1 : 0.04),
+		color: theme.text,
 	};
 	const [selectedType, setSelectedType] = useState<'user' | 'company'>('user');
 	// During transitions we keep the previous form mounted so the drawer can animate
@@ -150,18 +154,6 @@ export default function LoggainScreen() {
 			setIsTypeAnimating(false);
 		});
 	};
-
-	const selectedTabTextStyle = (color: string) => ({
-		color,
-		fontWeight: '600' as const,
-		...(Platform.OS === 'web'
-			? { textShadow: `0 0 8px ${color}` }
-			: {
-					textShadowColor: color,
-					textShadowOffset: { width: 0, height: 0 },
-					textShadowRadius: 10,
-				}),
-	});
 
 	const handleLogin = async (accountType: 'user' | 'company') => {
 		const email = (accountType === 'user' ? userEmail : companyEmail).trim();
@@ -241,238 +233,394 @@ export default function LoggainScreen() {
 			);
 		};
 
-	return (
-		<ScrollView className="flex-1" style={{ backgroundColor: theme.screenBg }} contentContainerStyle={{ paddingBottom: 48 }}>
-			<View className="px-6 pt-12">
-			<View className="flex-row items-center justify-center pt-10">
-				<Ionicons name="person" size={28} color={TAB_ACTIVE_COLORS.Profile} />
-				<Text className="ml-2 text-3xl font-semibold" style={{ color: theme.text }}>
-					In loggning:
+	const renderLoginForm = (accountType: 'user' | 'company') => {
+		const isUser = accountType === 'user';
+		const email = isUser ? userEmail : companyEmail;
+		const setEmail = isUser ? setUserEmail : setCompanyEmail;
+		const password = isUser ? userPassword : companyPassword;
+		const setPassword = isUser ? setUserPassword : setCompanyPassword;
+
+		return (
+			<View style={styles.formBlock}>
+				<Text style={[styles.formTitle, { color: theme.text }]}>
+					{isUser ? 'Användare' : 'Företag'}
 				</Text>
-			</View>
+				<Text style={[styles.formSubtitle, { color: theme.textMuted }]}>
+					{isUser
+						? 'Spara favoriter och erbjudanden på ditt konto.'
+						: 'Hantera ditt företags erbjudanden.'}
+				</Text>
 
-            <View
-				className="mt-8 rounded-2xl px-6 flex-row gap-3 items-center justify-center"
-				style={[{ backgroundColor: theme.cardBg }, boxShadowStyle]}
+				<Text style={[styles.fieldLabel, { color: theme.textMuted }]}>E-post</Text>
+				<TextInput
+					value={email}
+					onChangeText={setEmail}
+					placeholder="Din e-postadress"
+					placeholderTextColor={theme.textFaint}
+					keyboardType="email-address"
+					autoCapitalize="none"
+					autoCorrect={false}
+					style={[styles.field, fieldStyle]}
+				/>
+
+				<Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Lösenord</Text>
+				<PasswordInput
+					value={password}
+					onChangeText={setPassword}
+					placeholder="Minst 8 tecken"
+					placeholderTextColor={theme.textFaint}
+					wrapperClassName=""
+					wrapperStyle={[styles.field, styles.passwordField, fieldStyle]}
+					style={{ color: theme.text, fontSize: 15 }}
+					toggleColor={theme.textMuted}
+				/>
+
+				<Pressable
+					style={styles.forgotHit}
+					onPress={() =>
+						router.push({
+							pathname: '/glomt-losenord',
+							params: email.trim() ? { email: email.trim() } : undefined,
+						})
+					}
+				>
+					<Text style={[styles.forgotLabel, { color: theme.link }]}>Glömt lösenord?</Text>
+				</Pressable>
+
+				<Pressable
+					onPress={() => handleLogin(accountType)}
+					disabled={isSubmittingLogin}
+					style={({ pressed }) => [
+						styles.ctaSolid,
+						{ opacity: isSubmittingLogin || pressed ? 0.88 : 1 },
+					]}
+				>
+					<Text style={styles.ctaSolidLabel}>
+						{isSubmittingLogin ? 'Loggar in…' : 'Logga in'}
+					</Text>
+				</Pressable>
+			</View>
+		);
+	};
+
+	return (
+		<ScrollView
+			className="flex-1"
+			style={{ backgroundColor: theme.screenBg }}
+			contentContainerStyle={{ paddingBottom: scrollBottomPadding }}
+			keyboardShouldPersistTaps="handled"
+		>
+			<View
+				style={{
+					paddingHorizontal: HOME_PAGE_PAD,
+					paddingTop: Math.max(insets.top + 20, 72),
+				}}
 			>
-                <Pressable 
-					className={`mb-3 mt-3 rounded-2xl w-1/2 py-3`}
-					disabled={isTypeAnimating}
-					onPress={handleUserPress}
-				>
-					<View className="items-center">
-						<BounceText
-							text="Användare"
-							className="text-center font-medium"
-							textStyle={
-								selectedType === 'user'
-									? selectedTabTextStyle(theme.accentGreen)
-									: { color: theme.textMuted }
-							}
-							trigger={userBounceTrigger}
-						/>
+				<View style={styles.hero}>
+					<Ionicons name="person" size={26} color={TAB_ACTIVE_COLORS.Profile} />
+					<View style={styles.heroCopy}>
+						<Text style={[styles.title, { color: theme.text }]}>Logga in</Text>
+						<Text style={[styles.subtitle, { color: theme.textMuted }]}>
+							Välj kontotyp och fortsätt
+						</Text>
 					</View>
-                </Pressable>
-                <View className="h-12 w-px bg-toodoo-muted" />
-                <Pressable 
-					className={`mb-3 mt-3 rounded-2xl py-3 w-1/2`}
-					disabled={isTypeAnimating}
-					onPress={handleCompanyPress}
+				</View>
+
+				<View
+					style={[
+						styles.segmentTrack,
+						{ backgroundColor: brandInkRgba(theme.isDark ? 0.1 : 0.04) },
+					]}
 				>
-					<View className="items-center">
-						<BounceText
-							text="Företag"
-							className="text-center font-medium"
-							textStyle={
-								selectedType === 'company'
-									? selectedTabTextStyle(theme.primary)
-									: { color: theme.textMuted }
-							}
-							trigger={companyBounceTrigger}
-						/>
-					</View>
-                </Pressable>
-                
-            </View>
-
-						{displayedType === 'user' ? (
-							<View>
-							<View className="mt-8 rounded-2xl px-4 py-4" style={[{ backgroundColor: theme.cardBg }, boxShadowStyle]}>
-								<Text className="text-xl" style={{ color: theme.text }}>Användar inloggning:</Text>
-								<Text className="text-xs" style={{ color: theme.textMuted }}>Säkra dina erbjudanden idag genom att logga in!</Text>
-								<Text className="pt-4 text-xl" style={{ color: theme.text }}>E-post:</Text>
-								<TextInput
-																value={userEmail}
-																onChangeText={setUserEmail}
-															placeholder="Din e-postadress"
-															placeholderTextColor={theme.textFaint}
-															keyboardType="email-address"
-																autoCapitalize="none"
-															className="mt-2 rounded-2xl border px-4 py-3"
-															style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
-														/>
-								<Text className="pt-4 text-xl" style={{ color: theme.text }}>Lösenord:</Text>
-								<PasswordInput
-									value={userPassword}
-									onChangeText={setUserPassword}
-									placeholder="lösenord"
-									placeholderTextColor={theme.textFaint}
-									wrapperStyle={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted }}
-									style={{ color: theme.text }}
-									toggleColor={theme.textMuted}
-								/>
+					{(
+						[
+							{
+								id: 'user' as const,
+								label: 'Användare',
+								onPress: handleUserPress,
+								trigger: userBounceTrigger,
+								accent: theme.accentGreen,
+							},
+							{
+								id: 'company' as const,
+								label: 'Företag',
+								onPress: handleCompanyPress,
+								trigger: companyBounceTrigger,
+								accent: theme.primary,
+							},
+						] as const
+					).map((tab, index) => {
+						const active = selectedType === tab.id;
+						return (
+							<View key={tab.id} style={styles.segmentSlot}>
+								{index > 0 ? (
+									<View
+										style={[
+											styles.segmentDivider,
+											{ backgroundColor: theme.border },
+										]}
+									/>
+								) : null}
 								<Pressable
-									className="mt-3 self-end"
-									onPress={() =>
-										router.push({
-											pathname: '/glomt-losenord',
-											params: userEmail.trim() ? { email: userEmail.trim() } : undefined,
-										})
-									}
+									disabled={isTypeAnimating}
+									onPress={tab.onPress}
+									style={[
+										styles.segmentItem,
+										active
+											? { backgroundColor: `${tab.accent}22` }
+											: null,
+									]}
 								>
-									<Text className="text-sm font-medium" style={{ color: theme.link }}>
-										Glömt lösenord?
-									</Text>
-								</Pressable>
-								<Pressable className="mt-6 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={() => handleLogin('user')} disabled={isSubmittingLogin}>
-									<Text className="text-center font-medium text-white">Logga in</Text>
-								</Pressable>
-							</View>
-
-							</View>
-							) : null}
-
-						{displayedType === 'company' ? (
-							<View>
-							<View className="mt-8 rounded-2xl px-4 py-4" style={[{ backgroundColor: theme.cardBg }, boxShadowStyle]}>
-								<Text className="text-xl" style={{ color: theme.text }}>Företags inloggning:</Text>
-								<Text className="text-xs" style={{ color: theme.textMuted }}>Skapa erbjudanden idag genom att logga in!</Text>
-								<Text className="pt-4 text-xl" style={{ color: theme.text }}>E-post:</Text>
-								<TextInput
-																value={companyEmail}
-																onChangeText={setCompanyEmail}
-															placeholder="Din e-postadress"
-															placeholderTextColor={theme.textFaint}
-															keyboardType="email-address"
-																autoCapitalize="none"
-															className="mt-2 rounded-2xl border px-4 py-3"
-															style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted, color: theme.text }}
-														/>
-								<Text className="pt-4 text-xl" style={{ color: theme.text }}>Lösenord:</Text>
-								<PasswordInput
-									value={companyPassword}
-									onChangeText={setCompanyPassword}
-									placeholder="lösenord"
-									placeholderTextColor={theme.textFaint}
-									wrapperStyle={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted }}
-									style={{ color: theme.text }}
-									toggleColor={theme.textMuted}
-								/>
-								<Pressable
-									className="mt-3 self-end"
-									onPress={() =>
-										router.push({
-											pathname: '/glomt-losenord',
-											params: companyEmail.trim() ? { email: companyEmail.trim() } : undefined,
-										})
-									}
-								>
-									<Text className="text-sm font-medium" style={{ color: theme.link }}>
-										Glömt lösenord?
-									</Text>
-								</Pressable>
-								<Pressable className="mt-6 rounded-2xl bg-[#ff3b30] px-4 py-3" onPress={() => handleLogin('company')} disabled={isSubmittingLogin}>
-									<Text className="text-center font-medium text-white">Logga in</Text>
+									<BounceText
+										text={tab.label}
+										textStyle={{
+											color: active ? tab.accent : theme.textMuted,
+											fontWeight: active ? '700' : '600',
+											fontSize: 14,
+											letterSpacing: -0.2,
+										}}
+										trigger={tab.trigger}
+									/>
 								</Pressable>
 							</View>
+						);
+					})}
+				</View>
 
-							{/* <View className="mt-2 px-4 rounded-2xl bg-[#0a1535] py-4">
-							<Pressable className="mb-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3" onPress={() => socialLogin('Google')}>
-							  <Text className="text-center font-medium text-white">Fortsätt med Google</Text>
-						    </Pressable>
+				{displayedType === 'user' ? renderLoginForm('user') : null}
+				{displayedType === 'company' ? renderLoginForm('company') : null}
 
-							<Pressable className="mt-2 mb-4 rounded-2xl border border-white/20 bg-white/10 px-4 py-3" onPress={() => socialLogin('Apple')}>
-							  <Text className="text-center font-medium text-white">Fortsätt med Apple</Text>
-						    </Pressable>
-
-							</View> */}
-
-							{/* <View className="mt-4 flex-row justify-center">
-								<Text className="text-white/70 text-md">Har ditt företag inget konto? </Text>
-								<Pressable
-									onPress={() => router.push({ pathname: '/(tabs)/Registrering', params: { accountType: 'company', returnTo: 'loggain' } })}
-								>
-									<Text className="text-blue-400 text-md font-medium underline">Registrera dig här!</Text>
-								</Pressable>
-							</View> */}
-
-							</View>
-						) : null}
-
-						{showUserExtrasDrawer ? (
-							<Animated.View
-								style={{
-									height: userExtrasAnim.interpolate({
+				{showUserExtrasDrawer ? (
+					<Animated.View
+						style={{
+							height: userExtrasAnim.interpolate({
+								inputRange: [0, 1],
+								outputRange: [0, USER_EXTRAS_MAX_HEIGHT],
+							}),
+							overflow: 'hidden',
+							marginTop: -USER_EXTRAS_TUCK_PX,
+							transform: [
+								{
+									translateY: userExtrasAnim.interpolate({
 										inputRange: [0, 1],
-										outputRange: [0, USER_EXTRAS_MAX_HEIGHT],
+										outputRange: [-14, 0],
 									}),
-									overflow: 'hidden',
-									marginTop: -USER_EXTRAS_TUCK_PX,
-									transform: [
-										{
-											translateY: userExtrasAnim.interpolate({
-												inputRange: [0, 1],
-												outputRange: [-14, 0],
-											}),
-										},
-									],
-									opacity: userExtrasAnim.interpolate({
-										inputRange: [0, 1],
-										outputRange: [0, 1],
-									}),
-								}}
+								},
+							],
+							opacity: userExtrasAnim.interpolate({
+								inputRange: [0, 1],
+								outputRange: [0, 1],
+							}),
+						}}
+					>
+						<View style={{ paddingTop: USER_EXTRAS_TUCK_PX + USER_EXTRAS_GAP_PX }}>
+							<View style={styles.dividerRow}>
+								<View style={[styles.dividerLine, { backgroundColor: theme.border }]} />
+								<Text style={[styles.dividerText, { color: theme.textFaint }]}>eller</Text>
+								<View style={[styles.dividerLine, { backgroundColor: theme.border }]} />
+							</View>
+
+							<Pressable
+								style={[
+									styles.socialBtn,
+									{
+										borderColor: theme.border,
+										backgroundColor: brandInkRgba(theme.isDark ? 0.08 : 0.04),
+									},
+								]}
+								onPress={() => socialLogin('Google')}
 							>
-								<View style={{ paddingTop: USER_EXTRAS_TUCK_PX + USER_EXTRAS_GAP_PX }}>
-									<View className="px-4 rounded-2xl py-4" style={[{ backgroundColor: theme.cardBg }, boxShadowStyle]}>
-										<Pressable
-											className="mb-2 rounded-2xl border px-4 py-3"
-											style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted }}
-											onPress={() => socialLogin('Google')}
-										>
-											<Text className="text-center font-medium" style={{ color: theme.text }}>Fortsätt med Google</Text>
-										</Pressable>
+								<Ionicons name="logo-google" size={18} color={theme.text} />
+								<Text style={[styles.socialLabel, { color: theme.text }]}>
+									Fortsätt med Google
+								</Text>
+							</Pressable>
 
-										<Pressable
-											className="mt-2 rounded-2xl border px-4 py-3"
-											style={{ borderColor: theme.border, backgroundColor: theme.cardBgMuted }}
-											onPress={() => socialLogin('Apple')}
-										>
-											<Text className="text-center font-medium" style={{ color: theme.text }}>Fortsätt med Apple</Text>
-										</Pressable>
-									</View>
+							<Pressable
+								style={[
+									styles.socialBtn,
+									{
+										borderColor: theme.border,
+										backgroundColor: brandInkRgba(theme.isDark ? 0.08 : 0.04),
+										marginTop: 10,
+									},
+								]}
+								onPress={() => socialLogin('Apple')}
+							>
+								<Ionicons name="logo-apple" size={18} color={theme.text} />
+								<Text style={[styles.socialLabel, { color: theme.text }]}>
+									Fortsätt med Apple
+								</Text>
+							</Pressable>
 
-									<View className="mt-4 flex-row justify-center">
-										<Text className="text-md" style={{ color: theme.textMuted }}>Har du inget konto? </Text>
-										<Pressable
-											onPress={() =>
-												router.push({
-													pathname: '/(tabs)/Registrering',
-													params: { accountType: 'user', returnTo: 'loggain' },
-												})
-											}
-										>
-											<Text className="text-blue-400 text-md font-medium underline">Registrera dig här!</Text>
-										</Pressable>
-									</View>
-								</View>
-							</Animated.View>
-						) : null}
-
-
-
+							<View style={styles.registerRow}>
+								<Text style={{ color: theme.textMuted, fontSize: 14 }}>Har du inget konto? </Text>
+								<Pressable
+									onPress={() =>
+										router.push({
+											pathname: '/(tabs)/Registrering',
+											params: { accountType: 'user', returnTo: 'loggain' },
+										})
+									}
+								>
+									<Text style={{ color: theme.link, fontSize: 14, fontWeight: '700' }}>
+										Registrera dig
+									</Text>
+								</Pressable>
+							</View>
+						</View>
+					</Animated.View>
+				) : null}
 			</View>
-
-			
-	   </ScrollView>
+		</ScrollView>
 	);
 }
+
+const styles = StyleSheet.create({
+	hero: {
+		flexDirection: 'row',
+		alignItems: 'center',
+		gap: 10,
+		marginBottom: 18,
+	},
+	heroCopy: {
+		flex: 1,
+		minWidth: 0,
+	},
+	title: {
+		fontSize: 28,
+		fontWeight: '800',
+		letterSpacing: -0.8,
+		lineHeight: 32,
+	},
+	subtitle: {
+		marginTop: 4,
+		fontSize: 14,
+		fontWeight: '500',
+		letterSpacing: -0.1,
+		lineHeight: 18,
+	},
+	segmentTrack: {
+		flexDirection: 'row',
+		alignItems: 'stretch',
+		padding: 4,
+		borderRadius: 12,
+	},
+	segmentSlot: {
+		flex: 1,
+		flexDirection: 'row',
+		alignItems: 'center',
+	},
+	segmentDivider: {
+		width: StyleSheet.hairlineWidth,
+		alignSelf: 'stretch',
+		marginVertical: 8,
+		marginHorizontal: 6,
+	},
+	segmentItem: {
+		flex: 1,
+		alignItems: 'center',
+		justifyContent: 'center',
+		paddingVertical: 10,
+		borderRadius: 9,
+	},
+	formBlock: {
+		marginTop: 22,
+	},
+	formTitle: {
+		fontSize: 18,
+		fontWeight: '700',
+		letterSpacing: -0.3,
+	},
+	formSubtitle: {
+		marginTop: 4,
+		fontSize: 13,
+		fontWeight: '500',
+		lineHeight: 18,
+		marginBottom: 18,
+	},
+	fieldLabel: {
+		marginTop: 12,
+		marginBottom: 6,
+		fontSize: 12,
+		fontWeight: '700',
+		letterSpacing: 0.2,
+		textTransform: 'uppercase',
+	},
+	field: {
+		borderWidth: StyleSheet.hairlineWidth,
+		borderRadius: 12,
+		paddingHorizontal: 14,
+		paddingVertical: Platform.OS === 'web' ? 12 : 11,
+		fontSize: 15,
+		fontWeight: '500',
+	},
+	passwordField: {
+		flexDirection: 'row',
+		alignItems: 'center',
+		paddingVertical: Platform.OS === 'web' ? 10 : 8,
+	},
+	forgotHit: {
+		alignSelf: 'flex-end',
+		marginTop: 10,
+		paddingVertical: 4,
+	},
+	forgotLabel: {
+		fontSize: 13,
+		fontWeight: '600',
+	},
+	ctaSolid: {
+		marginTop: 18,
+		alignSelf: 'center',
+		borderRadius: 12,
+		backgroundColor: '#ff3b30',
+		paddingHorizontal: 28,
+		paddingVertical: 12,
+		minWidth: 160,
+	},
+	ctaSolidLabel: {
+		color: '#ffffff',
+		fontSize: 15,
+		fontWeight: '700',
+		letterSpacing: -0.1,
+		textAlign: 'center',
+	},
+	dividerRow: {
+		flexDirection: 'row',
+		alignItems: 'center',
+		gap: 10,
+		marginBottom: 14,
+	},
+	dividerLine: {
+		flex: 1,
+		height: StyleSheet.hairlineWidth,
+	},
+	dividerText: {
+		fontSize: 12,
+		fontWeight: '600',
+		letterSpacing: 0.3,
+		textTransform: 'uppercase',
+	},
+	socialBtn: {
+		flexDirection: 'row',
+		alignItems: 'center',
+		justifyContent: 'center',
+		gap: 10,
+		borderWidth: StyleSheet.hairlineWidth,
+		borderRadius: 12,
+		paddingVertical: 12,
+		paddingHorizontal: 14,
+	},
+	socialLabel: {
+		fontSize: 14,
+		fontWeight: '600',
+		letterSpacing: -0.1,
+	},
+	registerRow: {
+		marginTop: 18,
+		flexDirection: 'row',
+		justifyContent: 'center',
+		alignItems: 'center',
+		flexWrap: 'wrap',
+	},
+});

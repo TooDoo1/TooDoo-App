@@ -3,14 +3,17 @@ import { Platform, StyleSheet, View } from 'react-native';
 import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 
 import { LiquidGlassFrostedBase } from '@/components/ui/liquid-glass-frosted-base';
-import { LiquidGlassSpecularOverlay } from '@/components/ui/liquid-glass-specular-overlay';
 
 type Props = {
   isDark: boolean;
   borderRadius: number;
+  /** Soft top corners for a docked bottom bar (radius on bottom stays 0). */
+  topRadius?: number;
   width: number;
   height: number;
   children: ReactNode;
+  /** Flush to screen bottom — top hairline instead of full pill border. */
+  docked?: boolean;
 };
 
 export function useNativeTabBarLiquidGlass() {
@@ -24,15 +27,26 @@ export function useNativeTabBarLiquidGlass() {
 export function LiquidGlassTabBarShell({
   isDark,
   borderRadius,
+  topRadius,
   width,
   height,
   children,
+  docked = false,
 }: Props) {
+  const borderColor = isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(19, 23, 32, 0.08)';
+  const radiusTop = topRadius ?? borderRadius;
+  const radiusStyle = docked
+    ? {
+        borderTopLeftRadius: radiusTop,
+        borderTopRightRadius: radiusTop,
+        borderBottomLeftRadius: 0,
+        borderBottomRightRadius: 0,
+      }
+    : { borderRadius };
+
+  const body = <View style={styles.content}>{children}</View>;
+
   if (useNativeTabBarLiquidGlass()) {
-    // Apple HIG: the `regular` variant is correct for tab bars / navigation chrome —
-    // it is fully adaptive and stays legible over any content. `isInteractive` makes
-    // the glass react to touches. Never apply opacity to this view or any ancestor
-    // (it breaks the native effect); the overlay animates `bottom`, not opacity.
     return (
       <GlassView
         style={[
@@ -40,22 +54,56 @@ export function LiquidGlassTabBarShell({
           {
             width,
             height,
-            borderRadius,
+            ...radiusStyle,
           },
         ]}
         glassEffectStyle="regular"
         isInteractive
       >
-        {children}
+        {body}
       </GlassView>
     );
   }
 
+  if (Platform.OS === 'web') {
+    return (
+      <View
+        style={[
+          styles.shell,
+          {
+            width,
+            height,
+            ...radiusStyle,
+            borderTopWidth: StyleSheet.hairlineWidth,
+            borderColor,
+            backgroundColor: isDark ? 'rgba(14, 19, 37, 0.92)' : 'rgba(255, 255, 255, 0.94)',
+            // @ts-expect-error web-only CSS
+            backdropFilter: 'blur(22px) saturate(1.3)',
+            // @ts-expect-error web-only CSS
+            WebkitBackdropFilter: 'blur(22px) saturate(1.3)',
+          },
+        ]}
+      >
+        {body}
+      </View>
+    );
+  }
+
   return (
-    <View style={[styles.shell, { width, height, borderRadius }]}>
+    <View
+      style={[
+        styles.shell,
+        {
+          width,
+          height,
+          ...radiusStyle,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderColor,
+        },
+      ]}
+    >
       <LiquidGlassFrostedBase isDark={isDark} />
-      <LiquidGlassSpecularOverlay isDark={isDark} borderRadius={borderRadius} />
-      <View style={styles.content}>{children}</View>
+      {body}
     </View>
   );
 }
@@ -63,11 +111,12 @@ export function LiquidGlassTabBarShell({
 const styles = StyleSheet.create({
   shell: {
     overflow: 'hidden',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
   },
   content: {
     ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
+    flexDirection: 'column',
+    justifyContent: 'flex-start',
+    alignItems: 'stretch',
   },
 });

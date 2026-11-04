@@ -143,7 +143,7 @@ export function LegalConsentOverlay({ onAccept }: LegalConsentOverlayProps) {
               },
             ]}
           >
-            {hasAccepted ? <Ionicons name="checkmark" size={16} color={theme.isDark ? '#ffffff' : '#131720'} /> : null}
+            {hasAccepted ? <Ionicons name="checkmark" size={16} color="#ffffff" /> : null}
           </View>
           <Text style={[styles.checkboxLabel, { color: theme.text }]}>
             Jag godkänner integritetspolicyn och användarvillkoren
@@ -163,7 +163,7 @@ export function LegalConsentOverlay({ onAccept }: LegalConsentOverlayProps) {
             },
           ]}
         >
-          <Text style={[styles.acceptButtonText, { color: theme.isDark ? '#ffffff' : '#131720' }]}>
+          <Text style={[styles.acceptButtonText, { color: '#ffffff' }]}>
             Fortsätt
           </Text>
         </Pressable>

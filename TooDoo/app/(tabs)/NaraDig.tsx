@@ -14,16 +14,21 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
 import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
 import { ScreenBackButton } from '@/components/ui/screen-back-button';
-import { ListItemSeparator } from '@/components/ui/list-item-separator';
+import { CategoryFilterBar } from '@/components/ui/category-filter-bar';
+import { ALL_CATEGORIES_ID } from '@/lib/category-filters';
+import { ListItemSeparator, SEE_ALL_COLUMN_GAP } from '@/components/ui/list-item-separator';
 import { PaginatedListFooter } from '@/components/ui/paginated-list-footer';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemePreference } from '@/context/theme-preference-context';
-import { brandInkRgba } from '@/lib/brand-colors';
 import { uiTheme } from '@/lib/ui-theme';
 import { fetchApprovedBusinessesCatalog } from '@/lib/catalog-cache';
 import { normalizeImageUrl } from '@/lib/api';
-import { SeeAllCardActions, SeeAllListCard, SeeAllPill } from '@/components/ui/see-all-list-card';
+import { SeeAllCardActions, SeeAllListCard } from '@/components/ui/see-all-list-card';
 import { getCategoryAccentColor } from '@/lib/category-colors';
+import {
+  getTodayOpeningHoursText,
+  normalizeBusinessOpeningHours,
+} from '@/lib/business-opening-hours';
 import { useRealtimeSubscription } from '@/hooks/use-realtime-subscription';
 import { useSeeAllFavorite } from '@/hooks/use-see-all-favorite';
 import { subscribeCustomLocations } from '@/lib/custom-locations';
@@ -48,6 +53,7 @@ import { shareBusiness } from '@/lib/share-offer';
 import {
   getHomeNearbyBusinessesCache,
   hasFreshHomeNearbyBusinessesCache,
+  peekHomeNearbyBusinessesCache,
   setHomeNearbyBusinessesCache,
   type NearbyBusinessCard,
 } from '@/lib/home-list-cache';
@@ -61,10 +67,17 @@ type NearbyCompany = {
   categoryId?: string;
   categoryIds?: string[];
   categoryName?: string;
+  openingHours?: unknown;
   latitude?: number;
   longitude?: number;
   distanceKm?: number;
 };
+
+function nearbyOpeningHoursLabel(company: NearbyCompany): string | undefined {
+  const hours = getTodayOpeningHoursText(normalizeBusinessOpeningHours(company.openingHours));
+  if (!hours) return undefined;
+  return `Idag ${hours.replace(/\s*–\s*/g, '–')}`;
+}
 
 function paramString(value: string | string[] | undefined): string {
   if (Array.isArray(value)) return value[0] ?? '';
@@ -154,6 +167,7 @@ function cacheToNearbyCompany(card: NearbyBusinessCard): NearbyCompany {
     categoryId: card.categoryId,
     categoryIds: card.categoryIds,
     categoryName: card.categoryName,
+    openingHours: card.openingHours,
     latitude: card.latitude,
     longitude: card.longitude,
     distanceKm: card.distanceKm,
@@ -174,6 +188,7 @@ function nearbyToCacheItem(company: NearbyCompany): NearbyBusinessCard {
     categoryId: company.categoryId,
     categoryIds: company.categoryIds,
     categoryName: company.categoryName,
+    openingHours: company.openingHours,
   };
 }
 
@@ -195,7 +210,7 @@ const NearbyCompanyCard = memo(function NearbyCompanyCard({
   return (
     <SeeAllListCard
       title={company.name}
-      subtitle={company.address || company.description?.trim() || undefined}
+      subtitle={nearbyOpeningHoursLabel(company)}
       meta={[distance, company.categoryName].filter(Boolean).join(' · ') || undefined}
       image={{
         uri:
@@ -206,12 +221,6 @@ const NearbyCompanyCard = memo(function NearbyCompanyCard({
       onPress={() => onPress(company)}
       imagePriority={imagePriority}
       accentColor={accentColor}
-      topLeft={
-        <SeeAllPill
-          label={distance ?? 'Nära dig'}
-          backgroundColor={brandInkRgba(0.72)}
-        />
-      }
       topRight={
         <SeeAllCardActions
           isFavorite={isFavorite}
@@ -232,8 +241,15 @@ export default function NaraDigScreen() {
     categoryId?: string | string[];
     categoryName?: string | string[];
   }>();
-  const categoryId = paramString(params.categoryId) || undefined;
-  const categoryName = paramString(params.categoryName) || undefined;
+  const paramCategoryId = paramString(params.categoryId) || undefined;
+  const paramCategoryName = paramString(params.categoryName) || undefined;
+  const [activeCategoryId, setActiveCategoryId] = useState(
+    paramCategoryId || ALL_CATEGORIES_ID
+  );
+  const [activeCategoryName, setActiveCategoryName] = useState(paramCategoryName);
+  const categoryId =
+    activeCategoryId !== ALL_CATEGORIES_ID ? activeCategoryId : undefined;
+  const categoryName = activeCategoryName;
   const hasCategoryFilter = Boolean(categoryId || categoryName);
 
   const cachedCompanies = useMemo(() => {
@@ -319,7 +335,11 @@ export default function NaraDigScreen() {
     let cancelled = false;
 
     (async () => {
-      if (refreshNonce === 0 && hasFreshHomeNearbyBusinessesCache()) {
+      const cached = peekHomeNearbyBusinessesCache();
+      const cacheHasHours = Boolean(
+        cached?.some((card) => card.openingHours != null)
+      );
+      if (refreshNonce === 0 && hasFreshHomeNearbyBusinessesCache() && cacheHasHours) {
         if (coords) {
           setCompanies((prev) => {
             const next = withHaversineDistances(prev, coords);
@@ -356,6 +376,7 @@ export default function NaraDigScreen() {
             categoryId: categoryIds[0],
             categoryIds,
             categoryName: b?.categoryName ?? b?.category?.name ?? undefined,
+            openingHours: b?.openingHours,
             latitude: lat,
             longitude: lng,
           };
@@ -477,7 +498,7 @@ export default function NaraDigScreen() {
     [categoryId, categoryName, companies]
   );
 
-  const listTitle = categoryName?.trim() || 'Nära dig';
+  const listTitle = 'Nära dig';
 
   const renderItem = useCallback(
     ({ item, index }: { item: NearbyCompany; index: number }) => (
@@ -541,9 +562,17 @@ export default function NaraDigScreen() {
             </Text>
           </Pressable>
         </View>
+        <CategoryFilterBar
+          selectedId={activeCategoryId}
+          onSelect={(id, label) => {
+            setActiveCategoryId(id);
+            setActiveCategoryName(label);
+          }}
+        />
       </View>
     ),
     [
+      activeCategoryId,
       categoryId,
       categoryName,
       headerNote,
@@ -600,6 +629,8 @@ export default function NaraDigScreen() {
           data={pagination.pageItems}
           keyExtractor={(item) => `${item.id}-p${pagination.page}`}
           renderItem={renderItem}
+          numColumns={2}
+          columnWrapperStyle={{ gap: SEE_ALL_COLUMN_GAP }}
           ListHeaderComponent={listHeader}
           ListFooterComponent={listFooter}
           contentContainerStyle={{
@@ -608,7 +639,7 @@ export default function NaraDigScreen() {
             paddingBottom: insets.bottom + 24,
           }}
           ItemSeparatorComponent={ListItemSeparator}
-          initialNumToRender={6}
+          initialNumToRender={8}
           maxToRenderPerBatch={LIST_BATCH_SIZE}
           windowSize={7}
           removeClippedSubviews
