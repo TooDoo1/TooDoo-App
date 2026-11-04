@@ -219,8 +219,14 @@ const SEARCH_DROPDOWN_OPEN_MS = 220;
 const SEARCH_DROPDOWN_CLOSE_MS = 240;
 const SEARCH_TIPS_DEBOUNCE_MS = 120;
 const SEARCH_BAR_HEIGHT = 44;
-/** Pull the pinned header slightly into the status/safe area for a tighter top. */
-const HOME_NAV_EXTRA_TOP = -8;
+/**
+ * Native: pull chrome slightly into the status area for a tighter top.
+ * Web (Vercel / iPhone Safari): add breathing room so Dynamic Island + status
+ * icons never cover the location pill / TooDoo mark.
+ */
+const HOME_NAV_EXTRA_TOP = Platform.OS === 'web' ? 10 : -8;
+/** Minimum web top inset when env(safe-area) is missing (island phones ≈ 59). */
+const HOME_WEB_MIN_TOP_INSET = 54;
 /** Collapsing discovery hero above sticky search (location overlays the hero). */
 const HOME_GREETING_HEIGHT = HOME_TIP_STRIP_HEIGHT;
 /** Shared mesh artwork height (status + greeting + search). */
@@ -3740,7 +3746,12 @@ export default function HomeScreen() {
 
   const homeHeaderInset = Math.max(
     0,
-    Math.max(heroTopInset, insets.top, Platform.OS === 'ios' ? 47 : 0) + HOME_NAV_EXTRA_TOP
+    Math.max(
+      heroTopInset,
+      insets.top,
+      Platform.OS === 'ios' ? 47 : 0,
+      Platform.OS === 'web' ? HOME_WEB_MIN_TOP_INSET : 0
+    ) + HOME_NAV_EXTRA_TOP
   );
   /**
    * Header lives OUTSIDE the ScrollView so overscroll/pull can't open a gap above search.
@@ -4750,11 +4761,20 @@ export default function HomeScreen() {
           Sticky Utforska is a sibling below so attaching filters never changes banner height/aspect.
         */}
         <View
-          style={{
-            paddingTop: homeHeaderInset,
-            position: 'relative',
-            backgroundColor: homeScreenBg,
-          }}
+          style={[
+            {
+              paddingTop: homeHeaderInset,
+              position: 'relative',
+              backgroundColor: homeScreenBg,
+            },
+            Platform.OS === 'web'
+              ? ({
+                  // Live CSS env as a floor so island/status bar never covers chrome
+                  // even if the JS inset is briefly 0 on first paint.
+                  paddingTop: `max(${homeHeaderInset}px, calc(env(safe-area-inset-top, 0px) + 10px))`,
+                } as object)
+              : null,
+          ]}
         >
           {/* Image only behind inset + greeting — collapses away with scroll.
               Keep the photo tree at a fixed height inside a plain View so URI /
