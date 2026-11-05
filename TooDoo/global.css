@@ -225,10 +225,13 @@ html.light #home-search-panel.home-pinned-header {
   box-sizing: border-box !important;
 }
 
-/* Beat Tailwind preflight (img { max-width:100%; height:auto }) so photos crop, not stretch. */
+/* Beat Tailwind preflight (img { max-width:100%; height:auto }) so photos crop, not stretch.
+   Default object-fit is fill (MDN) — without cover the hero looks squeezed. */
 #hero-carousel-shell img,
 .hero-fade-carousel img,
-.hero-carousel-web-slide img {
+.hero-carousel-web-slide img,
+#home-hero-photo img,
+.home-hero-photo-img {
   position: absolute !important;
   top: 0 !important;
   right: 0 !important;
@@ -239,7 +242,7 @@ html.light #home-search-panel.home-pinned-header {
   max-width: none !important;
   max-height: none !important;
   object-fit: cover !important;
-  object-position: center center !important;
+  object-position: center top !important;
   display: block !important;
 }
 

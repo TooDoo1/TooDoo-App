@@ -48,7 +48,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
 import { InlineMicButton } from '@/components/inline-mic-button';
-import { isIosWeb, useHeroTopInset } from '@/lib/use-hero-top-inset';
+import { useHeroTopInset } from '@/lib/use-hero-top-inset';
 import {
   HOME_PAGE_PAD,
   HOME_RADIUS,
@@ -220,10 +220,16 @@ const SEARCH_DROPDOWN_OPEN_MS = 220;
 const SEARCH_DROPDOWN_CLOSE_MS = 240;
 const SEARCH_TIPS_DEBOUNCE_MS = 120;
 const SEARCH_BAR_HEIGHT = 44;
-/** Native: pull chrome slightly into the status area for a tighter top. */
-const HOME_NAV_EXTRA_TOP_NATIVE = -8;
-/** Extra below Dynamic Island / notch — only when a real safe-area inset exists. */
-const HOME_NAV_EXTRA_TOP_IOS_WEB = 8;
+/**
+ * Native: pull chrome slightly into the status area for a tighter top.
+ * Web: chrome uses measured safe-area only (no invented island gap).
+ */
+const HOME_NAV_EXTRA_TOP = Platform.OS === 'web' ? 0 : -8;
+/**
+ * Keep the hero photo frame tall even when safe-area is 0 (desktop / RDM).
+ * Without this, inset→0 shrinks the image box and the photo looks squeezed.
+ */
+const HOME_HERO_PHOTO_BLEED = 54;
 /** Collapsing discovery hero above sticky search (location overlays the hero). */
 const HOME_GREETING_HEIGHT = HOME_TIP_STRIP_HEIGHT;
 /** Shared mesh artwork height (status + greeting + search). */
@@ -1244,6 +1250,7 @@ function HomeHeaderHeroFill({
               key={uri}
               src={uri}
               alt=""
+              className="home-hero-photo-img"
               draggable={false}
               decoding="async"
               style={{
@@ -1396,6 +1403,14 @@ export default function HomeScreen() {
   const { width: windowWidth } = useWindowDimensions();
   const scrollBottomPadding = getFloatingTabBarScrollPadding(insets.bottom);
   const heroTopInset = useHeroTopInset();
+  const homeHeaderInset = Math.max(
+    0,
+    Math.max(heroTopInset, insets.top, Platform.OS === 'ios' ? 47 : 0) + HOME_NAV_EXTRA_TOP
+  );
+  /** Full hero photo band — never shorter than greeting + bleed (avoids stretch). */
+  const homeHeroBandHeight =
+    HOME_GREETING_HEIGHT + Math.max(homeHeaderInset, HOME_HERO_PHOTO_BLEED);
+  const homeGreetingBandHeight = homeHeroBandHeight - homeHeaderInset;
   const scrollRef = useRef<Reanimated.ScrollView>(null);
   const scrollOffsetRef = useRef(getHomeScrollOffset());
   const featuredPauseRef = useRef(false);
@@ -1630,12 +1645,12 @@ export default function HomeScreen() {
   });
 
   const greetingCollapseStyle = useAnimatedStyle(() => {
-    const collapse = Math.min(homeScrollYSv.value, HOME_GREETING_HEIGHT);
+    const collapse = Math.min(homeScrollYSv.value, homeGreetingBandHeight);
     return {
-      height: HOME_GREETING_HEIGHT - collapse,
+      height: Math.max(0, homeGreetingBandHeight - collapse),
       opacity: interpolate(
         homeScrollYSv.value,
-        [0, HOME_GREETING_HEIGHT * 0.45, HOME_GREETING_HEIGHT],
+        [0, homeGreetingBandHeight * 0.45, homeGreetingBandHeight],
         [1, 0.55, 0],
         'clamp'
       ),
@@ -1643,7 +1658,7 @@ export default function HomeScreen() {
         {
           translateY: interpolate(
             homeScrollYSv.value,
-            [0, HOME_GREETING_HEIGHT],
+            [0, homeGreetingBandHeight],
             [0, -10],
             'clamp'
           ),
@@ -3769,19 +3784,6 @@ export default function HomeScreen() {
     ? 'rgba(255, 255, 255, 0.08)'
     : 'rgba(0, 0, 0, 0.08)';
 
-  // Desktop / Android / Firefox device mode: inset stays 0 (no fake 54–59).
-  // Real iPhone (native or Safari with viewport-fit=cover): env/safe-area drives this.
-  const measuredTop = Math.max(heroTopInset, insets.top);
-  const homeNavExtraTop =
-    Platform.OS === 'ios'
-      ? HOME_NAV_EXTRA_TOP_NATIVE
-      : Platform.OS === 'web' && isIosWeb() && measuredTop > 0
-        ? HOME_NAV_EXTRA_TOP_IOS_WEB
-        : 0;
-  const homeHeaderInset = Math.max(
-    0,
-    Math.max(measuredTop, Platform.OS === 'ios' ? 47 : 0) + homeNavExtraTop
-  );
   /**
    * Header lives OUTSIDE the ScrollView so overscroll/pull can't open a gap above search.
    * Greeting collapse is driven by homeScrollYSv (Reanimated) for smooth top scrolling.
@@ -3789,12 +3791,12 @@ export default function HomeScreen() {
 
   // Hero photo collapses with the greeting so nothing peeks above the stuck search bar.
   const heroCollapseStyle = useAnimatedStyle(() => {
-    const collapse = Math.min(homeScrollYSv.value, HOME_GREETING_HEIGHT);
+    const collapse = Math.min(homeScrollYSv.value, homeGreetingBandHeight);
     return {
-      height: Math.max(0, homeHeaderInset + HOME_GREETING_HEIGHT - collapse),
+      height: Math.max(0, homeHeroBandHeight - collapse),
       opacity: interpolate(
         homeScrollYSv.value,
-        [0, HOME_GREETING_HEIGHT * 0.55, HOME_GREETING_HEIGHT],
+        [0, homeGreetingBandHeight * 0.55, homeGreetingBandHeight],
         [1, 0.35, 0],
         'clamp'
       ),
@@ -4181,7 +4183,7 @@ export default function HomeScreen() {
       style={[
         styles.searchHeaderRoot,
         {
-          height: HOME_GREETING_HEIGHT,
+          height: homeGreetingBandHeight,
           backgroundColor: 'transparent',
           paddingHorizontal: HOME_PAGE_PAD,
           justifyContent: 'flex-start',
@@ -4790,25 +4792,13 @@ export default function HomeScreen() {
           Sticky Utforska is a sibling below so attaching filters never changes banner height/aspect.
         */}
         <View
-          style={[
-            {
-              paddingTop: homeHeaderInset,
-              position: 'relative',
-              backgroundColor: homeScreenBg,
-            },
-            Platform.OS === 'web'
-              ? ({
-                  // Real phones: env(safe-area-inset-top) clears Dynamic Island / notch.
-                  // Desktop & Firefox device mode: env is 0 → no invented gap.
-                  paddingTop: `max(${homeHeaderInset}px, env(safe-area-inset-top, 0px))`,
-                } as object)
-              : null,
-          ]}
+          style={{
+            position: 'relative',
+            backgroundColor: homeScreenBg,
+          }}
         >
-          {/* Image only behind inset + greeting — collapses away with scroll.
-              Keep the photo tree at a fixed height inside a plain View so URI /
-              opacity updates paint without waiting for a touch to flush the
-              Reanimated clip layer. */}
+          {/* Image is full-bleed from the screen top — chrome pads into it so
+              safe-area never leaves a black band above the photo. */}
           <Reanimated.View
             pointerEvents="none"
             style={[
@@ -4825,8 +4815,9 @@ export default function HomeScreen() {
           >
             <View
               collapsable={false}
+              nativeID="home-hero-photo"
               style={{
-                height: homeHeaderInset + HOME_GREETING_HEIGHT,
+                height: homeHeroBandHeight,
                 width: '100%',
               }}
             >
@@ -4837,12 +4828,25 @@ export default function HomeScreen() {
               />
             </View>
           </Reanimated.View>
-          <Reanimated.View
-            style={[greetingCollapseStyle, { zIndex: 1 }]}
+          <View
+            style={[
+              {
+                zIndex: 1,
+                paddingTop: homeHeaderInset,
+              },
+              Platform.OS === 'web'
+                ? ({
+                    // Real island/notch only — no invented gap when env is 0.
+                    paddingTop: `max(${homeHeaderInset}px, env(safe-area-inset-top, 0px))`,
+                  } as object)
+                : null,
+            ]}
             pointerEvents="box-none"
           >
-            {renderHomeGreeting()}
-          </Reanimated.View>
+            <Reanimated.View style={greetingCollapseStyle} pointerEvents="box-none">
+              {renderHomeGreeting()}
+            </Reanimated.View>
+          </View>
           <View
             style={{ zIndex: 1, backgroundColor: homeScreenBg }}
             onLayout={(e) => {
@@ -4892,7 +4896,7 @@ export default function HomeScreen() {
           style={[styles.scroll, { backgroundColor: homeHeaderMeshBase }]}
           contentContainerStyle={{
             // Spacer matches full expanded header so greeting collapse stays in sync with scroll.
-            paddingTop: homeHeaderInset + HOME_GREETING_HEIGHT + searchPanelHeight,
+            paddingTop: homeHeroBandHeight + searchPanelHeight,
             paddingBottom: scrollBottomPadding,
             flexGrow: 1,
             backgroundColor: homeScreenBg,
@@ -4906,7 +4910,7 @@ export default function HomeScreen() {
               onRefresh={handleRefresh}
               tintColor="transparent"
               colors={['transparent']}
-              progressViewOffset={homeHeaderInset + HOME_GREETING_HEIGHT + searchPanelHeight}
+              progressViewOffset={homeHeroBandHeight + searchPanelHeight}
             />
           }
         >
