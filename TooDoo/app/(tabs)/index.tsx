@@ -1664,9 +1664,7 @@ export default function HomeScreen() {
           ),
         },
       ],
-      // Clip only while collapsing — at rest keep overflow visible so the
-      // kommun title under Upptäck isn't cut off on iPhone.
-      overflow: (collapse > 0.5 ? 'hidden' : 'visible') as 'hidden' | 'visible',
+      overflow: 'hidden' as const,
     };
   });
 
@@ -4188,12 +4186,16 @@ export default function HomeScreen() {
           height: homeGreetingBandHeight,
           backgroundColor: 'transparent',
           paddingHorizontal: HOME_PAGE_PAD,
-          justifyContent: 'flex-start',
+          // Column layout keeps Upptäck + kommun fully above the search bar
+          // (absolute bottom + overflow was clipping the title on iPhone).
+          justifyContent: 'space-between',
+          paddingTop: 8,
+          paddingBottom: 10,
         },
       ]}
       pointerEvents="box-none"
     >
-      <View style={styles.homeHeroChrome} pointerEvents="box-none">
+      <View style={styles.homeHeroTopRow} pointerEvents="box-none">
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Plats: ${homeLocationLabel}. Tryck för att byta.`}
@@ -4229,25 +4231,25 @@ export default function HomeScreen() {
             <Ionicons name="chevron-down" size={12} color="rgba(255,255,255,0.92)" />
           </Reanimated.View>
         </Pressable>
-      </View>
 
-      <View style={styles.homeHeroBrand} pointerEvents="none">
-        <View style={styles.homeHeroBrandMark}>
-          <Text style={styles.homeHeroBrandText}>TooDoo</Text>
-          <Svg
-            width={24}
-            height={8}
-            viewBox="0 0 24 8"
-            style={styles.homeHeroBrandSmile}
-          >
-            <Path
-              d="M2 2 C7.5 6.5, 16.5 6.5, 22 2"
-              stroke="rgba(255,255,255,0.95)"
-              strokeWidth={2.5}
-              strokeLinecap="round"
-              fill="none"
-            />
-          </Svg>
+        <View style={styles.homeHeroBrand} pointerEvents="none">
+          <View style={styles.homeHeroBrandMark}>
+            <Text style={styles.homeHeroBrandText}>TooDoo</Text>
+            <Svg
+              width={24}
+              height={8}
+              viewBox="0 0 24 8"
+              style={styles.homeHeroBrandSmile}
+            >
+              <Path
+                d="M2 2 C7.5 6.5, 16.5 6.5, 22 2"
+                stroke="rgba(255,255,255,0.95)"
+                strokeWidth={2.5}
+                strokeLinecap="round"
+                fill="none"
+              />
+            </Svg>
+          </View>
         </View>
       </View>
 
@@ -5287,8 +5289,7 @@ const styles = StyleSheet.create({
   searchHeaderRoot: {
     position: 'relative',
     width: '100%',
-    // Don't clip the kommun title under Upptäck (iPhone was cutting it off).
-    overflow: 'visible',
+    overflow: 'hidden',
   },
   searchHeaderSticky: {
     position: 'relative',
@@ -5297,23 +5298,20 @@ const styles = StyleSheet.create({
     zIndex: 1,
     paddingBottom: 4,
   },
-  homeHeroChrome: {
-    position: 'absolute',
-    top: 8,
-    left: 14,
-    right: 14,
-    zIndex: 3,
+  homeHeroTopRow: {
+    position: 'relative',
     flexDirection: 'row',
     alignItems: 'center',
+    zIndex: 3,
+    minHeight: 36,
   },
   homeHeroBrand: {
     position: 'absolute',
-    top: 8,
     left: 0,
     right: 0,
-    zIndex: 2,
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 2,
   },
   homeHeroBrandMark: {
     alignItems: 'center',
@@ -5328,14 +5326,8 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   homeHeroCopy: {
-    position: 'absolute',
-    left: 14,
-    right: 14,
-    // Sit above the search seam — too tight to the bottom clips the kommun title on iPhone.
-    bottom: 22,
     zIndex: 2,
-    // Eyebrow (20) + gap + title line (42) + padding — keeps Helsingborg in-frame.
-    minHeight: 72,
+    paddingRight: 8,
   },
   homeHeroEyebrow: {
     color: 'rgba(255,255,255,0.9)',
@@ -5351,9 +5343,8 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: -1,
     // Keep room for descenders (g/y/p) — tight lineHeight clips them under overflow:hidden.
-    lineHeight: 42,
-    paddingBottom: 4,
-    overflow: 'visible',
+    lineHeight: 40,
+    includeFontPadding: false,
   },
   homeLocationButton: {
     alignSelf: 'flex-start',
