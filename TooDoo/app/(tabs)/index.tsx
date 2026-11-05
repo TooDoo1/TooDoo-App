@@ -1664,7 +1664,9 @@ export default function HomeScreen() {
           ),
         },
       ],
-      overflow: 'hidden' as const,
+      // Clip only while collapsing — at rest keep overflow visible so the
+      // kommun title under Upptäck isn't cut off on iPhone.
+      overflow: (collapse > 0.5 ? 'hidden' : 'visible') as 'hidden' | 'visible',
     };
   });
 
@@ -5285,7 +5287,8 @@ const styles = StyleSheet.create({
   searchHeaderRoot: {
     position: 'relative',
     width: '100%',
-    overflow: 'hidden',
+    // Don't clip the kommun title under Upptäck (iPhone was cutting it off).
+    overflow: 'visible',
   },
   searchHeaderSticky: {
     position: 'relative',
@@ -5328,8 +5331,11 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 14,
     right: 14,
-    bottom: 14,
+    // Sit above the search seam — too tight to the bottom clips the kommun title on iPhone.
+    bottom: 22,
     zIndex: 2,
+    // Eyebrow (20) + gap + title line (42) + padding — keeps Helsingborg in-frame.
+    minHeight: 72,
   },
   homeHeroEyebrow: {
     color: 'rgba(255,255,255,0.9)',
@@ -5339,17 +5345,15 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   homeHeroTitle: {
-    marginTop: 1,
+    marginTop: 2,
     color: '#ffffff',
     fontSize: 34,
     fontWeight: '800',
     letterSpacing: -1,
     // Keep room for descenders (g/y/p) — tight lineHeight clips them under overflow:hidden.
-    lineHeight: 44,
-    paddingBottom: 2,
-    ...(Platform.OS === 'web'
-      ? ({ overflow: 'visible' } as object)
-      : null),
+    lineHeight: 42,
+    paddingBottom: 4,
+    overflow: 'visible',
   },
   homeLocationButton: {
     alignSelf: 'flex-start',

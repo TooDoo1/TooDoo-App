@@ -10,8 +10,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import { HOME_PAGE_PAD, HOME_RADIUS } from '@/components/home/home-feed';
 
-/** Static discovery hero height in the home header. */
-export const HOME_TIP_STRIP_HEIGHT = 178;
+/** Static discovery hero height in the home header (fits Upptäck + kommun title). */
+export const HOME_TIP_STRIP_HEIGHT = 200;
 
 const HERO_IMAGE = require('../../assets/images/helsingborg-hero.png');
 
