@@ -155,3 +155,10 @@ export function getTodayOpeningHoursText(
   const dayKey = getOpeningHoursDayKey(date);
   return formatOpeningHoursRange(hours?.[dayKey]);
 }
+
+/** Card label under company name, e.g. "Idag 09:00–18:00". */
+export function formatTodayOpeningHoursLabel(openingHours: unknown, date = new Date()): string | undefined {
+  const hours = getTodayOpeningHoursText(normalizeBusinessOpeningHours(openingHours), date);
+  if (!hours) return undefined;
+  return `Idag ${hours.replace(/\s*–\s*/g, '–')}`;
+}

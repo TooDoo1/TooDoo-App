@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, Text, TextInput, View } from 'react-native';
 
 import { ProfileScreenShell, profileCardShadow } from '@/components/profile/profile-screen-shell';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { useAuth } from '@/context/auth-context';
 import { useThemePreference } from '@/context/theme-preference-context';
 import {
@@ -113,9 +114,7 @@ export default function ProfileKontoScreen() {
       subtitle="Uppdatera namn, kön och intressen."
     >
       {isLoading ? (
-        <View className="items-center py-8">
-          <ActivityIndicator color={theme.text} />
-        </View>
+        <LoadingSpinner variant="screen" label="Laddar..." />
       ) : (
         <View className="rounded-2xl px-4 py-5" style={[{ backgroundColor: theme.cardBg }, boxShadowStyle]}>
           <Text className="text-sm" style={{ color: theme.textFaint }}>
@@ -182,9 +181,7 @@ export default function ProfileKontoScreen() {
           </Text>
 
           {isLoadingCategories ? (
-            <Text className="mt-3" style={{ color: theme.textMuted }}>
-              Laddar kategorier...
-            </Text>
+            <LoadingSpinner label="Laddar kategorier..." style={{ marginTop: 12 }} />
           ) : (
             <View className="mt-3 flex-row flex-wrap gap-2">
               {categoryOptions.map((option) => {

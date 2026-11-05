@@ -1,7 +1,6 @@
 import { useIsFocused } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Linking,
   Platform,
   Pressable,
@@ -17,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CompanyDetailTabBarSync } from '@/components/company-detail-tab-bar-sync';
 import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
 import { CardMedia } from '@/components/ui/card-media';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { IMAGE_DISPLAY_WIDTH } from '@/lib/image-url';
 import { OfferMap } from '@/components/ui/offer-map';
 import { useAuth } from '@/context/auth-context';
@@ -183,7 +183,7 @@ export function MunicipioEventDetailScreen() {
       <WebStackSwipeContainer>
         <View style={{ flex: 1, backgroundColor: theme.screenBg, alignItems: 'center', justifyContent: 'center' }}>
           <CompanyDetailTabBarSync />
-          <ActivityIndicator color={theme.text} />
+          <LoadingSpinner variant="screen" label="Laddar..." />
         </View>
       </WebStackSwipeContainer>
     );

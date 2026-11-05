@@ -9,6 +9,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 
 import { ProfileScreenShell, profileCardShadow } from '@/components/profile/profile-screen-shell';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { useThemePreference } from '@/context/theme-preference-context';
 import {
   addCustomLocation,
@@ -122,9 +123,7 @@ export default function ProfilePlatsScreen() {
   return (
     <ProfileScreenShell title="Plats">
       {isLoading ? (
-        <View className="items-center py-8">
-          <ActivityIndicator color={theme.text} />
-        </View>
+        <LoadingSpinner variant="screen" label="Laddar..." />
       ) : (
         <>
           <View

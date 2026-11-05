@@ -1,11 +1,11 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   RefreshControl,
   Text,
   View,
 } from 'react-native';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,6 +19,7 @@ import { ListItemSeparator, SEE_ALL_COLUMN_GAP } from '@/components/ui/list-item
 import { PaginatedListFooter } from '@/components/ui/paginated-list-footer';
 import { SeeAllCardActions, SeeAllListCard, SeeAllPill } from '@/components/ui/see-all-list-card';
 import { hydrateOfferCardImages } from '@/lib/business-image';
+import { formatTodayOpeningHoursLabel } from '@/lib/business-opening-hours';
 import { useThemePreference } from '@/context/theme-preference-context';
 import {
   cardMatchesCategory,
@@ -95,6 +96,7 @@ const OfferSeeAllCard = memo(function OfferSeeAllCard({
   return (
     <SeeAllListCard
       title={card.title}
+      hours={formatTodayOpeningHoursLabel(card.openingHours)}
       subtitle={offerLabel || card.kortbeskrivning || 'Erbjudande'}
       meta={[distance, card.categoryName].filter(Boolean).join(' · ') || undefined}
       image={card.image}
@@ -375,9 +377,7 @@ export function OfferListScreen({
           }
           ListEmptyComponent={
             isLoading ? (
-              <View className="mt-10 items-center">
-                <ActivityIndicator color={theme.text} />
-              </View>
+              <LoadingSpinner variant="screen" label="Laddar..." />
             ) : (
               <Text className="mt-10" style={{ color: theme.textMuted }}>
                 {listEmptyText}

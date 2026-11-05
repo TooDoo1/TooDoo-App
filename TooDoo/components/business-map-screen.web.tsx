@@ -12,6 +12,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BusinessMapSearchHeader } from '@/components/ui/business-map-search-header';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
 import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
 import {
@@ -522,7 +523,14 @@ export default function BusinessMapScreen() {
           </View>
         ) : null}
 
-        {!pinsLoading && !searchingCatalog && pins.length === 0 ? (
+        {pinsLoading || searchingCatalog ? (
+          <View style={[styles.emptyBanner, { bottom: bottomPad + 16 }]}>
+            <LoadingSpinner
+              label={searchingCatalog ? 'Söker...' : 'Laddar kartan...'}
+              color={theme.text}
+            />
+          </View>
+        ) : pins.length === 0 ? (
           <View style={[styles.emptyBanner, { bottom: bottomPad + 16 }]}>
             <Text style={{ color: theme.text, textAlign: 'center' }}>
               {searchQuery.trim()

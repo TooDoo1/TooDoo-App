@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -12,6 +11,7 @@ import { getFloatingTabBarScrollPadding } from '@/components/floating-tab-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { StarrySkyScreenBackground } from '@/components/ui/starry-background';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { uiTheme } from '@/lib/ui-theme';
@@ -204,9 +204,7 @@ export default function FavoriterScreen() {
               </Pressable>
             </View>
           ) : isLoading && companies.length === 0 ? (
-            <View style={{ marginTop: 36, alignItems: 'center' }}>
-              <ActivityIndicator color={theme.text} />
-            </View>
+            <LoadingSpinner variant="screen" label="Laddar favoriter..." />
           ) : companies.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons

@@ -1,6 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Platform,
   Pressable,
@@ -8,6 +7,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -25,10 +25,7 @@ import { fetchApprovedBusinessesCatalog } from '@/lib/catalog-cache';
 import { normalizeImageUrl } from '@/lib/api';
 import { SeeAllCardActions, SeeAllListCard } from '@/components/ui/see-all-list-card';
 import { getCategoryAccentColor } from '@/lib/category-colors';
-import {
-  getTodayOpeningHoursText,
-  normalizeBusinessOpeningHours,
-} from '@/lib/business-opening-hours';
+import { formatTodayOpeningHoursLabel } from '@/lib/business-opening-hours';
 import { useRealtimeSubscription } from '@/hooks/use-realtime-subscription';
 import { useSeeAllFavorite } from '@/hooks/use-see-all-favorite';
 import { subscribeCustomLocations } from '@/lib/custom-locations';
@@ -79,9 +76,7 @@ type NearbyCompany = {
 };
 
 function nearbyOpeningHoursLabel(company: NearbyCompany): string | undefined {
-  const hours = getTodayOpeningHoursText(normalizeBusinessOpeningHours(company.openingHours));
-  if (!hours) return undefined;
-  return `Idag ${hours.replace(/\s*–\s*/g, '–')}`;
+  return formatTodayOpeningHoursLabel(company.openingHours);
 }
 
 function paramString(value: string | string[] | undefined): string {
@@ -239,7 +234,7 @@ const NearbyCompanyCard = memo(function NearbyCompanyCard({
   return (
     <SeeAllListCard
       title={company.name}
-      subtitle={nearbyOpeningHoursLabel(company)}
+      hours={nearbyOpeningHoursLabel(company)}
       meta={[distance, company.categoryName].filter(Boolean).join(' · ') || undefined}
       image={{
         uri:
@@ -691,9 +686,7 @@ export default function NaraDigScreen() {
           }
           ListEmptyComponent={
             isLoading ? (
-              <View className="mt-10 items-center">
-                <ActivityIndicator color={theme.text} />
-              </View>
+              <LoadingSpinner variant="screen" label="Laddar..." />
             ) : (
               <Text className="mt-10" style={{ color: theme.textMuted }}>
                 {hasCategoryFilter

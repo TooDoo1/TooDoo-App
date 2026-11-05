@@ -48,6 +48,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
 import { InlineMicButton } from '@/components/inline-mic-button';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { useHeroTopInset } from '@/lib/use-hero-top-inset';
 import {
   HOME_PAGE_PAD,
@@ -305,6 +306,7 @@ function uniqueCardsById(cards: CardItem[]): CardItem[] {
 }
 
 const EXPLORE_PAGE_SIZE = 12;
+const SEARCH_PAGE_SIZE = 24;
 
 function shuffleCards<T>(items: T[]): T[] {
   const next = [...items];
@@ -1340,6 +1342,10 @@ export default function HomeScreen() {
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [searchQuery, setSearchQuery] = useState(initialSearch.query);
   const [searchResults, setSearchResults] = useState<CardItem[]>(initialSearch.results as CardItem[]);
+  const [searchHasMore, setSearchHasMore] = useState(
+    () => (initialSearch.results?.length ?? 0) >= SEARCH_PAGE_SIZE
+  );
+  const [isLoadingMoreSearch, setIsLoadingMoreSearch] = useState(false);
   const [searchCommitted, setSearchCommitted] = useState(
     () => initialSearch.query.trim().length >= 2
   );
@@ -1375,6 +1381,11 @@ export default function HomeScreen() {
   const exploreCursorRef = useRef(0);
   const exploreLoadingRef = useRef(false);
   const loadMoreExploreRef = useRef<() => void>(() => {});
+  const searchLoadingMoreRef = useRef(false);
+  const loadMoreSearchRef = useRef<() => void>(() => {});
+  const searchHasMoreRef = useRef(searchHasMore);
+  const searchActiveEndlessRef = useRef(false);
+  searchHasMoreRef.current = searchHasMore;
   const exploreBlockYRef = useRef(0);
   const exploreFilterOffsetInBlockRef = useRef(0);
   const exploreFilterYSv = useSharedValue(Number.POSITIVE_INFINITY);
@@ -1553,6 +1564,11 @@ export default function HomeScreen() {
   }, []);
 
   const triggerLoadMoreExplore = useCallback(() => {
+    // While searching, keep endless scroll but page the search API instead of Utforska.
+    if (searchActiveEndlessRef.current) {
+      loadMoreSearchRef.current();
+      return;
+    }
     loadMoreExploreRef.current();
   }, []);
 
@@ -2361,6 +2377,7 @@ export default function HomeScreen() {
         const next = results as CardItem[];
         lockVoiceResultOrder(next);
         setSearchResults(next);
+        setSearchHasMore(next.length >= SEARCH_PAGE_SIZE);
         setHomeSearchCache(q, next as OfferCardItem[]);
       } catch (error) {
         const status = (error as Error & { status?: number })?.status;
@@ -3055,6 +3072,8 @@ export default function HomeScreen() {
   const isSearchActive = trimmedSearchQuery.length >= 2;
   const isSearchTooShort = trimmedSearchQuery.length === 1;
   const showCommittedSearchResults = searchCommitted && isSearchActive;
+  searchActiveEndlessRef.current =
+    showCommittedSearchResults && trimmedSearchQuery.length >= 2;
   const showCommittedSearchPrompt = searchCommitted && isSearchTooShort;
   const shouldFetchSearch = isSearchActive && searchCommitted;
 
@@ -3213,6 +3232,50 @@ export default function HomeScreen() {
   }, [exploreFilters.sort, showCommittedSearchPrompt, showCommittedSearchResults]);
 
   loadMoreExploreRef.current = loadMoreExplore;
+
+  const loadMoreSearch = useCallback(() => {
+    if (searchLoadingMoreRef.current) return;
+    if (!searchHasMoreRef.current) return;
+    if (!showCommittedSearchResults) return;
+    const q = trimmedSearchQuery.trim();
+    if (q.length < 2) return;
+
+    const skip = searchResultsRef.current.length;
+    searchLoadingMoreRef.current = true;
+    setIsLoadingMoreSearch(true);
+    void searchCatalog(q, {
+      take: SEARCH_PAGE_SIZE,
+      skip,
+      maxHydrate: 8,
+      city: userCityRef.current ?? undefined,
+      knownCards: [
+        ...knownCardsRef.current,
+        ...(searchResultsRef.current as OfferCardItem[]),
+      ],
+    })
+      .then((page) => {
+        if (voiceQueryRef.current && voiceQueryRef.current !== q) return;
+        if (page.length === 0) {
+          setSearchHasMore(false);
+          return;
+        }
+        setSearchResults((prev) => {
+          const merged = uniqueCardsById([...prev, ...(page as CardItem[])]);
+          setHomeSearchCache(q, merged as OfferCardItem[]);
+          return merged;
+        });
+        setSearchHasMore(page.length >= SEARCH_PAGE_SIZE);
+      })
+      .catch(() => {
+        setSearchHasMore(false);
+      })
+      .finally(() => {
+        searchLoadingMoreRef.current = false;
+        setIsLoadingMoreSearch(false);
+      });
+  }, [showCommittedSearchResults, trimmedSearchQuery]);
+
+  loadMoreSearchRef.current = loadMoreSearch;
 
   useEffect(() => {
     if (isLoadingData) return;
@@ -3586,6 +3649,7 @@ export default function HomeScreen() {
   useEffect(() => {
     if (!trimmedSearchQuery) {
       setSearchResults([]);
+      setSearchHasMore(false);
       setIsSearchLoading(false);
       clearVoiceSearchOwnership();
       return;
@@ -3598,6 +3662,7 @@ export default function HomeScreen() {
 
     if (!isSearchActive) {
       setSearchResults([]);
+      setSearchHasMore(false);
       setIsSearchLoading(false);
       setHomeSearchCache(searchQuery, []);
       return;
@@ -3624,7 +3689,8 @@ export default function HomeScreen() {
         setIsSearchLoading(true);
       }
       void searchCatalog(trimmedSearchQuery, {
-        take: 24,
+        take: SEARCH_PAGE_SIZE,
+        skip: 0,
         maxHydrate: 16,
         city: userCityRef.current ?? undefined,
         knownCards: knownCardsRef.current,
@@ -3635,12 +3701,14 @@ export default function HomeScreen() {
           if (voiceQueryRef.current === trimmedSearchQuery) return;
           const next = results as CardItem[];
           setSearchResults(next);
+          setSearchHasMore(next.length >= SEARCH_PAGE_SIZE);
           setHomeSearchCache(trimmedSearchQuery, next as OfferCardItem[]);
         })
         .catch(() => {
           if (cancelled) return;
           if (voiceQueryRef.current === trimmedSearchQuery) return;
           setSearchResults([]);
+          setSearchHasMore(false);
           setHomeSearchCache(trimmedSearchQuery, []);
         })
         .finally(() => {
@@ -3989,7 +4057,7 @@ export default function HomeScreen() {
           {isExpanded ? (
             <View style={{ marginTop: 12, marginLeft: 2 }}>
               {isExpandedTipLoading && expandedTipCards.length === 0 ? (
-                <Text style={{ color: theme.textMuted, paddingLeft: 2 }}>Laddar...</Text>
+                <LoadingSpinner label="Laddar..." style={{ alignItems: 'flex-start', paddingLeft: 2 }} />
               ) : (
                 <ForYouOrderCarousel
                   cards={expandedTipCards}
@@ -4643,6 +4711,7 @@ export default function HomeScreen() {
                 setSearchCommitted(false);
                 setSearchQuery('');
                 setSearchResults([]);
+                setSearchHasMore(false);
                 clearHomeSearchCache();
               }}
               style={[
@@ -4928,7 +4997,7 @@ export default function HomeScreen() {
               {isSearchTooShort ? (
                 <Text style={{ color: theme.textMuted }}>Skriv minst 2 tecken för att söka.</Text>
               ) : isSearchLoading ? (
-                <Text style={{ color: theme.textMuted }}>Söker...</Text>
+                <LoadingSpinner label="Söker..." />
               ) : (
                 <>
                   <ForYouOrderCarousel
@@ -4981,6 +5050,45 @@ export default function HomeScreen() {
                           emptyText={`Inga träffar nära dig för "${trimmedSearchQuery}".`}
                         />
                       </View>
+
+                      <View style={{ marginTop: 26 }}>
+                        <SectionTitleRow title="Fler träffar" />
+                        <HomeCardGrid
+                          cards={searchResults}
+                          onCardPress={handleCardPress}
+                          emptyText={`Inga fler träffar för "${trimmedSearchQuery}".`}
+                          maxItems={null}
+                          columns={1}
+                          showFavoriteButton
+                        />
+                        {isLoadingMoreSearch ? (
+                          <LoadingSpinner label="Laddar fler..." style={{ marginTop: 8 }} />
+                        ) : searchHasMore ? (
+                          <Text
+                            style={{
+                              color: theme.textMuted,
+                              textAlign: 'center',
+                              marginTop: 14,
+                              marginBottom: 4,
+                              fontSize: 13,
+                            }}
+                          >
+                            Scrolla för fler träffar
+                          </Text>
+                        ) : searchResults.length > 0 ? (
+                          <Text
+                            style={{
+                              color: theme.textMuted,
+                              textAlign: 'center',
+                              marginTop: 14,
+                              marginBottom: 4,
+                              fontSize: 13,
+                            }}
+                          >
+                            Inga fler träffar
+                          </Text>
+                        ) : null}
+                      </View>
                     </>
                   ) : null}
                 </>
@@ -5009,7 +5117,7 @@ export default function HomeScreen() {
                   }}
                 />
                 {isLoadingRecommendedNow && recommendedNowCards.length === 0 ? (
-                  <Text style={{ color: theme.textMuted }}>Laddar...</Text>
+                  <LoadingSpinner label="Laddar..." />
                 ) : (
                   <ForYouOrderCarousel
                     cards={recommendedNowCards}
@@ -5031,7 +5139,7 @@ export default function HomeScreen() {
                     onSeeAllPress={() => openSeeAllWithCategory(NARA_DIG_PATH)}
                   />
                   {isLoadingData && selectedCategoryCards.length === 0 ? (
-                    <Text style={{ color: theme.textMuted }}>Laddar...</Text>
+                    <LoadingSpinner label="Laddar..." />
                   ) : (
                     <ForYouOrderCarousel
                       cards={selectedCategoryCards}
@@ -5052,7 +5160,7 @@ export default function HomeScreen() {
                   onSeeAllPress={() => openSeeAllWithCategory(HETA_ERBJUDANDEN_PATH)}
                 />
                 {isLoadingData && hotOfferCards.length === 0 ? (
-                  <Text style={{ color: theme.textMuted }}>Laddar...</Text>
+                  <LoadingSpinner label="Laddar..." />
                 ) : (
                   <AnimatedFeaturedDeals
                     cards={filteredHotOfferCards}
@@ -5068,7 +5176,7 @@ export default function HomeScreen() {
                   onSeeAllPress={() => router.push(EVENEMANG_PATH)}
                 />
                 {isLoadingEvents && eventCards.length === 0 ? (
-                  <Text style={{ color: theme.textMuted }}>Laddar...</Text>
+                  <LoadingSpinner label="Laddar..." />
                 ) : (
                   <HomeEventTickets
                     events={eventCards}
@@ -5084,7 +5192,7 @@ export default function HomeScreen() {
                   onSeeAllPress={() => openSeeAllWithCategory(NARA_DIG_PATH)}
                 />
                 {isLoadingData && filteredDeals.length === 0 ? (
-                  <Text style={{ color: theme.textMuted }}>Laddar...</Text>
+                  <LoadingSpinner label="Laddar..." />
                 ) : (
                   <ForYouOrderCarousel
                     cards={filteredDeals}
@@ -5240,7 +5348,7 @@ export default function HomeScreen() {
                 </View>
                 <View style={{ marginTop: 14 }}>
                   {isLoadingExplore && exploreCards.length === 0 ? (
-                    <Text style={{ color: theme.textMuted }}>Laddar bolag...</Text>
+                    <LoadingSpinner label="Laddar bolag..." />
                   ) : (
                     <>
                       <HomeCardGrid
@@ -5251,7 +5359,9 @@ export default function HomeScreen() {
                         columns={1}
                         showFavoriteButton
                       />
-                      {isLoadingMoreExplore || exploreCards.length > 0 ? (
+                      {isLoadingMoreExplore ? (
+                        <LoadingSpinner label="Laddar fler..." style={{ marginTop: 8 }} />
+                      ) : exploreCards.length > 0 ? (
                         <Text
                           style={{
                             color: theme.textMuted,
@@ -5261,7 +5371,7 @@ export default function HomeScreen() {
                             fontSize: 13,
                           }}
                         >
-                          {isLoadingMoreExplore ? 'Laddar fler...' : 'Scrolla för fler bolag'}
+                          Scrolla för fler bolag
                         </Text>
                       ) : null}
                     </>

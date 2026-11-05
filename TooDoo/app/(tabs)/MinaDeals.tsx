@@ -8,6 +8,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useAuth } from '@/context/auth-context';
 import { useRealtimeSubscription } from '@/hooks/use-realtime-subscription';
 import ClaimedOffers, { ConfettiAnimation, type ClaimedOfferItem } from '@/components/ui/claimdeOffers';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { apiUrl, normalizeImageUrl } from '@/lib/api';
 import { StarrySkyScreenBackground } from '@/components/ui/starry-background';
 import { useThemePreference } from '@/context/theme-preference-context';
@@ -441,8 +442,8 @@ export default function MinaDealsScreen() {
 				{isLoggedIn ? (
 					<>
 						{isLoadingClaims ? (
-							<View className="mt-4 rounded-2xl px-4 py-4" style={{ backgroundColor: theme.cardBg }}>
-								<Text className="text-center" style={{ color: theme.textMuted }}>Uppdaterar dina claimade erbjudanden...</Text>
+							<View className="mt-4 rounded-2xl px-4 py-6" style={{ backgroundColor: theme.cardBg }}>
+								<LoadingSpinner label="Uppdaterar dina claimade erbjudanden..." />
 							</View>
 						) : visibleOffers.length === 0 ? (
 							<View style={styles.emptyState}>

@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BusinessMapSearchHeader } from '@/components/ui/business-map-search-header';
 import { BusinessMapPin } from '@/components/ui/business-map-pin';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { UserLocationArrow } from '@/components/ui/user-location-arrow';
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
 import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
@@ -587,7 +588,14 @@ export default function BusinessMapScreen() {
           {MAP_ATTRIBUTION}
         </Text>
 
-        {!pinsLoading && !searchingCatalog && visibleBusinesses.length === 0 ? (
+        {pinsLoading || searchingCatalog ? (
+          <View style={[styles.emptyBanner, { bottom: bottomPad + 16 }]}>
+            <LoadingSpinner
+              label={searchingCatalog ? 'Söker...' : 'Laddar kartan...'}
+              color={theme.text}
+            />
+          </View>
+        ) : visibleBusinesses.length === 0 ? (
           <View style={[styles.emptyBanner, { bottom: bottomPad + 16 }]}>
             <Text style={{ color: theme.text, textAlign: 'center' }}>
               {searchQuery.trim()

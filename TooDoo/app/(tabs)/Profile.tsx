@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
-  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getFloatingTabBarScrollPadding } from '@/components/floating-tab-bar';
 import { HOME_PAGE_PAD } from '@/components/home/home-feed';
 import { ProfileMenuRow } from '@/components/profile/profile-menu-row';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { useAuth } from '@/context/auth-context';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { getProfileDisplayName, type UserProfile } from '@/lib/profile';
@@ -133,10 +133,7 @@ export default function ProfileScreen() {
         </View>
 
         {isLoading ? (
-          <View style={styles.loadingWrap}>
-            <ActivityIndicator color={theme.text} />
-            <Text style={{ marginTop: 10, color: theme.textMuted }}>Laddar profil...</Text>
-          </View>
+          <LoadingSpinner variant="screen" label="Laddar profil..." style={styles.loadingWrap} />
         ) : (
           <>
             <View

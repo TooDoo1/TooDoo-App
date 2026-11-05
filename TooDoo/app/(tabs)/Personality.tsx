@@ -17,6 +17,7 @@ import { BrandColors } from "@/lib/brand-colors";
 import { getCategoryAccentColor, getOnAccentTextColor } from "@/lib/category-colors";
 import { uiTheme } from "@/lib/ui-theme";
 import { RegistrationScreenShell } from "@/components/registration-screen-shell";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { formatBirthDateDisplay, WebBirthDateWheelPicker } from "@/components/ui/wheel-picker";
 
 type FormStep = 'name' | 'birthday' | 'location' | 'gender' | 'interests';
@@ -591,7 +592,7 @@ export default function PersonalityScreen() {
               </View>
 
               {isLoadingCategories ? (
-                <Text style={{ color: theme.textFaint }}>Laddar kategorier...</Text>
+                <LoadingSpinner label="Laddar kategorier..." />
               ) : null}
               {categoryLoadError ? (
                 <Text style={{ color: theme.textFaint }}>{categoryLoadError}</Text>

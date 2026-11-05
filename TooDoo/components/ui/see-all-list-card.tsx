@@ -9,6 +9,8 @@ import { uiTheme } from '@/lib/ui-theme';
 
 type SeeAllListCardProps = {
   title: string;
+  /** Opening hours shown directly under the company name. */
+  hours?: string;
   subtitle?: string;
   meta?: string;
   image: ImageSourcePropType;
@@ -26,6 +28,7 @@ type SeeAllListCardProps = {
  */
 export const SeeAllListCard = memo(function SeeAllListCard({
   title,
+  hours,
   subtitle,
   meta,
   image,
@@ -92,18 +95,41 @@ export const SeeAllListCard = memo(function SeeAllListCard({
         >
           {title}
         </Text>
-        {meta ? (
-          <Text
-            numberOfLines={1}
-            style={{
-              marginTop: 3,
-              color: theme.textMuted,
-              fontSize: 11,
-              fontWeight: '600',
-            }}
-          >
-            {meta}
-          </Text>
+        {hours || meta ? (
+          <View style={{ marginTop: 4, gap: 3 }}>
+            {hours ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                <Ionicons name="time-outline" size={12} color={theme.textMuted} />
+                <Text
+                  numberOfLines={1}
+                  style={{
+                    flex: 1,
+                    color: theme.textMuted,
+                    fontSize: 11,
+                    fontWeight: '600',
+                  }}
+                >
+                  {hours}
+                </Text>
+              </View>
+            ) : null}
+            {meta ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                <Ionicons name="location-outline" size={12} color={theme.textMuted} />
+                <Text
+                  numberOfLines={1}
+                  style={{
+                    flex: 1,
+                    color: theme.textMuted,
+                    fontSize: 11,
+                    fontWeight: '600',
+                  }}
+                >
+                  {meta}
+                </Text>
+              </View>
+            ) : null}
+          </View>
         ) : null}
         {subtitle ? (
           <Text

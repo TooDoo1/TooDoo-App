@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Pressable,
   RefreshControl,
@@ -13,15 +12,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
 import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { ScreenBackButton } from '@/components/ui/screen-back-button';
 import { CategoryFilterBar } from '@/components/ui/category-filter-bar';
 import { ALL_CATEGORIES_ID } from '@/lib/category-filters';
 import { ListItemSeparator, SEE_ALL_COLUMN_GAP } from '@/components/ui/list-item-separator';
-import { PaginatedListFooter } from '@/components/ui/paginated-list-footer';
 import { SeeAllCardActions, SeeAllListCard, SeeAllPill } from '@/components/ui/see-all-list-card';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { brandInkRgba } from '@/lib/brand-colors';
 import { useAuth } from '@/context/auth-context';
+import { formatTodayOpeningHoursLabel } from '@/lib/business-opening-hours';
 import {
   cardMatchesCategory,
   computeDiscountLabel,
@@ -43,6 +43,7 @@ import {
   HELSINGBORG_COORDS,
   resolveUserCityFromDevice,
 } from '@/lib/geo';
+import { peekApprovedBusinessesCatalog } from '@/lib/catalog-cache';
 import { getHomeKnownOfferCards } from '@/lib/home-list-cache';
 import { openOfferDetail } from '@/lib/open-offer-detail';
 import {
@@ -50,8 +51,7 @@ import {
   getRecommendedNowMoment,
   pickRecommendedNowCards,
 } from '@/lib/recommended-now';
-import { usePaginatedList, SEE_ALL_PAGE_SIZE } from '@/lib/paginated-list';
-import { schedulePrefetchImageUris, usePrefetchPageImages } from '@/lib/image-prefetch';
+import { schedulePrefetchImageUris } from '@/lib/image-prefetch';
 import { getCategoryAccentForItem } from '@/lib/category-colors';
 import { uiTheme } from '@/lib/ui-theme';
 import { useSeeAllFavorite } from '@/hooks/use-see-all-favorite';
@@ -59,6 +59,49 @@ import { shareEvent, shareOfferFromCard } from '@/lib/share-offer';
 import { FAVORITE_HEART_COLOR } from '@/lib/tab-colors';
 
 const LIST_BATCH_SIZE = 8;
+const SEARCH_PAGE_SIZE = 20;
+
+function uniqueSearchCards(cards: OfferCardItem[]): OfferCardItem[] {
+  const seen = new Set<string>();
+  const out: OfferCardItem[] = [];
+  for (const card of cards) {
+    if (!card?.id) continue;
+    const key = `${card.resultKind ?? 'business'}:${card.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(card);
+  }
+  return out;
+}
+
+/** Fill missing öppettider from home/catalog snapshots without detail GETs. */
+function enrichOpeningHours(
+  cards: OfferCardItem[],
+  knownCards: OfferCardItem[]
+): OfferCardItem[] {
+  const hoursById = new Map<string, unknown>();
+  for (const card of knownCards) {
+    if (card?.id && card.openingHours != null && card.resultKind !== 'event') {
+      hoursById.set(card.id, card.openingHours);
+    }
+  }
+  const catalog = peekApprovedBusinessesCatalog() as Array<{
+    id?: string;
+    _id?: string;
+    openingHours?: unknown;
+  }> | null;
+  for (const row of catalog ?? []) {
+    const id = String(row?.id ?? row?._id ?? '').trim();
+    if (!id || row.openingHours == null || hoursById.has(id)) continue;
+    hoursById.set(id, row.openingHours);
+  }
+  if (hoursById.size === 0) return cards;
+  return cards.map((card) => {
+    if (card.resultKind === 'event' || card.openingHours != null) return card;
+    const hours = hoursById.get(card.id);
+    return hours != null ? { ...card, openingHours: hours } : card;
+  });
+}
 
 const VIEW_CONFIG: Record<
   SearchResultsView,
@@ -114,6 +157,7 @@ function SearchResultCard({
   return (
     <SeeAllListCard
       title={card.title}
+      hours={isEvent ? undefined : formatTodayOpeningHoursLabel(card.openingHours)}
       subtitle={
         isEvent
           ? card.Adress || 'Evenemang'
@@ -198,7 +242,12 @@ export function SearchResultsScreen() {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
     isRecommendedNow ? HELSINGBORG_COORDS : null
   );
+  const [resolvedCity, setResolvedCity] = useState<string | undefined>(
+    initialCity?.trim() || undefined
+  );
   const [isLoading, setIsLoading] = useState(seededRecommended.length === 0);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(!isRecommendedNow);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [activeCategoryId, setActiveCategoryId] = useState(
@@ -207,6 +256,11 @@ export function SearchResultsScreen() {
   const [activeCategoryName, setActiveCategoryName] = useState<string | undefined>(
     initialCategoryName?.trim() || undefined
   );
+  const loadingMoreRef = useRef(false);
+  const hasMoreRef = useRef(hasMore);
+  hasMoreRef.current = hasMore;
+  const cardsRef = useRef(cards);
+  cardsRef.current = cards;
 
   const config = isRecommendedNow
     ? {
@@ -241,7 +295,8 @@ export function SearchResultsScreen() {
     let cancelled = false;
 
     void (async () => {
-      if (cards.length === 0) setIsLoading(true);
+      if (cardsRef.current.length === 0) setIsLoading(true);
+      setHasMore(!isRecommendedNow);
       try {
         const categoryNameForFetch =
           activeCategoryId !== ALL_CATEGORIES_ID ? activeCategoryName : undefined;
@@ -258,7 +313,10 @@ export function SearchResultsScreen() {
             take: 20,
             knownCards,
           });
-          const results = feed?.cards?.length ? feed.cards : seededRecommended;
+          const results = enrichOpeningHours(
+            feed?.cards?.length ? feed.cards : seededRecommended,
+            knownCards
+          );
           const withDistance = effectiveCoords
             ? applyHaversineDistances(results, effectiveCoords)
             : results;
@@ -266,6 +324,7 @@ export function SearchResultsScreen() {
             setFeedTitle(feed?.title);
             setFeedSubtitle(feed?.subtitle);
             setCards(withDistance);
+            setHasMore(false);
             setIsLoading(false);
             setIsRefreshing(false);
             schedulePrefetchImageUris(
@@ -278,18 +337,25 @@ export function SearchResultsScreen() {
 
         const city =
           initialCity?.trim() ||
+          resolvedCity ||
           (await resolveUserCityFromDevice().catch(() => null))?.city;
-        const results = await searchCatalog(query, {
-          take: 40,
-          maxHydrate: 12,
-          city: city || undefined,
-          categoryName: categoryNameForFetch,
-          knownCards,
-        });
+        if (!cancelled && city) setResolvedCity(city);
+        const results = enrichOpeningHours(
+          await searchCatalog(query, {
+            take: SEARCH_PAGE_SIZE,
+            skip: 0,
+            maxHydrate: 12,
+            city: city || undefined,
+            categoryName: categoryNameForFetch,
+            knownCards,
+          }),
+          knownCards
+        );
         const withDistance = coords ? applyHaversineDistances(results, coords) : results;
         const sorted = sortSearchResultsForView(withDistance, view, coords);
         if (!cancelled) {
           setCards(sorted);
+          setHasMore(results.length >= SEARCH_PAGE_SIZE);
           setIsLoading(false);
           setIsRefreshing(false);
           schedulePrefetchImageUris(
@@ -308,7 +374,8 @@ export function SearchResultsScreen() {
         }
       } catch {
         if (!cancelled) {
-          if (cards.length === 0) setCards([]);
+          if (cardsRef.current.length === 0) setCards([]);
+          setHasMore(false);
         }
       } finally {
         if (!cancelled) {
@@ -348,6 +415,60 @@ export function SearchResultsScreen() {
     setIsRefreshing(true);
     setRefreshNonce((n) => n + 1);
   }, []);
+
+  const loadMore = useCallback(() => {
+    if (isRecommendedNow) return;
+    if (loadingMoreRef.current || isLoading || isRefreshing) return;
+    if (!hasMoreRef.current) return;
+    const q = query.trim();
+    if (q.length < 2 && !weekendQuery) return;
+
+    const categoryNameForFetch =
+      activeCategoryId !== ALL_CATEGORIES_ID ? activeCategoryName : undefined;
+    const skip = cardsRef.current.length;
+    loadingMoreRef.current = true;
+    setIsLoadingMore(true);
+    void searchCatalog(q || query, {
+      take: SEARCH_PAGE_SIZE,
+      skip,
+      maxHydrate: 8,
+      city: resolvedCity,
+      categoryName: categoryNameForFetch,
+      knownCards: [...getHomeKnownOfferCards(), ...cardsRef.current],
+    })
+      .then((page) => {
+        if (page.length === 0) {
+          setHasMore(false);
+          return;
+        }
+        setCards((prev) => {
+          const withDistance = coords ? applyHaversineDistances(page, coords) : page;
+          const merged = uniqueSearchCards([...prev, ...withDistance]);
+          return view === 'all'
+            ? merged
+            : sortSearchResultsForView(merged, view, coords);
+        });
+        setHasMore(page.length >= SEARCH_PAGE_SIZE);
+      })
+      .catch(() => {
+        setHasMore(false);
+      })
+      .finally(() => {
+        loadingMoreRef.current = false;
+        setIsLoadingMore(false);
+      });
+  }, [
+    activeCategoryId,
+    activeCategoryName,
+    coords,
+    isLoading,
+    isRecommendedNow,
+    isRefreshing,
+    query,
+    resolvedCity,
+    view,
+    weekendQuery,
+  ]);
 
   const handleCardPress = useCallback(
     (card: OfferCardItem) => {
@@ -414,48 +535,64 @@ export function SearchResultsScreen() {
   );
 
   const visibleCards = useMemo(() => {
-    if (isRecommendedNow) return cards;
-    if (activeCategoryId === ALL_CATEGORIES_ID && !activeCategoryName) return cards;
-    return cards.filter((card) => {
-      if (
-        activeCategoryId !== ALL_CATEGORIES_ID &&
-        cardMatchesCategory(card, activeCategoryId)
-      ) {
-        return true;
-      }
-      if (activeCategoryName) {
-        const want = activeCategoryName.trim().toLocaleLowerCase('sv-SE');
-        const have = card.categoryName?.trim().toLocaleLowerCase('sv-SE') ?? '';
-        if (want && have === want) return true;
-      }
-      return false;
-    });
+    // Category is applied server-side via categoryName on fetch for endless scroll.
+    // Keep a light client filter only for recommended-now seed mismatches.
+    if (isRecommendedNow) {
+      if (activeCategoryId === ALL_CATEGORIES_ID && !activeCategoryName) return cards;
+      return cards.filter((card) => {
+        if (
+          activeCategoryId !== ALL_CATEGORIES_ID &&
+          cardMatchesCategory(card, activeCategoryId)
+        ) {
+          return true;
+        }
+        if (activeCategoryName) {
+          const want = activeCategoryName.trim().toLocaleLowerCase('sv-SE');
+          const have = card.categoryName?.trim().toLocaleLowerCase('sv-SE') ?? '';
+          if (want && have === want) return true;
+        }
+        return false;
+      });
+    }
+    return cards;
   }, [activeCategoryId, activeCategoryName, cards, isRecommendedNow]);
 
-  const pagination = usePaginatedList(
-    visibleCards,
-    `${refreshNonce}-${query}-${view}-${activeCategoryId}-${activeCategoryName ?? ''}`
-  );
-
-  usePrefetchPageImages(visibleCards, pagination.page, SEE_ALL_PAGE_SIZE, {
-    resetKey: `${refreshNonce}-${query}-${view}-${activeCategoryId}-${activeCategoryName ?? ''}`,
-  });
-
-  const listFooter = useMemo(
-    () => (
-      <PaginatedListFooter
-        page={pagination.page}
-        totalPages={pagination.totalPages}
-        totalCount={pagination.totalCount}
-        canGoPrevious={pagination.canGoPrevious}
-        canGoNext={pagination.canGoNext}
-        onPrevious={pagination.goToPrevious}
-        onNext={pagination.goToNext}
-        theme={theme}
-      />
-    ),
-    [pagination, theme]
-  );
+  const listFooter = useMemo(() => {
+    if (isLoadingMore) {
+      return <LoadingSpinner label="Laddar fler..." style={{ marginTop: 8 }} />;
+    }
+    if (!isLoading && hasMore && visibleCards.length > 0) {
+      return (
+        <Text
+          style={{
+            color: theme.textMuted,
+            textAlign: 'center',
+            marginTop: 14,
+            marginBottom: 8,
+            fontSize: 13,
+          }}
+        >
+          Scrolla för fler träffar
+        </Text>
+      );
+    }
+    if (!isLoading && !hasMore && visibleCards.length > 0 && !isRecommendedNow) {
+      return (
+        <Text
+          style={{
+            color: theme.textMuted,
+            textAlign: 'center',
+            marginTop: 14,
+            marginBottom: 8,
+            fontSize: 13,
+          }}
+        >
+          Inga fler träffar
+        </Text>
+      );
+    }
+    return null;
+  }, [hasMore, isLoading, isLoadingMore, isRecommendedNow, theme.textMuted, visibleCards.length]);
 
   return (
     <WebStackSwipeContainer>
@@ -463,9 +600,9 @@ export function SearchResultsScreen() {
         <StackScreenTabBarSync />
         <ScreenBackButton />
         <FlatList
-          data={pagination.pageItems}
+          data={visibleCards}
           keyExtractor={(item, idx) =>
-            `${item.resultKind ?? 'business'}-${item.orderIds?.[0] ?? item.id}-p${pagination.page}-${idx}`
+            `${item.resultKind ?? 'business'}-${item.orderIds?.[0] ?? item.id}-${idx}`
           }
           renderItem={({ item, index }) => (
             <SearchResultCard
@@ -480,6 +617,8 @@ export function SearchResultsScreen() {
           columnWrapperStyle={{ gap: SEE_ALL_COLUMN_GAP }}
           ListHeaderComponent={listHeader}
           ListFooterComponent={listFooter}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.4}
           contentContainerStyle={{
             paddingHorizontal: 24,
             paddingTop: insets.top + 56,
@@ -495,9 +634,7 @@ export function SearchResultsScreen() {
           }
           ListEmptyComponent={
             isLoading ? (
-              <View className="mt-10 items-center">
-                <ActivityIndicator color={theme.text} />
-              </View>
+              <LoadingSpinner variant="screen" label="Laddar..." />
             ) : (
               <Text className="mt-10" style={{ color: theme.textMuted }}>
                 {activeCategoryName

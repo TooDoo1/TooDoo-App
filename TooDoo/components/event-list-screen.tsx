@@ -1,6 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   RefreshControl,
   Text,
@@ -11,6 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
 import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { ScreenBackButton } from '@/components/ui/screen-back-button';
 import { CategoryFilterBar } from '@/components/ui/category-filter-bar';
 import { ALL_CATEGORIES_ID } from '@/lib/category-filters';
@@ -292,9 +292,7 @@ export function EventListScreen() {
           }
           ListEmptyComponent={
             isLoading ? (
-              <View className="mt-10 items-center">
-                <ActivityIndicator color={theme.text} />
-              </View>
+              <LoadingSpinner variant="screen" label="Laddar..." />
             ) : (
               <Text style={{ color: theme.textMuted }}>
                 {activeCategoryName
