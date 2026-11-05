@@ -48,7 +48,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
 import { InlineMicButton } from '@/components/inline-mic-button';
-import { useHeroTopInset } from '@/lib/use-hero-top-inset';
+import { isIosWeb, useHeroTopInset } from '@/lib/use-hero-top-inset';
 import {
   HOME_PAGE_PAD,
   HOME_RADIUS,
@@ -220,14 +220,10 @@ const SEARCH_DROPDOWN_OPEN_MS = 220;
 const SEARCH_DROPDOWN_CLOSE_MS = 240;
 const SEARCH_TIPS_DEBOUNCE_MS = 120;
 const SEARCH_BAR_HEIGHT = 44;
-/**
- * Native: pull chrome slightly into the status area for a tighter top.
- * Web (Vercel / iPhone Safari): add breathing room so Dynamic Island + status
- * icons never cover the location pill / TooDoo mark.
- */
-const HOME_NAV_EXTRA_TOP = Platform.OS === 'web' ? 10 : -8;
-/** Minimum web top inset when env(safe-area) is missing (island phones ≈ 59). */
-const HOME_WEB_MIN_TOP_INSET = 54;
+/** Native: pull chrome slightly into the status area for a tighter top. */
+const HOME_NAV_EXTRA_TOP_NATIVE = -8;
+/** Extra below Dynamic Island / notch — only when a real safe-area inset exists. */
+const HOME_NAV_EXTRA_TOP_IOS_WEB = 8;
 /** Collapsing discovery hero above sticky search (location overlays the hero). */
 const HOME_GREETING_HEIGHT = HOME_TIP_STRIP_HEIGHT;
 /** Shared mesh artwork height (status + greeting + search). */
@@ -3773,14 +3769,18 @@ export default function HomeScreen() {
     ? 'rgba(255, 255, 255, 0.08)'
     : 'rgba(0, 0, 0, 0.08)';
 
+  // Desktop / Android / Firefox device mode: inset stays 0 (no fake 54–59).
+  // Real iPhone (native or Safari with viewport-fit=cover): env/safe-area drives this.
+  const measuredTop = Math.max(heroTopInset, insets.top);
+  const homeNavExtraTop =
+    Platform.OS === 'ios'
+      ? HOME_NAV_EXTRA_TOP_NATIVE
+      : Platform.OS === 'web' && isIosWeb() && measuredTop > 0
+        ? HOME_NAV_EXTRA_TOP_IOS_WEB
+        : 0;
   const homeHeaderInset = Math.max(
     0,
-    Math.max(
-      heroTopInset,
-      insets.top,
-      Platform.OS === 'ios' ? 47 : 0,
-      Platform.OS === 'web' ? HOME_WEB_MIN_TOP_INSET : 0
-    ) + HOME_NAV_EXTRA_TOP
+    Math.max(measuredTop, Platform.OS === 'ios' ? 47 : 0) + homeNavExtraTop
   );
   /**
    * Header lives OUTSIDE the ScrollView so overscroll/pull can't open a gap above search.
@@ -4798,9 +4798,9 @@ export default function HomeScreen() {
             },
             Platform.OS === 'web'
               ? ({
-                  // Live CSS env as a floor so island/status bar never covers chrome
-                  // even if the JS inset is briefly 0 on first paint.
-                  paddingTop: `max(${homeHeaderInset}px, calc(env(safe-area-inset-top, 0px) + 10px))`,
+                  // Real phones: env(safe-area-inset-top) clears Dynamic Island / notch.
+                  // Desktop & Firefox device mode: env is 0 → no invented gap.
+                  paddingTop: `max(${homeHeaderInset}px, env(safe-area-inset-top, 0px))`,
                 } as object)
               : null,
           ]}

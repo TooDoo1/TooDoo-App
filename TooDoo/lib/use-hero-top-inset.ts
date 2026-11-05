@@ -16,10 +16,10 @@ function readWebSafeAreaTop(): number {
   return top;
 }
 
-function isIosWeb(): boolean {
+/** True only on real iPhone/iPad Safari (or iPadOS desktop-UA touch). */
+export function isIosWeb(): boolean {
   if (typeof navigator === 'undefined') return false;
   const ua = navigator.userAgent || '';
-  // iPadOS 13+ can report as Macintosh — treat touch Macs as iOS web too.
   if (/iPad|iPhone|iPod/.test(ua)) return true;
   return (
     /Macintosh/.test(ua) &&
@@ -28,39 +28,22 @@ function isIosWeb(): boolean {
   );
 }
 
-/** Notch / Dynamic Island phones need ~47–59pt under a translucent status bar. */
-function iosWebTopFallback(): number {
-  if (!isIosWeb()) return 0;
-  if (typeof window === 'undefined') return 59;
-  // iPhone X+ logical heights start at 812; Island models are taller (852+).
-  const shortSide = Math.min(window.screen?.width ?? 0, window.screen?.height ?? 0);
-  const longSide = Math.max(window.screen?.width ?? 0, window.screen?.height ?? 0);
-  if (longSide >= 852 || shortSide >= 390) return 59;
-  if (longSide >= 812) return 47;
-  return 47;
-}
-
-function standaloneTopFallback(): number {
-  if (!isStandaloneWebApp()) return 0;
-  return iosWebTopFallback() || 47;
-}
-
-/** Top inset for full-bleed hero — web/PWA often reports 0 without viewport-fit=cover. */
+/**
+ * Top inset for full-bleed hero.
+ * Web: trust env(safe-area-inset-top) / SafeAreaProvider only — never invent
+ * 47–59px from screen size (that padded desktop and lied in Firefox device mode).
+ * Real iPhone Safari with viewport-fit=cover reports the Dynamic Island correctly.
+ */
 export function useHeroTopInset(): number {
   const insets = useSafeAreaInsets();
   const [webTop, setWebTop] = useState(() =>
-    Platform.OS === 'web'
-      ? Math.max(readWebSafeAreaTop(), standaloneTopFallback(), iosWebTopFallback())
-      : 0
+    Platform.OS === 'web' ? readWebSafeAreaTop() : 0
   );
 
   useEffect(() => {
     if (Platform.OS !== 'web') return;
 
-    const update = () => {
-      setWebTop(Math.max(readWebSafeAreaTop(), standaloneTopFallback(), iosWebTopFallback()));
-    };
-
+    const update = () => setWebTop(readWebSafeAreaTop());
     update();
     const timers = [50, 100, 400, 1000].map((ms) => setTimeout(update, ms));
     window.addEventListener('resize', update);
@@ -73,7 +56,12 @@ export function useHeroTopInset(): number {
   }, []);
 
   if (Platform.OS === 'web') {
-    return Math.max(insets.top, webTop, standaloneTopFallback(), iosWebTopFallback());
+    // Standalone iOS PWA sometimes reports 0 on first paint — keep a soft floor
+    // only when we already measured a positive inset once, or SafeArea did.
+    const measured = Math.max(insets.top, webTop);
+    if (measured > 0) return measured;
+    if (isStandaloneWebApp() && isIosWeb()) return 47;
+    return 0;
   }
 
   return insets.top;
