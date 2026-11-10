@@ -290,9 +290,9 @@ function CardPlaceMeta({
   const distance = formatDistanceKm(card.distanceKm);
   const subcategory =
     typeof card.subcategoryName === 'string' ? card.subcategoryName.trim() : '';
-  const iconSize = compact ? 12 : 13;
-  const textSize = compact ? 11 : 12;
-  const ink = theme.textMuted;
+  const iconSize = compact ? 13 : 14;
+  const textSize = compact ? 12 : 13;
+  const ink = theme.textFaint;
   const pinParts = [priceLabel, distance, subcategory || null].filter(Boolean);
   const pinText = pinParts.join(' · ');
 
@@ -470,16 +470,16 @@ export function HomeSectionHeader({
   const theme = uiTheme(mode);
 
   return (
-    <View style={{ marginBottom: 8 }}>
+    <View style={{ marginBottom: 14 }}>
       {kicker ? (
         <Text
           style={{
             color: theme.textFaint,
-            fontSize: 11,
-            fontWeight: '700',
-            letterSpacing: 1.6,
+            fontSize: 12,
+            fontWeight: '600',
+            letterSpacing: 1.2,
             textTransform: 'uppercase',
-            marginBottom: 2,
+            marginBottom: 4,
           }}
         >
           {kicker}
@@ -490,10 +490,10 @@ export function HomeSectionHeader({
           style={{
             flex: 1,
             color: theme.text,
-            fontSize: 20,
+            fontSize: 24,
             fontWeight: '700',
-            letterSpacing: -0.4,
-            lineHeight: 24,
+            letterSpacing: -0.7,
+            lineHeight: 28,
             paddingRight: 12,
           }}
         >
@@ -506,13 +506,13 @@ export function HomeSectionHeader({
             accessibilityRole="button"
             accessibilityLabel={seeAllLabel}
           >
-            <Text style={{ color: theme.link, fontSize: 13, fontWeight: '600' }}>{seeAllLabel}</Text>
-            <Ionicons name="chevron-forward" size={14} color={theme.link} />
+            <Text style={{ color: theme.link, fontSize: 14, fontWeight: '600' }}>{seeAllLabel}</Text>
+            <Ionicons name="chevron-forward" size={15} color={theme.link} />
           </Pressable>
         ) : null}
       </View>
       {subtitle ? (
-        <Text style={{ marginTop: 4, color: theme.textMuted, fontSize: 13, fontWeight: '500' }}>
+        <Text style={{ marginTop: 6, color: theme.textMuted, fontSize: 14, fontWeight: '500', letterSpacing: -0.15 }}>
           {subtitle}
         </Text>
       ) : null}
@@ -556,7 +556,7 @@ function HomeListingCard({
       onPress={() => onPress?.(card)}
       style={[
         styles.listingCard,
-        { backgroundColor: theme.cardBg, borderColor: theme.border },
+        { backgroundColor: 'transparent' },
         editorial ? styles.listingCardEditorial : null,
         NO_OUTLINE,
       ]}
@@ -745,8 +745,7 @@ export function HomeDealTile({
         styles.dealTile,
         height != null ? { height, width: '100%' } : StyleSheet.absoluteFillObject,
         {
-          backgroundColor: theme.cardBg,
-          borderColor: overlay ? 'transparent' : theme.border,
+          backgroundColor: overlay ? theme.cardBg : 'transparent',
         },
         NO_OUTLINE,
       ]}
@@ -902,7 +901,7 @@ const FeaturedSlideBody = memo(function FeaturedSlideBody({
       onPress={() => onPress?.(card)}
       style={[
         styles.featuredSlide,
-        { backgroundColor: theme.cardBg, borderColor: theme.border },
+        { backgroundColor: 'transparent' },
         NO_OUTLINE,
       ]}
       accessibilityRole="button"
@@ -1569,7 +1568,7 @@ export function HomeRecentCompanies({
         scrollEventThrottle={rail.scrollEventThrottle}
         onScroll={rail.onScroll}
       >
-        <View style={{ flexDirection: 'row', alignItems: 'stretch', gap: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'stretch', gap: 14 }}>
           {items.map((card, idx) => {
             const category = card.categoryName?.trim() || undefined;
             const accent = getCategoryAccentColor(category);
@@ -1591,7 +1590,6 @@ export function HomeRecentCompanies({
                     styles.recentMedia,
                     {
                       backgroundColor: theme.cardBg,
-                      borderColor: theme.border,
                     },
                   ]}
                 >
@@ -1708,7 +1706,7 @@ export function HomePosterCarousel({
         scrollEventThrottle={rail.scrollEventThrottle}
         onScroll={rail.onScroll}
       >
-        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 14 }}>
           {items.map((card, idx) => (
             <View key={`${card.resultKind ?? 'business'}:${card.orderIds?.[0] ?? card.id}-${idx}`} style={styles.poster}>
               <HomeListingCard
@@ -1762,7 +1760,7 @@ export function HomeEventTickets({
         scrollEventThrottle={rail.scrollEventThrottle}
         onScroll={rail.onScroll}
       >
-        <View style={{ flexDirection: 'row', gap: 10 }}>
+        <View style={{ flexDirection: 'row', gap: 14 }}>
           {items.map((event, idx) => {
             const startDate = getFeedEventStartParts(event);
             return (
@@ -1771,7 +1769,7 @@ export function HomeEventTickets({
                 onPress={() => onEventPress?.(event)}
                 style={[
                   styles.ticket,
-                  { backgroundColor: theme.cardBg, borderColor: theme.border },
+                  { backgroundColor: theme.cardBg },
                   NO_OUTLINE,
                 ]}
               >
@@ -1843,7 +1841,6 @@ const styles = StyleSheet.create({
   dealTile: {
     overflow: 'hidden',
     borderRadius: HOME_RADIUS,
-    borderWidth: 1,
   },
   dealImageWrap: {
     flex: 1,
@@ -1905,8 +1902,8 @@ const styles = StyleSheet.create({
   },
   metaText: {
     flexShrink: 1,
-    fontWeight: '600',
-    letterSpacing: -0.1,
+    fontWeight: '500',
+    letterSpacing: -0.15,
   },
   overlayDarkLens: {
     ...StyleSheet.absoluteFillObject,
@@ -1939,7 +1936,6 @@ const styles = StyleSheet.create({
     height: '100%',
     overflow: 'hidden',
     borderRadius: HOME_RADIUS,
-    borderWidth: 1,
   },
   featuredImageWrap: {
     height: FEATURED_IMAGE_H,
@@ -1958,24 +1954,9 @@ const styles = StyleSheet.create({
     width: '100%',
     overflow: 'hidden',
     borderRadius: HOME_RADIUS,
-    borderWidth: 1,
   },
   listingCardEditorial: {
     borderRadius: 20,
-    borderWidth: StyleSheet.hairlineWidth,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOpacity: 0.22,
-        shadowRadius: 14,
-        shadowOffset: { width: 0, height: 8 },
-      },
-      android: { elevation: 3 },
-      web: {
-        boxShadow: '0 10px 28px rgba(0,0,0,0.28)',
-      } as object,
-      default: {},
-    }),
   },
   cardGrid: {
     flexDirection: 'row',
@@ -1985,14 +1966,14 @@ const styles = StyleSheet.create({
   cardGridCell: {
     width: '50%',
     paddingHorizontal: 5,
-    marginBottom: 12,
+    marginBottom: 18,
   },
   cardStack: {
     width: '100%',
-    gap: 16,
+    gap: 22,
   },
   cardStackCompact: {
-    gap: 12,
+    gap: 16,
   },
   cardStackCell: {
     width: '100%',
@@ -2031,16 +2012,16 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   posterTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    letterSpacing: -0.2,
-    lineHeight: 18,
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: -0.35,
+    lineHeight: 19,
   },
   editorialTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    letterSpacing: -0.4,
-    lineHeight: 22,
+    fontSize: 19,
+    fontWeight: '700',
+    letterSpacing: -0.55,
+    lineHeight: 23,
   },
   editorialTitleCompact: {
     fontSize: 16,
@@ -2073,7 +2054,6 @@ const styles = StyleSheet.create({
     width: 268,
     height: 108,
     borderRadius: HOME_RADIUS,
-    borderWidth: 1,
     overflow: 'hidden',
     flexDirection: 'row',
   },
@@ -2120,7 +2100,6 @@ const styles = StyleSheet.create({
     height: RECENT_IMG_H,
     borderRadius: RECENT_RADIUS,
     overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
   },
   recentAccentBar: {
     position: 'absolute',

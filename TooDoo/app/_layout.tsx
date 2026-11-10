@@ -32,12 +32,14 @@ import {
 	markLegalConsentAccepted,
 } from '@/lib/legal-consent-storage';
 import { hasSeenOnboarding, markOnboardingSeen } from '@/lib/onboarding-storage';
+import { applyAppTextDefaults } from '@/lib/app-fonts';
 import { getStackScreenOptionsWithoutSwipeBack, getSwipeableStackScreenOptions } from '@/lib/stack-navigation';
 import { uiTheme } from '@/lib/ui-theme';
 import { warmBusinessMapDuringStartup } from '@/lib/warm-business-map';
 import { warmHomeScreenDuringStartup } from '@/lib/warm-home-screen';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
+applyAppTextDefaults();
 
 const MAX_SPLASH_DURATION_MS = 12000;
 const WEB_SPLASH_SEEN_KEY = 'toodoo_splash_seen';

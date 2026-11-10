@@ -5,7 +5,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { HOME_PAGE_PAD } from '@/components/home/home-feed';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { ALL_CATEGORIES_ID } from '@/lib/category-filters';
-import { getOnAccentTextColor } from '@/lib/category-colors';
 import { uiTheme } from '@/lib/ui-theme';
 
 export type ExploreSortMode = 'mixed' | 'near' | 'name' | 'deals';
@@ -63,12 +62,9 @@ function CompactChip({
 }) {
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
-  const fill = selected ? accent ?? theme.primary : mode === 'dark' ? '#1c2744' : '#e8eef8';
-  const ink = selected
-    ? accent
-      ? getOnAccentTextColor(accent)
-      : '#ffffff'
-    : theme.textMuted;
+  const activeColor = accent ?? theme.primary;
+  const ink = selected ? theme.text : theme.textFaint;
+  const iconColor = selected ? activeColor : theme.textFaint;
 
   return (
     <Pressable
@@ -76,12 +72,29 @@ function CompactChip({
       accessibilityState={{ selected }}
       accessibilityLabel={label}
       onPress={onPress}
-      style={[styles.chip, { backgroundColor: fill }]}
+      style={[
+        styles.chip,
+        {
+          backgroundColor: 'transparent',
+          borderBottomWidth: 2,
+          borderBottomColor: selected ? activeColor : 'transparent',
+        },
+      ]}
     >
       {icon ? (
-        <Ionicons name={icon} size={13} color={ink} style={{ marginRight: 4 }} />
+        <Ionicons name={icon} size={14} color={iconColor} style={{ marginRight: 5 }} />
       ) : null}
-      <Text style={[styles.chipText, { color: ink }]}>{label}</Text>
+      <Text
+        style={[
+          styles.chipText,
+          {
+            color: ink,
+            fontWeight: selected ? '700' : '500',
+          },
+        ]}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -233,32 +246,32 @@ const styles = StyleSheet.create({
   hScrollContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 2,
     paddingRight: 16,
     flexGrow: 1,
   },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 10,
     paddingHorizontal: 9,
-    paddingVertical: 5,
+    paddingVertical: 7,
   },
   chipText: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 13,
+    letterSpacing: -0.15,
   },
   divider: {
     width: StyleSheet.hairlineWidth,
-    height: 18,
-    marginHorizontal: 2,
+    height: 16,
+    marginHorizontal: 4,
   },
   clearBtn: {
-    paddingHorizontal: 6,
-    paddingVertical: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
   clearText: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: -0.1,
   },
 });

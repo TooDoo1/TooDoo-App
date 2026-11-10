@@ -10,10 +10,7 @@ import {
   loadCategoryFilterChips,
   type CategoryFilterItem,
 } from '@/lib/category-filters';
-import {
-  getCategoryAccentColor,
-  getOnAccentTextColor,
-} from '@/lib/category-colors';
+import { getCategoryAccentColor } from '@/lib/category-colors';
 import { uiTheme } from '@/lib/ui-theme';
 
 export function CategoryFilterBar({
@@ -51,11 +48,13 @@ export function CategoryFilterBar({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: bleed }}
       >
-        <View style={{ flexDirection: 'row', gap: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
           {items.map((cat) => {
             const isSelected = selectedId === cat.id;
-            const chipColor = getCategoryAccentColor(cat.label);
-            const chipTextColor = getOnAccentTextColor(isSelected ? chipColor : theme.text);
+            const activeColor =
+              cat.id === ALL_CATEGORIES_ID
+                ? theme.primary
+                : getCategoryAccentColor(cat.label);
             return (
               <Pressable
                 key={cat.id}
@@ -75,25 +74,25 @@ export function CategoryFilterBar({
                 style={{
                   flexDirection: 'row',
                   alignItems: 'center',
-                  borderRadius: 10,
                   paddingHorizontal: 10,
-                  paddingVertical: 6,
-                  borderWidth: 1,
-                  backgroundColor: isSelected ? chipColor : 'transparent',
-                  borderColor: isSelected ? chipColor : theme.border,
+                  paddingVertical: 8,
+                  borderBottomWidth: 2,
+                  borderBottomColor: isSelected ? activeColor : 'transparent',
+                  backgroundColor: 'transparent',
                 }}
               >
                 <Ionicons
                   name={cat.icon}
-                  size={14}
-                  color={isSelected ? chipTextColor : theme.textMuted}
+                  size={15}
+                  color={isSelected ? activeColor : theme.textFaint}
                 />
                 <Text
                   style={{
                     marginLeft: 6,
-                    fontSize: 12,
-                    fontWeight: '700',
-                    color: isSelected ? chipTextColor : theme.text,
+                    fontSize: 14,
+                    fontWeight: isSelected ? '700' : '500',
+                    letterSpacing: -0.2,
+                    color: isSelected ? theme.text : theme.textFaint,
                   }}
                 >
                   {cat.label}

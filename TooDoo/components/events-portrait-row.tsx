@@ -48,8 +48,6 @@ export function EventsPortraitRow({
                 width: EVENT_CARD_WIDTH,
                 height: EVENT_CARD_HEIGHT,
                 backgroundColor: theme.cardBg,
-                borderWidth: 1,
-                borderColor: theme.border,
               }}
             >
               <View className="relative h-full w-full">

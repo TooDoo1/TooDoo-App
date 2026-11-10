@@ -49,9 +49,7 @@ export const SeeAllListCard = memo(function SeeAllListCard({
         minWidth: 0,
         borderRadius: 18,
         overflow: 'hidden',
-        backgroundColor: theme.cardBg,
-        borderWidth: 1,
-        borderColor: theme.border,
+        backgroundColor: 'transparent',
       }}
     >
       <View style={{ height: 128, width: '100%', backgroundColor: theme.cardBgMuted }}>
@@ -82,31 +80,32 @@ export const SeeAllListCard = memo(function SeeAllListCard({
         ) : null}
       </View>
 
-      <View style={{ paddingHorizontal: 10, paddingTop: 10, paddingBottom: 12 }}>
+      <View style={{ paddingHorizontal: 2, paddingTop: 10, paddingBottom: 4 }}>
         <Text
           numberOfLines={2}
           style={{
             color: theme.text,
-            fontSize: 14,
+            fontSize: 15,
             fontWeight: '700',
-            letterSpacing: -0.2,
-            lineHeight: 18,
+            letterSpacing: -0.35,
+            lineHeight: 19,
           }}
         >
           {title}
         </Text>
         {hours || meta ? (
-          <View style={{ marginTop: 4, gap: 3 }}>
+          <View style={{ marginTop: 5, gap: 2 }}>
             {hours ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 0 }}>
-                <Ionicons name="time-outline" size={12} color={theme.textMuted} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                <Ionicons name="time-outline" size={13} color={theme.textFaint} />
                 <Text
                   numberOfLines={1}
                   style={{
                     flex: 1,
-                    color: theme.textMuted,
-                    fontSize: 11,
-                    fontWeight: '600',
+                    color: theme.textFaint,
+                    fontSize: 13,
+                    fontWeight: '500',
+                    letterSpacing: -0.1,
                   }}
                 >
                   {hours}
@@ -114,15 +113,16 @@ export const SeeAllListCard = memo(function SeeAllListCard({
               </View>
             ) : null}
             {meta ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 0 }}>
-                <Ionicons name="location-outline" size={12} color={theme.textMuted} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                <Ionicons name="location-outline" size={13} color={theme.textFaint} />
                 <Text
                   numberOfLines={1}
                   style={{
                     flex: 1,
-                    color: theme.textMuted,
-                    fontSize: 11,
-                    fontWeight: '600',
+                    color: theme.textFaint,
+                    fontSize: 13,
+                    fontWeight: '500',
+                    letterSpacing: -0.1,
                   }}
                 >
                   {meta}
@@ -137,8 +137,10 @@ export const SeeAllListCard = memo(function SeeAllListCard({
             style={{
               marginTop: 4,
               color: theme.textFaint,
-              fontSize: 12,
-              lineHeight: 16,
+              fontSize: 13,
+              fontWeight: '500',
+              lineHeight: 17,
+              letterSpacing: -0.1,
             }}
           >
             {subtitle}

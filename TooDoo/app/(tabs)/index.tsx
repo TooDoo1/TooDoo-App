@@ -126,7 +126,6 @@ import { settleHomeScreenAssetsWithinBudget } from '@/lib/warm-home-screen';
 import {
   getCategoryAccentColor,
   getCategoryIconName,
-  getOnAccentTextColor,
   OFFERS_CATEGORY_ACCENT,
 } from '@/lib/category-colors';
 import {
@@ -3903,14 +3902,11 @@ export default function HomeScreen() {
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={{ paddingHorizontal }}
     >
-      <View style={{ flexDirection: 'row', gap: 8 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
         {quickCategories.map((cat) => {
           const isOffersCategory = cat.id === OFFERS_CATEGORY_ID;
           const isSelected = activeCategory === cat.id;
-          const chipColor = isOffersCategory
-            ? OFFERS_CATEGORY_ACCENT
-            : getCategoryAccentColor(cat.label);
-          const chipTextColor = getOnAccentTextColor(chipColor);
+          const activeColor = isOffersCategory ? OFFERS_CATEGORY_ACCENT : theme.primary;
 
           return (
             <Pressable
@@ -3918,31 +3914,30 @@ export default function HomeScreen() {
               onPress={() =>
                 setActiveCategory((prev) => (prev === cat.id ? ALL_CATEGORIES_ID : cat.id))
               }
+              accessibilityRole="button"
+              accessibilityState={{ selected: isSelected }}
               style={{
                 flexDirection: 'row',
                 alignItems: 'center',
-                borderRadius: 10,
                 paddingHorizontal: 10,
-                paddingVertical: 6,
-                borderWidth: 0,
-                backgroundColor: isSelected
-                  ? chipColor
-                  : theme.isDark
-                    ? '#1c2744'
-                    : '#e8eef8',
+                paddingVertical: 8,
+                borderBottomWidth: 2,
+                borderBottomColor: isSelected ? activeColor : 'transparent',
+                backgroundColor: 'transparent',
               }}
             >
               <Ionicons
                 name={cat.icon}
-                size={14}
-                color={isSelected ? chipTextColor : theme.textMuted}
+                size={15}
+                color={isSelected ? activeColor : theme.textFaint}
               />
               <Text
                 style={{
                   marginLeft: 6,
-                  fontSize: 12,
-                  fontWeight: '600',
-                  color: isSelected ? chipTextColor : theme.textMuted,
+                  fontSize: 14,
+                  fontWeight: isSelected ? '700' : '500',
+                  letterSpacing: -0.2,
+                  color: isSelected ? theme.text : theme.textFaint,
                 }}
               >
                 {cat.label}
@@ -5068,7 +5063,7 @@ export default function HomeScreen() {
                             style={{
                               color: theme.textMuted,
                               textAlign: 'center',
-                              marginTop: 14,
+                              marginTop: 26,
                               marginBottom: 4,
                               fontSize: 13,
                             }}
@@ -5080,7 +5075,7 @@ export default function HomeScreen() {
                             style={{
                               color: theme.textMuted,
                               textAlign: 'center',
-                              marginTop: 14,
+                              marginTop: 26,
                               marginBottom: 4,
                               fontSize: 13,
                             }}
@@ -5133,7 +5128,7 @@ export default function HomeScreen() {
               </View>
 
               {isSpecificCategorySelected && selectedCategory ? (
-                <View style={{ marginTop: 14 }}>
+                <View style={{ marginTop: 26 }}>
                   <SectionTitleRow
                     title={selectedCategory.label}
                     onSeeAllPress={() => openSeeAllWithCategory(NARA_DIG_PATH)}
@@ -5154,7 +5149,7 @@ export default function HomeScreen() {
                 </View>
               ) : null}
 
-              <View style={{ marginTop: 14 }}>
+              <View style={{ marginTop: 26 }}>
                 <SectionTitleRow
                   title="Populärt just nu"
                   onSeeAllPress={() => openSeeAllWithCategory(HETA_ERBJUDANDEN_PATH)}
@@ -5170,7 +5165,7 @@ export default function HomeScreen() {
                 )}
               </View>
 
-              <View style={{ marginTop: 14 }}>
+              <View style={{ marginTop: 26 }}>
                 <SectionTitleRow
                   title="Evenemang"
                   onSeeAllPress={() => router.push(EVENEMANG_PATH)}
@@ -5186,7 +5181,7 @@ export default function HomeScreen() {
                 )}
               </View>
 
-              <View style={{ marginTop: 14 }}>
+              <View style={{ marginTop: 26 }}>
                 <SectionTitleRow
                   title="Nära dig"
                   onSeeAllPress={() => openSeeAllWithCategory(NARA_DIG_PATH)}
@@ -5212,7 +5207,7 @@ export default function HomeScreen() {
               </View>
 
               {recentCompanies.length > 0 ? (
-                <View style={{ marginTop: 14 }}>
+                <View style={{ marginTop: 26 }}>
                   <SectionTitleRow title="Senast besökt" />
                   <HomeRecentCompanies
                     cards={recentCompanies}
@@ -5222,7 +5217,7 @@ export default function HomeScreen() {
               ) : null}
 
               {lunchCards.length > 0 ? (
-                <View style={{ marginTop: 14 }}>
+                <View style={{ marginTop: 26 }}>
                   <SectionTitleRow
                     title="Lunch"
                     onSeeAllPress={() =>
@@ -5243,7 +5238,7 @@ export default function HomeScreen() {
               ) : null}
 
               {weekendStripCards.length > 0 ? (
-                <View style={{ marginTop: 14 }}>
+                <View style={{ marginTop: 26 }}>
                   <SectionTitleRow
                     title="Till helgen"
                     onSeeAllPress={() =>
@@ -5271,7 +5266,7 @@ export default function HomeScreen() {
               ) : null}
 
               {categorySpotlightSections.map((section) => (
-                <View key={`spotlight:${section.id}`} style={{ marginTop: 14 }}>
+                <View key={`spotlight:${section.id}`} style={{ marginTop: 26 }}>
                   <SectionTitleRow
                     title={section.label}
                     onSeeAllPress={() =>
@@ -5298,7 +5293,7 @@ export default function HomeScreen() {
               ))}
 
               {afterShoppingSections.map((section) => (
-                <View key={`after-shopping:${section.id}`} style={{ marginTop: 14 }}>
+                <View key={`after-shopping:${section.id}`} style={{ marginTop: 26 }}>
                   <SectionTitleRow
                     title={section.label}
                     onSeeAllPress={() =>
@@ -5346,7 +5341,7 @@ export default function HomeScreen() {
                     onChange={setExploreFilters}
                   />
                 </View>
-                <View style={{ marginTop: 14 }}>
+                <View style={{ marginTop: 26 }}>
                   {isLoadingExplore && exploreCards.length === 0 ? (
                     <LoadingSpinner label="Laddar bolag..." />
                   ) : (
@@ -5366,7 +5361,7 @@ export default function HomeScreen() {
                           style={{
                             color: theme.textMuted,
                             textAlign: 'center',
-                            marginTop: 14,
+                            marginTop: 26,
                             marginBottom: 4,
                             fontSize: 13,
                           }}
