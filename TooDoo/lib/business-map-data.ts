@@ -25,11 +25,14 @@ import {
 /** Default map center — Helsingborg city (slightly inland so the coast isn’t the middle). */
 export const MAP_DEFAULT_CENTER = { lat: 56.0465, lng: 12.715 } as const;
 
-/** Show at most this many pins when zoomed out — the closest to the view center. */
-export const MAP_MAX_PINS = 10;
+/**
+ * Far-out budget — kept high so overlapping companies can collapse into
+ * count clusters instead of being dropped from the map.
+ */
+export const MAP_MAX_PINS = 56;
 
 /** When the view is street-level, show every on-screen company up to this. */
-export const MAP_MAX_PINS_ZOOMED = 48;
+export const MAP_MAX_PINS_ZOOMED = 96;
 
 function pinBudgetForBounds(bounds: MapViewBounds | null, base = MAP_MAX_PINS): number {
   if (!bounds) return base;
@@ -39,8 +42,9 @@ function pinBudgetForBounds(bounds: MapViewBounds | null, base = MAP_MAX_PINS): 
     Math.abs(bounds.east - bounds.west) * 111.32 * Math.cos((midLat * Math.PI) / 180);
   const spanKm = Math.max(latKm, lngKm);
   if (spanKm <= 1.4) return MAP_MAX_PINS_ZOOMED;
-  if (spanKm <= 3) return 28;
-  if (spanKm <= 6) return 16;
+  if (spanKm <= 3) return 80;
+  if (spanKm <= 6) return 68;
+  if (spanKm <= 12) return 60;
   return base;
 }
 
@@ -212,11 +216,73 @@ export type MapViewBounds = {
 };
 
 /**
+ * Spread picks across the viewport so a far zoom doesn't only keep the
+ * downtown clump (which then collapses into one giant cluster badge).
+ */
+function pickSpatiallySpread(
+  businesses: MapBusiness[],
+  bounds: MapViewBounds,
+  cap: number
+): MapBusiness[] {
+  if (businesses.length <= cap) return businesses;
+
+  const centerLat = (bounds.north + bounds.south) / 2;
+  const centerLng = (bounds.east + bounds.west) / 2;
+  const grid = Math.max(3, Math.min(8, Math.ceil(Math.sqrt(cap))));
+  const latSpan = Math.max(1e-6, bounds.north - bounds.south);
+  const lngSpan = Math.max(1e-6, bounds.east - bounds.west);
+
+  const buckets = new Map<string, MapBusiness[]>();
+  for (const business of businesses) {
+    const x = Math.min(
+      grid - 1,
+      Math.max(0, Math.floor(((business.longitude - bounds.west) / lngSpan) * grid))
+    );
+    const y = Math.min(
+      grid - 1,
+      Math.max(0, Math.floor(((business.latitude - bounds.south) / latSpan) * grid))
+    );
+    const key = `${x}:${y}`;
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(business);
+    else buckets.set(key, [business]);
+  }
+
+  for (const bucket of buckets.values()) {
+    bucket.sort(
+      (a, b) =>
+        haversineKm(centerLat, centerLng, a.latitude, a.longitude) -
+        haversineKm(centerLat, centerLng, b.latitude, b.longitude)
+    );
+  }
+
+  const queues = [...buckets.values()].sort((a, b) => b.length - a.length);
+  const picked: MapBusiness[] = [];
+  const seen = new Set<string>();
+  let progressed = true;
+  while (picked.length < cap && progressed) {
+    progressed = false;
+    for (const queue of queues) {
+      if (picked.length >= cap) break;
+      while (queue.length > 0) {
+        const next = queue.shift()!;
+        if (seen.has(next.id)) continue;
+        seen.add(next.id);
+        picked.push(next);
+        progressed = true;
+        break;
+      }
+    }
+  }
+  return picked;
+}
+
+/**
  * Pick the businesses to render for the current viewport.
  *
- * Companies actually on screen are preferred. The 10-pin cap only applies when
- * zoomed out; a tight zoom shows every company in view so a known place
- * doesn't vanish because it wasn't among the closest ten to the center.
+ * Sticky: pins already on screen stay until they leave a soft pad, so the
+ * set doesn't reshuffle on every small pan. New slots are filled with a
+ * spatial spread across the view.
  */
 export function filterBusinessesForViewport(
   businesses: MapBusiness[],
@@ -230,8 +296,8 @@ export function filterBusinessesForViewport(
     return businesses.slice(0, cap);
   }
 
-  const padLat = (bounds.north - bounds.south) * 0.02;
-  const padLng = (bounds.east - bounds.west) * 0.02;
+  const padLat = (bounds.north - bounds.south) * 0.08;
+  const padLng = (bounds.east - bounds.west) * 0.08;
   const inView = businesses.filter(
     (b) =>
       b.latitude >= bounds.south - padLat &&
@@ -242,32 +308,22 @@ export function filterBusinessesForViewport(
 
   if (inView.length <= cap) return inView;
 
-  const centerLat = (bounds.north + bounds.south) / 2;
-  const centerLng = (bounds.east + bounds.west) / 2;
-  const byDistance = [...inView].sort(
-    (a, b) =>
-      haversineKm(centerLat, centerLng, a.latitude, a.longitude) -
-      haversineKm(centerLat, centerLng, b.latitude, b.longitude)
-  );
-
-  const closest = byDistance.slice(0, cap);
-  if (!keepIds || keepIds.size === 0) return closest;
-
-  const slack = 2;
-  const holdovers = byDistance
-    .slice(cap, cap + slack)
-    .filter((b) => keepIds.has(b.id));
-  if (holdovers.length === 0) return closest;
-
-  const result = [...closest];
-  let holdIdx = 0;
-  const cutoff = Math.max(0, result.length - slack);
-  for (let i = result.length - 1; i >= cutoff && holdIdx < holdovers.length; i--) {
-    if (!keepIds.has(result[i].id)) {
-      result[i] = holdovers[holdIdx++];
+  const byId = new Map(inView.map((b) => [b.id, b]));
+  const sticky: MapBusiness[] = [];
+  if (keepIds) {
+    for (const id of keepIds) {
+      const held = byId.get(id);
+      if (held) sticky.push(held);
+      if (sticky.length >= cap) break;
     }
   }
-  return result;
+
+  if (sticky.length >= cap) return sticky.slice(0, cap);
+
+  const stickyIds = new Set(sticky.map((b) => b.id));
+  const newcomers = inView.filter((b) => !stickyIds.has(b.id));
+  const fillers = pickSpatiallySpread(newcomers, bounds, cap - sticky.length);
+  return [...sticky, ...fillers];
 }
 
 export type MapBusiness = {

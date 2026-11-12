@@ -1,5 +1,6 @@
-import { memo } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { memo, useEffect, useRef, useState } from 'react';
+import { Animated, Easing, StyleSheet, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 import {
   EVENT_ACTIVITY_COLOR,
@@ -17,16 +18,26 @@ type Props = {
   hasOffer?: boolean;
 };
 
-function MiniDot({ active, color }: { active: boolean; color: string }) {
+function MiniActivityIcon({
+  icon,
+  color,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+}) {
   return (
     <View
       style={{
-        width: 5,
-        height: 5,
-        borderRadius: 2.5,
-        backgroundColor: active ? color : 'rgba(255,255,255,0.28)',
+        width: 14,
+        height: 14,
+        borderRadius: 7,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: color,
       }}
-    />
+    >
+      <Ionicons name={icon} size={8} color="#ffffff" />
+    </View>
   );
 }
 
@@ -47,6 +58,33 @@ function BusinessMapPinComponent({
   const size = selected ? 42 : 34;
   const border = selected ? 3.5 : 3;
   const initial = (title?.trim().charAt(0) || '•').toUpperCase();
+  const showBadge = hasEvent || hasOffer;
+  const [imageFailed, setImageFailed] = useState(false);
+  const photoOpacity = useRef(new Animated.Value(0)).current;
+  const initialOpacity = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    setImageFailed(false);
+    photoOpacity.setValue(0);
+    initialOpacity.setValue(1);
+  }, [imageUri, photoOpacity, initialOpacity]);
+
+  const revealPhoto = () => {
+    Animated.parallel([
+      Animated.timing(photoOpacity, {
+        toValue: 1,
+        duration: 420,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(initialOpacity, {
+        toValue: 0,
+        duration: 280,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
 
   return (
     <View
@@ -63,13 +101,23 @@ function BusinessMapPinComponent({
           },
         ]}
       >
-        {imageUri ? (
-          <Image source={{ uri: imageUri }} style={styles.image} />
-        ) : (
-          <Text style={[styles.initial, { color, fontSize: selected ? 15 : 13 }]}>
-            {initial}
-          </Text>
-        )}
+        <Animated.Text
+          style={[
+            styles.initial,
+            { color, fontSize: selected ? 15 : 13, opacity: initialOpacity },
+          ]}
+        >
+          {initial}
+        </Animated.Text>
+        {imageUri && !imageFailed ? (
+          <Animated.Image
+            key={imageUri}
+            source={{ uri: imageUri }}
+            onLoad={revealPhoto}
+            onError={() => setImageFailed(true)}
+            style={[styles.image, { opacity: photoOpacity }]}
+          />
+        ) : null}
         <View
           pointerEvents="none"
           style={[
@@ -82,10 +130,16 @@ function BusinessMapPinComponent({
           ]}
         />
       </View>
-      <View style={[styles.badge, { backgroundColor: theme.cardBg }]}>
-        <MiniDot active={hasEvent} color={EVENT_ACTIVITY_COLOR} />
-        <MiniDot active={hasOffer} color={OFFER_ACTIVITY_COLOR} />
-      </View>
+      {showBadge ? (
+        <View style={[styles.badge, { backgroundColor: theme.cardBg }]}>
+          {hasEvent ? (
+            <MiniActivityIcon icon="calendar" color={EVENT_ACTIVITY_COLOR} />
+          ) : null}
+          {hasOffer ? (
+            <MiniActivityIcon icon="pricetag" color={OFFER_ACTIVITY_COLOR} />
+          ) : null}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -108,6 +162,7 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   image: {
+    ...StyleSheet.absoluteFillObject,
     width: '100%',
     height: '100%',
   },

@@ -51,7 +51,7 @@ export function CategoryFilterBar({
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
           {items.map((cat) => {
             const isSelected = selectedId === cat.id;
-            const activeColor =
+            const accentColor =
               cat.id === ALL_CATEGORIES_ID
                 ? theme.primary
                 : getCategoryAccentColor(cat.label);
@@ -77,22 +77,22 @@ export function CategoryFilterBar({
                   paddingHorizontal: 10,
                   paddingVertical: 8,
                   borderBottomWidth: 2,
-                  borderBottomColor: isSelected ? activeColor : 'transparent',
+                  borderBottomColor: isSelected ? accentColor : 'transparent',
                   backgroundColor: 'transparent',
                 }}
               >
                 <Ionicons
                   name={cat.icon}
                   size={15}
-                  color={isSelected ? activeColor : theme.textFaint}
+                  color={accentColor}
                 />
                 <Text
                   style={{
                     marginLeft: 6,
                     fontSize: 14,
-                    fontWeight: isSelected ? '700' : '500',
+                    fontWeight: '500',
                     letterSpacing: -0.2,
-                    color: isSelected ? theme.text : theme.textFaint,
+                    color: isSelected ? accentColor : theme.textFaint,
                   }}
                 >
                   {cat.label}

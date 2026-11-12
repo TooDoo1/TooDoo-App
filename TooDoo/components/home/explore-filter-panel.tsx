@@ -89,7 +89,7 @@ function CompactChip({
           styles.chipText,
           {
             color: ink,
-            fontWeight: selected ? '700' : '500',
+            fontWeight: '500',
           },
         ]}
       >

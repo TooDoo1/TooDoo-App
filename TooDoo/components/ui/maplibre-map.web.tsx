@@ -4,7 +4,13 @@ import { StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { MAP_DEFAULT_CENTER } from '@/lib/business-map-data';
 import { loadTooDooMapStyle, MAP_PAINT_VERSION } from '@/lib/maplibre-brand';
-import { createBusinessPinElement, businessPinMarkerOffset } from '@/lib/map-business-pin';
+import {
+  createBusinessPinElement,
+  createClusterPinElement,
+  businessPinMarkerOffset,
+  updateBusinessPinSelection,
+} from '@/lib/map-business-pin';
+import { clusterMapPins } from '@/lib/map-pin-clusters';
 import { MAP_ATTRIBUTION, mapShellBackground } from '@/lib/map-style';
 import { createUserLocationArrowElement } from '@/lib/map-user-location';
 import { uiTheme } from '@/lib/ui-theme';
@@ -90,6 +96,8 @@ type MlMap = {
 type MlMarker = {
   remove: () => void;
   setLngLat: (ll: [number, number]) => MlMarker;
+  setOffset?: (offset: [number, number]) => MlMarker;
+  getElement: () => HTMLElement;
   addTo: (m: MlMap) => MlMarker;
 };
 
@@ -444,7 +452,7 @@ export function MapLibreMapView({
   };
 
   const pinSignature = (p: MapLibrePin) =>
-    `${p.latitude.toFixed(5)}:${p.longitude.toFixed(5)}:${p.selected ? 1 : 0}:${p.color}:${p.imageUri ?? ''}:${p.hasEvent ? 1 : 0}:${p.hasOffer ? 1 : 0}`;
+    `${p.latitude.toFixed(5)}:${p.longitude.toFixed(5)}:${p.color}:${p.imageUri ?? ''}:${p.hasEvent ? 1 : 0}:${p.hasOffer ? 1 : 0}`;
 
   const syncCirclePins = (map: MlMap) => {
     if (htmlMarkersRef.current) {
@@ -508,14 +516,47 @@ export function MapLibreMapView({
   // Diff markers by id — recreating every marker on each pins change causes
   // image reloads and layout churn that make panning laggy.
   const markerByIdRef = useRef(
-    new Map<string, { marker: MlMarker; sig: string }>()
+    new Map<
+      string,
+      { marker: MlMarker; sig: string; selected: boolean; kind: 'pin' | 'cluster' }
+    >()
   );
+
+  const expandCluster = (
+    map: MlMap,
+    item: { latitude: number; longitude: number; memberIds: string[] }
+  ) => {
+    const members = pinsRef.current.filter((p) => item.memberIds.includes(p.id));
+    const currentZoom = typeof map.getZoom === 'function' ? map.getZoom() : 13;
+    if (members.length >= 2 && mlRef.current) {
+      const bounds = new mlRef.current.LngLatBounds();
+      members.forEach((p) => bounds.extend([p.longitude, p.latitude]));
+      map.fitBounds(bounds, {
+        padding: { top: 110, bottom: 160, left: 48, right: 48 },
+        maxZoom: Math.min(Math.max(currentZoom + 1.6, 14.5), 16.5),
+        duration: 480,
+      });
+      return;
+    }
+    if (typeof map.easeTo === 'function') {
+      map.easeTo({
+        center: [item.longitude, item.latitude],
+        zoom: Math.min(currentZoom + 1.8, 16.5),
+        duration: 480,
+      });
+    } else {
+      map.setCenter([item.longitude, item.latitude]);
+      map.setZoom(Math.min(currentZoom + 1.8, 16.5));
+    }
+  };
 
   const syncPins = (map: MlMap, ml: MapLibreGl) => {
     syncCirclePins(map);
 
+    const zoom = typeof map.getZoom === 'function' ? map.getZoom() : 14;
+    const clustered = clusterMapPins(pinsRef.current, zoom);
     const markerById = markerByIdRef.current;
-    const nextIds = new Set(pinsRef.current.map((p) => p.id));
+    const nextIds = new Set(clustered.map((item) => item.id));
 
     for (const [id, entry] of markerById) {
       if (!nextIds.has(id)) {
@@ -524,11 +565,57 @@ export function MapLibreMapView({
       }
     }
 
-    for (const pin of pinsRef.current) {
+    for (const item of clustered) {
+      if (item.kind === 'cluster') {
+        const sig = `cluster:${item.count}:${item.latitude.toFixed(5)}:${item.longitude.toFixed(5)}:${item.color}`;
+        const existing = markerById.get(item.id);
+        if (existing && existing.kind === 'cluster' && existing.sig === sig) {
+          existing.marker.setLngLat([item.longitude, item.latitude]);
+          continue;
+        }
+        if (existing) {
+          existing.marker.remove();
+          markerById.delete(item.id);
+        }
+        const el = createClusterPinElement({
+          count: item.count,
+          color: item.color,
+        });
+        el.addEventListener('click', (event) => {
+          event.stopPropagation();
+          expandCluster(map, item);
+        });
+        const marker = new ml.Marker({
+          element: el,
+          anchor: 'center',
+          offset: [0, 0],
+          subpixelPositioning: true,
+        })
+          .setLngLat([item.longitude, item.latitude])
+          .addTo(map);
+        markerById.set(item.id, {
+          marker,
+          sig,
+          selected: false,
+          kind: 'cluster',
+        });
+        continue;
+      }
+
+      const pin = item.pin;
       const sig = pinSignature(pin);
+      const selected = Boolean(pin.selected);
       const existing = markerById.get(pin.id);
       if (existing) {
-        if (existing.sig === sig) continue;
+        if (existing.kind === 'pin' && existing.sig === sig) {
+          if (existing.selected !== selected) {
+            updateBusinessPinSelection(existing.marker.getElement(), selected, pin.color);
+            existing.marker.setOffset?.(businessPinMarkerOffset(selected));
+            existing.selected = selected;
+          }
+          existing.marker.setLngLat([pin.longitude, pin.latitude]);
+          continue;
+        }
         existing.marker.remove();
         markerById.delete(pin.id);
       }
@@ -540,12 +627,12 @@ export function MapLibreMapView({
       const marker = new ml.Marker({
         element: el,
         anchor: 'center',
-        offset: businessPinMarkerOffset(pin.selected),
+        offset: businessPinMarkerOffset(selected),
         subpixelPositioning: true,
       })
         .setLngLat([pin.longitude, pin.latitude])
         .addTo(map);
-      markerById.set(pin.id, { marker, sig });
+      markerById.set(pin.id, { marker, sig, selected, kind: 'pin' });
     }
 
     if (routeRef.current?.length || walkingRouteRef.current?.length) {
@@ -606,21 +693,22 @@ export function MapLibreMapView({
           applyFitCoordinates(map, ml);
           emitViewport();
         });
-        map.on('moveend', emitViewport);
-        map.on('zoomend', emitViewport);
+        // Only refresh pin set / clusters when the camera settles — live
+        // updates while dragging made icons thrash and hard to focus on.
+        map.on('moveend', () => {
+          emitViewport();
+          syncPins(map, ml);
+        });
+        map.on('zoomend', () => {
+          emitViewport();
+          syncPins(map, ml);
+        });
         const markUserCamera = (event: { originalEvent?: unknown }) => {
           if (event?.originalEvent) userMovedCameraRef.current = true;
         };
         map.on('dragstart', markUserCamera);
         map.on('zoomstart', markUserCamera);
         map.on('rotatestart', markUserCamera);
-        let moveEmitAt = 0;
-        map.on('move', () => {
-          const now = Date.now();
-          if (now - moveEmitAt < 120) return;
-          moveEmitAt = now;
-          emitViewport();
-        });
 
         const onWinResize = () => map.resize();
         window.addEventListener('resize', onWinResize);

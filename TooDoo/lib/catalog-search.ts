@@ -675,6 +675,116 @@ export async function cardsFromUnifiedResults(
 
 type AuthFetch = (path: string, init?: RequestInit) => Promise<Response>;
 
+function normalizeFavoriteSearchText(value: string): string {
+  return value
+    .toLocaleLowerCase('sv-SE')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[^a-z0-9åäö\s]/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Compact form so "gokart" still matches "GoKart" / "go-kart". */
+function compactFavoriteSearchText(value: string): string {
+  return normalizeFavoriteSearchText(value).replace(/\s+/g, '');
+}
+
+/**
+ * Local favorites filter used when the API is empty/unavailable, or as a
+ * safety net so known cards like "Helsingborgs GoKart…" match "gokart".
+ */
+export function filterFavoriteCards(
+  cards: OfferCardItem[],
+  query: string
+): OfferCardItem[] {
+  const normalized = normalizeCatalogSearchQuery(query);
+  const needle = normalizeFavoriteSearchText(normalized.q);
+  const needleCompact = compactFavoriteSearchText(normalized.q);
+  if (needle.length < 2) return cards;
+
+  return cards.filter((card) => {
+    const haystack = normalizeFavoriteSearchText(
+      [
+        card.title,
+        card.Adress,
+        card.categoryName,
+        card.subcategoryName,
+        ...(card.categoryNames ?? []),
+        card.kortbeskrivning,
+      ]
+        .filter(Boolean)
+        .join(' ')
+    );
+    if (haystack.includes(needle)) return true;
+    return compactFavoriteSearchText(haystack).includes(needleCompact);
+  });
+}
+
+/**
+ * Search the signed-in user's bookmarked businesses via `GET /search/favorites`.
+ * Same ranking as GET /search, scoped to favorites. Requires USER auth.
+ * Pass `knownCards` from the Favoriter list to skip redundant detail fetches.
+ * Falls back to a local filter when the API returns nothing or errors.
+ */
+export async function searchFavorites(
+  query: string,
+  authFetch: AuthFetch,
+  options: {
+    city?: string;
+    categoryName?: string;
+    take?: number;
+    skip?: number;
+    maxHydrate?: number;
+    knownCards?: OfferCardItem[];
+  } = {}
+): Promise<OfferCardItem[]> {
+  const normalized = normalizeCatalogSearchQuery(query, { city: options.city });
+  const q = normalized.q;
+  if (q.length < 2) {
+    return [];
+  }
+
+  const localMatches = filterFavoriteCards(options.knownCards ?? [], q);
+  const hydrateLimit = Math.min(
+    options.maxHydrate ?? SEARCH_HYDRATE_LIMIT,
+    SEARCH_HYDRATE_LIMIT_MAX
+  );
+
+  const params = new URLSearchParams({
+    q,
+    take: String(Math.min(options.take ?? 24, 50)),
+    skip: String(options.skip ?? 0),
+  });
+  if (options.categoryName) {
+    params.set('categoryName', options.categoryName);
+  }
+  if (normalized.city) {
+    params.set('city', normalized.city);
+  }
+
+  try {
+    const response = await authFetch(`/search/favorites?${params.toString()}`);
+    if (!response.ok) {
+      return localMatches;
+    }
+
+    const json = (await response.json().catch(() => ({}))) as UnifiedSearchResponse;
+    const results = Array.isArray(json.results) ? json.results : [];
+    if (results.length === 0) {
+      return localMatches;
+    }
+
+    const tasks = buildHydrationTasks(results, hydrateLimit, options.knownCards);
+    const cards = await finalizeSearchCards(tasks, options.knownCards, {
+      skipImageHydrate: true,
+    });
+    return cards.length > 0 ? cards : localMatches;
+  } catch {
+    return localMatches;
+  }
+}
+
 /**
  * AI hybrid / natural search via `POST /search/natural`.
  * Voice entry must send `source: "voice"` with a Bearer token (use authFetch).

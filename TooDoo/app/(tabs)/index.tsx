@@ -46,7 +46,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { Image as ExpoImage } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import Svg, { Path } from 'react-native-svg';
 import { InlineMicButton } from '@/components/inline-mic-button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { useHeroTopInset } from '@/lib/use-hero-top-inset';
@@ -2306,9 +2305,12 @@ export default function HomeScreen() {
       setExpandedTipCards([]);
       setIsExpandedTipLoading(false);
       setSearchQuery(tip.label);
-      setSearchCommitted(false);
+      // Recent / popular / tip taps should run the search, not only fill the field.
+      rememberSearch(tip.label);
+      setSearchCommitted(true);
+      closeSearchOverlay();
     },
-    [clearVoiceSearchOwnership, stopVoiceSession]
+    [clearVoiceSearchOwnership, closeSearchOverlay, rememberSearch, stopVoiceSession]
   );
 
   const selectHomeTipCard = useCallback(
@@ -3906,7 +3908,12 @@ export default function HomeScreen() {
         {quickCategories.map((cat) => {
           const isOffersCategory = cat.id === OFFERS_CATEGORY_ID;
           const isSelected = activeCategory === cat.id;
-          const activeColor = isOffersCategory ? OFFERS_CATEGORY_ACCENT : theme.primary;
+          const accentColor =
+            cat.id === ALL_CATEGORIES_ID
+              ? theme.primary
+              : isOffersCategory
+                ? OFFERS_CATEGORY_ACCENT
+                : getCategoryAccentColor(cat.label);
 
           return (
             <Pressable
@@ -3922,22 +3929,22 @@ export default function HomeScreen() {
                 paddingHorizontal: 10,
                 paddingVertical: 8,
                 borderBottomWidth: 2,
-                borderBottomColor: isSelected ? activeColor : 'transparent',
+                borderBottomColor: isSelected ? accentColor : 'transparent',
                 backgroundColor: 'transparent',
               }}
             >
               <Ionicons
                 name={cat.icon}
                 size={15}
-                color={isSelected ? activeColor : theme.textFaint}
+                color={accentColor}
               />
               <Text
                 style={{
                   marginLeft: 6,
                   fontSize: 14,
-                  fontWeight: isSelected ? '700' : '500',
+                  fontWeight: '500',
                   letterSpacing: -0.2,
-                  color: isSelected ? theme.text : theme.textFaint,
+                  color: isSelected ? accentColor : theme.textFaint,
                 }}
               >
                 {cat.label}
@@ -4298,20 +4305,6 @@ export default function HomeScreen() {
         <View style={styles.homeHeroBrand} pointerEvents="none">
           <View style={styles.homeHeroBrandMark}>
             <Text style={styles.homeHeroBrandText}>TooDoo</Text>
-            <Svg
-              width={24}
-              height={8}
-              viewBox="0 0 24 8"
-              style={styles.homeHeroBrandSmile}
-            >
-              <Path
-                d="M2 2 C7.5 6.5, 16.5 6.5, 22 2"
-                stroke="rgba(255,255,255,0.95)"
-                strokeWidth={2.5}
-                strokeLinecap="round"
-                fill="none"
-              />
-            </Svg>
           </View>
         </View>
       </View>
@@ -5426,9 +5419,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
     letterSpacing: -0.4,
-  },
-  homeHeroBrandSmile: {
-    marginTop: 1,
   },
   homeHeroCopy: {
     zIndex: 2,

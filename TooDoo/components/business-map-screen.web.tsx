@@ -165,6 +165,20 @@ export default function BusinessMapScreen() {
   const [catalogHits, setCatalogHits] = useState<MapBusiness[] | null>(null);
   const [searchingCatalog, setSearchingCatalog] = useState(false);
   const [viewBounds, setViewBounds] = useState<MapViewBounds | null>(null);
+  const viewportTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onViewportChange = useCallback((bounds: MapViewBounds) => {
+    // Settle briefly so moveend+zoomend in the same gesture don't thrash pins.
+    if (viewportTimerRef.current) clearTimeout(viewportTimerRef.current);
+    viewportTimerRef.current = setTimeout(() => {
+      setViewBounds(bounds);
+    }, 180);
+  }, []);
+  useEffect(
+    () => () => {
+      if (viewportTimerRef.current) clearTimeout(viewportTimerRef.current);
+    },
+    []
+  );
 
   const mapCenter = useMemo(() => {
     if (userCoords) {
@@ -484,7 +498,7 @@ export default function BusinessMapScreen() {
           routeLine={drivingLine}
           walkingRouteLine={walkingLine}
           onPinPress={setSelectedId}
-          onViewportChange={setViewBounds}
+          onViewportChange={onViewportChange}
           style={StyleSheet.absoluteFillObject}
         />
 
