@@ -3833,20 +3833,95 @@ export default function HomeScreen() {
         mod.prefetchBusinessMapAssets();
       });
     }
-    const q = searchQuery.trim();
+
+    const trimmed = searchQuery.trim();
+    const topResult = showCommittedSearchResults
+      ? searchedNearYou.find((card) => card.resultKind !== 'event') ??
+        searchResults.find((card) => card.resultKind !== 'event') ??
+        searchedNearYou[0] ??
+        searchResults[0]
+      : null;
+    const { shops } = splitSearchTips(searchTips);
+    const topTip =
+      !topResult && trimmed.length > 0
+        ? shops[0] ?? searchTips[0]
+        : !topResult && !trimmed
+          ? recentSearches[0]
+            ? { label: recentSearches[0], kind: 'recent' as const }
+            : popularSearches[0]
+          : undefined;
+    const q = (topResult?.title ?? topTip?.label ?? trimmed).trim();
+    const selectId = topResult?.id ? String(topResult.id) : undefined;
+
+    if (!topResult && topTip) {
+      setSearchQuery(topTip.label);
+      rememberSearch(topTip.label);
+      setSearchCommitted(true);
+    } else if (q) {
+      rememberSearch(q);
+      setSearchCommitted(true);
+    }
+
     // Snap overlay away — reverse morph fights the map fade and feels laggy.
     snapCloseSearchOverlay();
     router.push({
       pathname: BUSINESS_MAP_PATH,
-      params: q ? { q } : undefined,
+      params: {
+        ...(q ? { q } : {}),
+        ...(selectId ? { select: selectId } : {}),
+      },
     });
-  }, [router, searchQuery, snapCloseSearchOverlay]);
+  }, [
+    popularSearches,
+    recentSearches,
+    rememberSearch,
+    router,
+    searchQuery,
+    searchResults,
+    searchTips,
+    searchedNearYou,
+    showCommittedSearchResults,
+    snapCloseSearchOverlay,
+  ]);
 
   const openHomeMap = useCallback(() => {
     captureHomeScrollBeforeLeave();
     snapCloseSearchOverlay();
-    router.push({ pathname: BUSINESS_MAP_PATH });
-  }, [captureHomeScrollBeforeLeave, router, snapCloseSearchOverlay]);
+    const trimmed = searchQuery.trim();
+    const topResult = showCommittedSearchResults
+      ? searchedNearYou.find((card) => card.resultKind !== 'event') ??
+        searchResults.find((card) => card.resultKind !== 'event') ??
+        searchedNearYou[0] ??
+        searchResults[0]
+      : null;
+    const { shops } = splitSearchTips(searchTips);
+    const topTip =
+      !topResult && trimmed.length > 0 ? shops[0] ?? searchTips[0] : undefined;
+    const q = (topResult?.title ?? topTip?.label ?? trimmed).trim();
+    const selectId = topResult?.id ? String(topResult.id) : undefined;
+    if (!topResult && topTip) {
+      setSearchQuery(topTip.label);
+      rememberSearch(topTip.label);
+      setSearchCommitted(true);
+    }
+    router.push({
+      pathname: BUSINESS_MAP_PATH,
+      params: {
+        ...(q ? { q } : {}),
+        ...(selectId ? { select: selectId } : {}),
+      },
+    });
+  }, [
+    captureHomeScrollBeforeLeave,
+    rememberSearch,
+    router,
+    searchQuery,
+    searchResults,
+    searchTips,
+    searchedNearYou,
+    showCommittedSearchResults,
+    snapCloseSearchOverlay,
+  ]);
 
   const searchDropdownExpanded = showSearchTipsDropdown || isSearchDropdownMounted;
   const searchDropdownDividerColor = theme.isDark

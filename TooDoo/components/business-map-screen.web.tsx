@@ -144,6 +144,7 @@ export default function BusinessMapScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
     q?: string | string[];
+    select?: string | string[];
     returnTo?: string | string[];
   }>();
   const insets = useSafeAreaInsets();
@@ -160,11 +161,21 @@ export default function BusinessMapScreen() {
   const [businesses, setBusinesses] = useState<MapBusiness[]>(() =>
     peekCachedMapBusinesses()
   );
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const incomingSelect = paramString(params.select);
+  const [selectedId, setSelectedId] = useState<string | null>(() => incomingSelect || null);
   const [searchQuery, setSearchQuery] = useState(() => paramString(params.q));
   const [catalogHits, setCatalogHits] = useState<MapBusiness[] | null>(null);
   const [searchingCatalog, setSearchingCatalog] = useState(false);
   const [viewBounds, setViewBounds] = useState<MapViewBounds | null>(null);
+  const incomingQuery = paramString(params.q);
+  useEffect(() => {
+    if (!incomingQuery) return;
+    setSearchQuery((prev) => (prev === incomingQuery ? prev : incomingQuery));
+  }, [incomingQuery]);
+  useEffect(() => {
+    if (!incomingSelect) return;
+    setSelectedId((prev) => (prev === incomingSelect ? prev : incomingSelect));
+  }, [incomingSelect]);
   const viewportTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onViewportChange = useCallback((bounds: MapViewBounds) => {
     // Settle briefly so moveend+zoomend in the same gesture don't thrash pins.
@@ -334,8 +345,18 @@ export default function BusinessMapScreen() {
           if (hits.length > 0) {
             setBusinesses((prev) => mergeSearchHitsIntoMapBusinesses(prev, hits));
           }
-          if (hits.length === 1) {
-            setSelectedId(hits[0].id);
+          const needle = query.toLocaleLowerCase('sv-SE');
+          const preferred =
+            (incomingSelect
+              ? hits.find((hit) => hit.id === incomingSelect)
+              : undefined) ??
+            hits.find((hit) => hit.name.trim().toLocaleLowerCase('sv-SE') === needle) ??
+            hits.find((hit) =>
+              hit.name.trim().toLocaleLowerCase('sv-SE').startsWith(needle)
+            ) ??
+            hits[0];
+          if (preferred) {
+            setSelectedId(preferred.id);
           }
         })
         .finally(() => {
@@ -346,7 +367,7 @@ export default function BusinessMapScreen() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [searchQuery, userCoords]);
+  }, [incomingSelect, searchQuery, userCoords]);
 
   const visibleMatches =
     searchQuery.trim().length >= 2 ? catalogHits ?? matchedBusinesses : businesses;
@@ -439,11 +460,16 @@ export default function BusinessMapScreen() {
     if (searchQuery.trim().length < 2 || searchingCatalog || pins.length === 0) {
       return null;
     }
-    return pins.map((pin) => ({
+    // Prefer the selected / top match so the camera doesn't zoom out to every hit.
+    const focus = selectedId ? pins.find((pin) => pin.id === selectedId) : null;
+    if (focus) {
+      return [{ latitude: focus.latitude, longitude: focus.longitude }];
+    }
+    return pins.slice(0, 8).map((pin) => ({
       latitude: pin.latitude,
       longitude: pin.longitude,
     }));
-  }, [pins, searchQuery, searchingCatalog]);
+  }, [pins, searchQuery, searchingCatalog, selectedId]);
 
   const clearSelection = useCallback(() => {
     routeRequestRef.current += 1;
