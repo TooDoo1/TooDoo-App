@@ -237,7 +237,6 @@ function AppShell() {
 							<Stack.Screen name="profile-support" options={swipeableStackScreenOptions} />
 							<Stack.Screen name="glomt-losenord" options={swipeableStackScreenOptions} />
 							<Stack.Screen name="reset-password" options={swipeableStackScreenOptions} />
-							<Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
 						</Stack>
 						</View>
 						{showTabBar ? <RootFloatingTabBarOverlay /> : null}

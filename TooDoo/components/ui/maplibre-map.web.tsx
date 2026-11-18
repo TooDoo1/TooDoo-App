@@ -7,7 +7,6 @@ import { loadTooDooMapStyle, MAP_PAINT_VERSION } from '@/lib/maplibre-brand';
 import {
   createBusinessPinElement,
   createClusterPinElement,
-  businessPinMarkerOffset,
   updateBusinessPinSelection,
 } from '@/lib/map-business-pin';
 import { clusterMapPins } from '@/lib/map-pin-clusters';
@@ -58,11 +57,6 @@ type Props = {
   onPinPress?: (id: string) => void;
   /** Fires with visible bounds after each pan/zoom settles (and once on load). */
   onViewportChange?: (bounds: MapViewportBounds) => void;
-  /**
-   * HTML overlay markers drift when a parent CSS transform is present (stack
-   * swipe). Native MapLibre symbol layers stay on the coordinates at any zoom.
-   */
-  htmlMarkers?: boolean;
   style?: ViewStyle;
 };
 
@@ -227,27 +221,6 @@ function createPinElement(pin: MapLibrePin, badgeBg?: string) {
   });
 }
 
-const COMPANY_SOURCE = 'toodoo-companies';
-const COMPANY_LAYER = 'toodoo-companies-pins';
-
-function pinsToGeoJSON(pins: MapLibrePin[]) {
-  return {
-    type: 'FeatureCollection' as const,
-    features: pins.map((pin) => ({
-      type: 'Feature' as const,
-      geometry: {
-        type: 'Point' as const,
-        coordinates: [pin.longitude, pin.latitude],
-      },
-      properties: {
-        id: pin.id,
-        color: pin.color,
-        selected: pin.selected ? 1 : 0,
-      },
-    })),
-  };
-}
-
 type RouteCoords = Array<{ latitude: number; longitude: number }>;
 
 const DRIVING_ROUTE = {
@@ -377,7 +350,6 @@ export function MapLibreMapView({
   forceFitCoordinates = null,
   onPinPress,
   onViewportChange,
-  htmlMarkers = true,
   style,
 }: Props) {
   const { mode } = useThemePreference();
@@ -393,8 +365,7 @@ export function MapLibreMapView({
   onViewportChangeRef.current = onViewportChange;
   const pinsRef = useRef(pins);
   pinsRef.current = pins;
-  const htmlMarkersRef = useRef(htmlMarkers);
-  htmlMarkersRef.current = htmlMarkers;
+  const syncPinsRafRef = useRef<number | null>(null);
   const fitPinsRef = useRef(fitPins);
   fitPinsRef.current = fitPins;
   const fitCoordinatesRef = useRef(fitCoordinates);
@@ -411,7 +382,6 @@ export function MapLibreMapView({
   const badgeBgRef = useRef(theme.screenBg);
   badgeBgRef.current = theme.cardBg;
   const userMovedCameraRef = useRef(false);
-  const nativeLayerBoundRef = useRef(false);
 
   const applyFitCoordinates = (map: MlMap, ml: MapLibreGl) => {
     const coords = fitCoordinatesRef.current;
@@ -454,65 +424,6 @@ export function MapLibreMapView({
   const pinSignature = (p: MapLibrePin) =>
     `${p.latitude.toFixed(5)}:${p.longitude.toFixed(5)}:${p.color}:${p.imageUri ?? ''}:${p.hasEvent ? 1 : 0}:${p.hasOffer ? 1 : 0}`;
 
-  const syncCirclePins = (map: MlMap) => {
-    if (htmlMarkersRef.current) {
-      try {
-        if (map.getLayer?.(COMPANY_LAYER)) map.removeLayer(COMPANY_LAYER);
-        if (map.getSource?.(COMPANY_SOURCE)) map.removeSource(COMPANY_SOURCE);
-      } catch {
-        // ignore
-      }
-      nativeLayerBoundRef.current = false;
-      return;
-    }
-    if (!map.isStyleLoaded?.()) return;
-    const data = pinsToGeoJSON(pinsRef.current);
-    try {
-      const existing = map.getSource(COMPANY_SOURCE);
-      if (existing?.setData) {
-        existing.setData(data);
-      } else {
-        map.addSource(COMPANY_SOURCE, { type: 'geojson', data });
-        map.addLayer({
-          id: COMPANY_LAYER,
-          type: 'circle',
-          source: COMPANY_SOURCE,
-          paint: {
-            'circle-radius': [
-              'interpolate',
-              ['linear'],
-              ['zoom'],
-              11, 6,
-              13, 9,
-              15, 13,
-              17, 16,
-            ],
-            'circle-color': ['get', 'color'],
-            'circle-stroke-width': ['case', ['==', ['get', 'selected'], 1], 3.5, 2.5],
-            'circle-stroke-color': ['get', 'color'],
-            'circle-opacity': 0.96,
-          },
-        });
-      }
-      if (!nativeLayerBoundRef.current) {
-        nativeLayerBoundRef.current = true;
-        map.on('click', COMPANY_LAYER, (event: { features?: Array<{ properties?: { id?: string } }>; originalEvent?: { stopPropagation?: () => void } }) => {
-          event.originalEvent?.stopPropagation?.();
-          const id = event.features?.[0]?.properties?.id;
-          if (id) onPinPressRef.current?.(String(id));
-        });
-        map.on('mouseenter', COMPANY_LAYER, () => {
-          map.getCanvas().style.cursor = 'pointer';
-        });
-        map.on('mouseleave', COMPANY_LAYER, () => {
-          map.getCanvas().style.cursor = '';
-        });
-      }
-    } catch {
-      // Keep HTML markers if the circle layer cannot mount.
-    }
-  };
-
   // Diff markers by id — recreating every marker on each pins change causes
   // image reloads and layout churn that make panning laggy.
   const markerByIdRef = useRef(
@@ -550,9 +461,18 @@ export function MapLibreMapView({
     }
   };
 
-  const syncPins = (map: MlMap, ml: MapLibreGl) => {
-    syncCirclePins(map);
+  const scheduleSyncPins = (map: MlMap, ml: MapLibreGl) => {
+    // moveend + zoomend often fire together after fitBounds — coalesce to one sync.
+    if (syncPinsRafRef.current != null) {
+      cancelAnimationFrame(syncPinsRafRef.current);
+    }
+    syncPinsRafRef.current = requestAnimationFrame(() => {
+      syncPinsRafRef.current = null;
+      syncPins(map, ml);
+    });
+  };
 
+  const syncPins = (map: MlMap, ml: MapLibreGl) => {
     const zoom = typeof map.getZoom === 'function' ? map.getZoom() : 14;
     const clustered = clusterMapPins(pinsRef.current, zoom);
     const markerById = markerByIdRef.current;
@@ -610,7 +530,6 @@ export function MapLibreMapView({
         if (existing.kind === 'pin' && existing.sig === sig) {
           if (existing.selected !== selected) {
             updateBusinessPinSelection(existing.marker.getElement(), selected, pin.color);
-            existing.marker.setOffset?.(businessPinMarkerOffset(selected));
             existing.selected = selected;
           }
           existing.marker.setLngLat([pin.longitude, pin.latitude]);
@@ -627,7 +546,7 @@ export function MapLibreMapView({
       const marker = new ml.Marker({
         element: el,
         anchor: 'center',
-        offset: businessPinMarkerOffset(selected),
+        offset: [0, 0],
         subpixelPositioning: true,
       })
         .setLngLat([pin.longitude, pin.latitude])
@@ -697,11 +616,11 @@ export function MapLibreMapView({
         // updates while dragging made icons thrash and hard to focus on.
         map.on('moveend', () => {
           emitViewport();
-          syncPins(map, ml);
+          scheduleSyncPins(map, ml);
         });
         map.on('zoomend', () => {
           emitViewport();
-          syncPins(map, ml);
+          scheduleSyncPins(map, ml);
         });
         const markUserCamera = (event: { originalEvent?: unknown }) => {
           if (event?.originalEvent) userMovedCameraRef.current = true;
@@ -727,6 +646,10 @@ export function MapLibreMapView({
 
     return () => {
       cancelled = true;
+      if (syncPinsRafRef.current != null) {
+        cancelAnimationFrame(syncPinsRafRef.current);
+        syncPinsRafRef.current = null;
+      }
       resizeObserver?.disconnect();
       const map = mapRef.current as (MlMap & { __cleanup?: () => void }) | null;
       map?.__cleanup?.();

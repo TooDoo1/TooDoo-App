@@ -2158,11 +2158,6 @@ export default function HomeScreen() {
     setIsSearchOverlayMounted(false);
   }, [searchOverlayProgress]);
 
-  /** Kept for any remaining blur hooks — overlay closes only via back / explicit dismiss. */
-  const closeSearchDropdown = useCallback(() => {
-    // no-op: full-screen search stays open until the user taps back
-  }, []);
-
   const clearVoiceSearchOwnership = useCallback(() => {
     voiceQueryRef.current = null;
     voiceResultOrderRef.current = null;
@@ -3827,101 +3822,76 @@ export default function HomeScreen() {
     [captureHomeScrollBeforeLeave, isSpecificCategorySelected, router, selectedCategory]
   );
 
-  const openBusinessMapFromSearch = useCallback(() => {
-    if (Platform.OS === 'web') {
-      void import('@/components/ui/maplibre-map.web').then((mod) => {
-        mod.prefetchBusinessMapAssets();
+  const openMapFromHome = useCallback(
+    (options?: { fromSearchOverlay?: boolean; allowEmptyTips?: boolean }) => {
+      const fromSearchOverlay = Boolean(options?.fromSearchOverlay);
+      const allowEmptyTips = Boolean(options?.allowEmptyTips);
+
+      if (fromSearchOverlay && Platform.OS === 'web') {
+        void import('@/components/ui/maplibre-map.web').then((mod) => {
+          mod.prefetchBusinessMapAssets();
+        });
+      }
+
+      const trimmed = searchQuery.trim();
+      // Never hand the map an event id — catalog map search skips events.
+      const topBusiness = showCommittedSearchResults
+        ? searchedNearYou.find((card) => card.resultKind !== 'event') ??
+          searchResults.find((card) => card.resultKind !== 'event') ??
+          null
+        : null;
+      const { shops } = splitSearchTips(searchTips);
+      const topTip =
+        !topBusiness && trimmed.length > 0
+          ? shops[0] ?? searchTips[0]
+          : !topBusiness && !trimmed && allowEmptyTips
+            ? recentSearches[0]
+              ? { label: recentSearches[0], kind: 'recent' as const }
+              : popularSearches[0]
+            : undefined;
+      const q = (topBusiness?.title ?? topTip?.label ?? trimmed).trim();
+      const selectId = topBusiness?.id ? String(topBusiness.id) : undefined;
+
+      if (!topBusiness && topTip) {
+        setSearchQuery(topTip.label);
+        rememberSearch(topTip.label);
+        setSearchCommitted(true);
+      } else if (fromSearchOverlay && q) {
+        rememberSearch(q);
+        setSearchCommitted(true);
+      }
+
+      snapCloseSearchOverlay();
+      router.push({
+        pathname: BUSINESS_MAP_PATH,
+        params: {
+          ...(q ? { q } : {}),
+          ...(selectId ? { select: selectId } : {}),
+        },
       });
-    }
+    },
+    [
+      popularSearches,
+      recentSearches,
+      rememberSearch,
+      router,
+      searchQuery,
+      searchResults,
+      searchTips,
+      searchedNearYou,
+      showCommittedSearchResults,
+      snapCloseSearchOverlay,
+    ]
+  );
 
-    const trimmed = searchQuery.trim();
-    const topResult = showCommittedSearchResults
-      ? searchedNearYou.find((card) => card.resultKind !== 'event') ??
-        searchResults.find((card) => card.resultKind !== 'event') ??
-        searchedNearYou[0] ??
-        searchResults[0]
-      : null;
-    const { shops } = splitSearchTips(searchTips);
-    const topTip =
-      !topResult && trimmed.length > 0
-        ? shops[0] ?? searchTips[0]
-        : !topResult && !trimmed
-          ? recentSearches[0]
-            ? { label: recentSearches[0], kind: 'recent' as const }
-            : popularSearches[0]
-          : undefined;
-    const q = (topResult?.title ?? topTip?.label ?? trimmed).trim();
-    const selectId = topResult?.id ? String(topResult.id) : undefined;
-
-    if (!topResult && topTip) {
-      setSearchQuery(topTip.label);
-      rememberSearch(topTip.label);
-      setSearchCommitted(true);
-    } else if (q) {
-      rememberSearch(q);
-      setSearchCommitted(true);
-    }
-
-    // Snap overlay away — reverse morph fights the map fade and feels laggy.
-    snapCloseSearchOverlay();
-    router.push({
-      pathname: BUSINESS_MAP_PATH,
-      params: {
-        ...(q ? { q } : {}),
-        ...(selectId ? { select: selectId } : {}),
-      },
-    });
-  }, [
-    popularSearches,
-    recentSearches,
-    rememberSearch,
-    router,
-    searchQuery,
-    searchResults,
-    searchTips,
-    searchedNearYou,
-    showCommittedSearchResults,
-    snapCloseSearchOverlay,
-  ]);
+  const openBusinessMapFromSearch = useCallback(() => {
+    openMapFromHome({ fromSearchOverlay: true, allowEmptyTips: true });
+  }, [openMapFromHome]);
 
   const openHomeMap = useCallback(() => {
     captureHomeScrollBeforeLeave();
-    snapCloseSearchOverlay();
-    const trimmed = searchQuery.trim();
-    const topResult = showCommittedSearchResults
-      ? searchedNearYou.find((card) => card.resultKind !== 'event') ??
-        searchResults.find((card) => card.resultKind !== 'event') ??
-        searchedNearYou[0] ??
-        searchResults[0]
-      : null;
-    const { shops } = splitSearchTips(searchTips);
-    const topTip =
-      !topResult && trimmed.length > 0 ? shops[0] ?? searchTips[0] : undefined;
-    const q = (topResult?.title ?? topTip?.label ?? trimmed).trim();
-    const selectId = topResult?.id ? String(topResult.id) : undefined;
-    if (!topResult && topTip) {
-      setSearchQuery(topTip.label);
-      rememberSearch(topTip.label);
-      setSearchCommitted(true);
-    }
-    router.push({
-      pathname: BUSINESS_MAP_PATH,
-      params: {
-        ...(q ? { q } : {}),
-        ...(selectId ? { select: selectId } : {}),
-      },
-    });
-  }, [
-    captureHomeScrollBeforeLeave,
-    rememberSearch,
-    router,
-    searchQuery,
-    searchResults,
-    searchTips,
-    searchedNearYou,
-    showCommittedSearchResults,
-    snapCloseSearchOverlay,
-  ]);
+    openMapFromHome();
+  }, [captureHomeScrollBeforeLeave, openMapFromHome]);
 
   const searchDropdownExpanded = showSearchTipsDropdown || isSearchDropdownMounted;
   const searchDropdownDividerColor = theme.isDark

@@ -82,8 +82,7 @@ function nearbyFitCoordinates(
   const nearby = [...businesses]
     .filter(
       (b) =>
-        Number.isFinite(b.latitude) &&
-        Number.isFinite(b.longitude) &&
+        hasMapPinCoords(b) &&
         typeof b.distanceKm === 'number' &&
         b.distanceKm <= NEAR_YOU_FIT_RADIUS_KM
     )
@@ -346,17 +345,21 @@ export default function BusinessMapScreen() {
             setBusinesses((prev) => mergeSearchHitsIntoMapBusinesses(prev, hits));
           }
           const needle = query.toLocaleLowerCase('sv-SE');
-          const preferred =
-            (incomingSelect
-              ? hits.find((hit) => hit.id === incomingSelect)
-              : undefined) ??
-            hits.find((hit) => hit.name.trim().toLocaleLowerCase('sv-SE') === needle) ??
-            hits.find((hit) =>
-              hit.name.trim().toLocaleLowerCase('sv-SE').startsWith(needle)
-            ) ??
-            hits[0];
-          if (preferred) {
-            setSelectedId(preferred.id);
+          if (incomingSelect) {
+            const selectedHit = hits.find((hit) => hit.id === incomingSelect);
+            if (selectedHit) {
+              setSelectedId(selectedHit.id);
+            } else {
+              // Bad/missing select must not silently pick another company.
+              setSelectedId((prev) => (prev === incomingSelect ? null : prev));
+            }
+          } else {
+            const preferred =
+              hits.find((hit) => hit.name.trim().toLocaleLowerCase('sv-SE') === needle) ??
+              hits.find((hit) =>
+                hit.name.trim().toLocaleLowerCase('sv-SE').startsWith(needle)
+              );
+            if (preferred) setSelectedId(preferred.id);
           }
         })
         .finally(() => {

@@ -6,7 +6,6 @@ import {
 	type EventFeedItem,
 } from '@/lib/events-feed';
 import { getEffectiveUserCoordsIfGranted } from '@/lib/geo';
-import { heroSlides, resolveHeroImageUri } from '@/lib/hero-slides';
 import { fetchHomeScreenData, type OfferCardItem } from '@/lib/home-offers';
 import {
 	getHomeEventsCache,
@@ -84,7 +83,6 @@ export async function settleHomeScreenAssets(options: {
 	await prefetchImageUris(
 		[
 			...hydratedHot.slice(0, 6).map((card) => cardImageUri(card, IMAGE_DISPLAY_WIDTH.hero)),
-			...heroSlides.map((slide) => resolveHeroImageUri(slide.source)),
 			...hydratedDeals.slice(0, 12).map((card) => cardImageUri(card, IMAGE_DISPLAY_WIDTH.hero)),
 			...hydratedNear.slice(0, 6).map((card) => cardImageUri(card, IMAGE_DISPLAY_WIDTH.card)),
 			...events.slice(0, 6).map((event) => event.image),

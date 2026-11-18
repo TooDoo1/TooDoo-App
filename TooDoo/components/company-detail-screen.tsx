@@ -4,7 +4,6 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   Alert,
   Animated,
-  ImageSourcePropType,
   InteractionManager,
   Linking,
   Modal,
@@ -64,10 +63,6 @@ import {
   recordBusinessProfileClick,
 } from "@/lib/load-company-detail";
 import { shareBusiness, shareOffer } from "@/lib/share-offer";
-
-const localImagesById: Record<string, ImageSourcePropType> = {
-  "event-3": require("../assets/images/testbild.jpg"),
-};
 
 type DetailOffer = {
   id: string;
@@ -198,9 +193,7 @@ export default function CompanyDetailScreen() {
 
   const imageSource = imageUri
     ? { uri: imageUri }
-    : id
-      ? localImagesById[id]
-      : undefined;
+    : undefined;
 
   useEffect(() => {
     if (!imageUri) return;
