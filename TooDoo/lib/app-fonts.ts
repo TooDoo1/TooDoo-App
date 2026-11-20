@@ -37,6 +37,8 @@ export function applyAppTextDefaults() {
 			const flat = (StyleSheet.flatten(props.style) ?? {}) as {
 				fontFamily?: string;
 				fontSize?: number | string;
+				fontWeight?: string | number;
+				lineHeight?: number | string;
 			};
 
 			if (shouldPreserveFontFamily(flat.fontFamily)) {
@@ -50,6 +52,18 @@ export function applyAppTextDefaults() {
 						: typeof flat.fontSize === 'string' && flat.fontSize.trim()
 							? flat.fontSize
 							: 14;
+				const weight =
+					flat.fontWeight === undefined || flat.fontWeight === null
+						? ''
+						: `${flat.fontWeight} `;
+				const lineHeightCss =
+					typeof flat.lineHeight === 'number'
+						? `/${flat.lineHeight}px`
+						: typeof flat.lineHeight === 'string' && flat.lineHeight.trim()
+							? `/${flat.lineHeight}`
+							: '';
+				// Include weight + line-height in `font` — the shorthand resets both if omitted,
+				// which clipped hero titles (e.g. Helsingborg) on web/Vercel.
 				return previous.call(
 					this,
 					{
@@ -57,9 +71,10 @@ export function applyAppTextDefaults() {
 						style: [
 							props.style,
 							{
-								// Must set `font` (not only fontFamily) to beat RN Web's System shorthand.
-								font: `${fontSize}px "${APP_FONT_FAMILY}", system-ui, sans-serif`,
+								font: `${weight}${fontSize}px${lineHeightCss} "${APP_FONT_FAMILY}", system-ui, sans-serif`,
 								fontFamily: APP_FONT_FAMILY,
+								...(flat.fontWeight != null ? { fontWeight: flat.fontWeight } : null),
+								...(flat.lineHeight != null ? { lineHeight: flat.lineHeight } : null),
 							},
 						],
 					},

@@ -1660,6 +1660,9 @@ export default function HomeScreen() {
 
   const greetingCollapseStyle = useAnimatedStyle(() => {
     const collapse = Math.min(homeScrollYSv.value, homeGreetingBandHeight);
+    // Only clip while collapsing — at rest, keep overflow visible so descenders
+    // (Helsingborg "g") aren't cut off before/while the web font settles.
+    const collapsing = collapse > 0.5;
     return {
       height: Math.max(0, homeGreetingBandHeight - collapse),
       opacity: interpolate(
@@ -1678,7 +1681,7 @@ export default function HomeScreen() {
           ),
         },
       ],
-      overflow: 'hidden' as const,
+      overflow: collapsing ? ('hidden' as const) : ('visible' as const),
     };
   });
 
