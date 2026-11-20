@@ -4302,10 +4302,12 @@ export default function HomeScreen() {
           backgroundColor: 'transparent',
           paddingHorizontal: HOME_PAGE_PAD,
           // Column layout keeps Upptäck + kommun fully above the search bar
-          // (absolute bottom + overflow was clipping the title on iPhone).
+          // (absolute bottom + overflow was clipping the title on iPhone / Vercel web).
           justifyContent: 'space-between',
           paddingTop: 8,
-          paddingBottom: 10,
+          paddingBottom: 14,
+          // Let Plus Jakarta descenders (g/y/p) paint; parent chrome still clips the photo.
+          overflow: 'visible',
         },
       ]}
       pointerEvents="box-none"
@@ -5468,6 +5470,7 @@ const styles = StyleSheet.create({
   homeHeroCopy: {
     zIndex: 2,
     paddingRight: 8,
+    paddingBottom: 4,
   },
   homeHeroEyebrow: {
     color: 'rgba(255,255,255,0.9)',
@@ -5482,8 +5485,9 @@ const styles = StyleSheet.create({
     fontSize: 34,
     fontWeight: '800',
     letterSpacing: -1,
-    // Keep room for descenders (g/y/p) — tight lineHeight clips them under overflow:hidden.
-    lineHeight: 40,
+    // Plus Jakarta Sans needs extra line box height or "Helsingborg" clips on web/Vercel.
+    lineHeight: 46,
+    paddingBottom: 2,
     includeFontPadding: false,
   },
   homeLocationButton: {

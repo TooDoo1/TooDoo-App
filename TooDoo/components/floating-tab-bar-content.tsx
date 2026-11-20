@@ -228,9 +228,11 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 11,
-    lineHeight: 13,
+    // Extra line box so descenders in "Upptäck" aren't clipped on web.
+    lineHeight: 15,
     textAlign: 'center',
     letterSpacing: -0.2,
+    includeFontPadding: false,
   },
   labelActive: {
     fontWeight: '700',

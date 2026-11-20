@@ -1035,7 +1035,16 @@ export default function CompanyDetailScreen() {
         </View>
       ) : null}
       {displayTitle ? (
-      <Text className="text-3xl font-semibold px-6 mt-4" style={{ color: theme.text }}>
+      <Text
+        className="px-6 mt-4"
+        style={{
+          color: theme.text,
+          fontSize: 34,
+          lineHeight: 40,
+          fontWeight: '800',
+          letterSpacing: -0.8,
+        }}
+      >
         {displayTitle}
       </Text>) : null}
 
