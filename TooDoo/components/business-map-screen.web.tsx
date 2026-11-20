@@ -32,6 +32,10 @@ import {
   type MapBusiness,
   type MapViewBounds,
 } from '@/lib/business-map-data';
+import {
+  pickBestSearchNameMatch,
+  scoreSearchNameMatch,
+} from '@/lib/catalog-search';
 import { getCategoryAccentForItem, OFFERS_CATEGORY_ACCENT } from '@/lib/category-colors';
 import { COMPANY_DETAIL_PATH } from '@/lib/detail-navigation';
 import { subscribeCustomLocations } from '@/lib/custom-locations';
@@ -344,22 +348,34 @@ export default function BusinessMapScreen() {
           if (hits.length > 0) {
             setBusinesses((prev) => mergeSearchHitsIntoMapBusinesses(prev, hits));
           }
-          const needle = query.toLocaleLowerCase('sv-SE');
+          const firstPin =
+            hits.find((hit) => hasMapPinCoords(hit)) ?? hits[0] ?? null;
+          const namePreferred =
+            pickBestSearchNameMatch(hits, query, (hit) => hit.name) ?? firstPin;
+
           if (incomingSelect) {
             const selectedHit = hits.find((hit) => hit.id === incomingSelect);
-            if (selectedHit) {
+            const selectScore = selectedHit
+              ? scoreSearchNameMatch(selectedHit.name, query)
+              : 0;
+            const nameScore = namePreferred
+              ? scoreSearchNameMatch(namePreferred.name, query)
+              : 0;
+            // Prefer the handed-off id when it matches the query; otherwise the best name hit
+            // (fixes distance-sorted wrong selects like a nearer pizza over "Berga Pizza").
+            if (selectedHit && (selectScore >= 40 || selectScore >= nameScore)) {
               setSelectedId(selectedHit.id);
-            } else {
-              // Bad/missing select must not silently pick another company.
-              setSelectedId((prev) => (prev === incomingSelect ? null : prev));
+            } else if (namePreferred && nameScore > selectScore) {
+              setSelectedId(namePreferred.id);
+            } else if (selectedHit) {
+              setSelectedId(selectedHit.id);
+            } else if (businessesRef.current.some((b) => b.id === incomingSelect)) {
+              setSelectedId(incomingSelect);
+            } else if (namePreferred) {
+              setSelectedId(namePreferred.id);
             }
-          } else {
-            const preferred =
-              hits.find((hit) => hit.name.trim().toLocaleLowerCase('sv-SE') === needle) ??
-              hits.find((hit) =>
-                hit.name.trim().toLocaleLowerCase('sv-SE').startsWith(needle)
-              );
-            if (preferred) setSelectedId(preferred.id);
+          } else if (namePreferred) {
+            setSelectedId(namePreferred.id);
           }
         })
         .finally(() => {

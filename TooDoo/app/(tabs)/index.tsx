@@ -157,6 +157,7 @@ import {
 import { blurActiveElementOnWeb } from '@/lib/web-focus';
 import { consumeOpenHomeSearch } from '@/lib/home-search-handoff';
 import {
+  pickBestSearchNameMatch,
   searchCatalog,
   searchNatural,
   sortSearchResultsHot,
@@ -3835,12 +3836,14 @@ export default function HomeScreen() {
       }
 
       const trimmed = searchQuery.trim();
-      // Never hand the map an event id — catalog map search skips events.
-      const topBusiness = showCommittedSearchResults
-        ? searchedNearYou.find((card) => card.resultKind !== 'event') ??
-          searchResults.find((card) => card.resultKind !== 'event') ??
-          null
-        : null;
+      // Name match on API-ranked results — never distance-sort (that pinned the wrong pizza).
+      const rankedBusinesses = showCommittedSearchResults
+        ? searchResults.filter((card) => card.resultKind !== 'event')
+        : [];
+      const topBusiness =
+        pickBestSearchNameMatch(rankedBusinesses, trimmed, (card) => card.title) ??
+        rankedBusinesses[0] ??
+        null;
       const { shops } = splitSearchTips(searchTips);
       const topTip =
         !topBusiness && trimmed.length > 0
@@ -3850,8 +3853,13 @@ export default function HomeScreen() {
               ? { label: recentSearches[0], kind: 'recent' as const }
               : popularSearches[0]
             : undefined;
-      const q = (topBusiness?.title ?? topTip?.label ?? trimmed).trim();
-      const selectId = topBusiness?.id ? String(topBusiness.id) : undefined;
+      // Keep the user's query so map catalog search still finds "Berga Pizza".
+      const q = (trimmed || topBusiness?.title || topTip?.label || '').trim();
+      const selectId = topBusiness?.id
+        ? String(topBusiness.id)
+        : topTip?.kind === 'business' && topTip.id
+          ? String(topTip.id)
+          : undefined;
 
       if (!topBusiness && topTip) {
         setSearchQuery(topTip.label);
@@ -3879,7 +3887,6 @@ export default function HomeScreen() {
       searchQuery,
       searchResults,
       searchTips,
-      searchedNearYou,
       showCommittedSearchResults,
       snapCloseSearchOverlay,
     ]
@@ -4306,8 +4313,8 @@ export default function HomeScreen() {
           // (absolute bottom + overflow was clipping the title on iPhone / Vercel web).
           justifyContent: 'space-between',
           paddingTop: 8,
-          // Extra bottom pad so "Helsingborg" sits above the opaque search seam.
-          paddingBottom: 22,
+          // Keep Upptäck + city fully above the search bar (was still half-covered).
+          paddingBottom: 56,
           overflow: 'hidden',
         },
       ]}
@@ -5470,8 +5477,7 @@ const styles = StyleSheet.create({
   homeHeroCopy: {
     zIndex: 2,
     paddingRight: 8,
-    // Keep title glyphs above the greeting clip + search panel seam.
-    paddingBottom: 8,
+    marginBottom: 4,
   },
   homeHeroEyebrow: {
     color: 'rgba(255,255,255,0.9)',
@@ -5487,7 +5493,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: -1,
     // Plus Jakarta Sans needs extra line box height or "Helsingborg" clips on web/Vercel.
-    lineHeight: 46,
+    lineHeight: 44,
     includeFontPadding: false,
   },
   homeLocationButton: {

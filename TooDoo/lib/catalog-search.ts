@@ -61,6 +61,38 @@ function getOfferClaimedCount(card: OfferCardItem) {
   return Number.isFinite(claimed) ? claimed : 0;
 }
 
+/** Higher = closer title match for free-text search (e.g. "berga pizza" → "Berga Pizza"). */
+export function scoreSearchNameMatch(name: string, query: string): number {
+  const n = name.trim().toLocaleLowerCase('sv-SE');
+  const q = query.trim().toLocaleLowerCase('sv-SE');
+  if (!q || !n) return 0;
+  if (n === q) return 100;
+  if (n.startsWith(q)) return 90;
+  if (n.includes(q)) return 80;
+  const tokens = q.split(/\s+/).filter((t) => t.length > 0);
+  if (tokens.length > 1 && tokens.every((t) => n.includes(t))) return 70;
+  if (tokens.some((t) => t.length >= 3 && n.includes(t))) return 40;
+  return 0;
+}
+
+/** Best name match for a query; null when nothing scores. Preserves input order on ties. */
+export function pickBestSearchNameMatch<T>(
+  items: readonly T[],
+  query: string,
+  getName: (item: T) => string
+): T | null {
+  let best: T | null = null;
+  let bestScore = 0;
+  for (const item of items) {
+    const score = scoreSearchNameMatch(getName(item), query);
+    if (score > bestScore) {
+      bestScore = score;
+      best = item;
+    }
+  }
+  return bestScore > 0 ? best : null;
+}
+
 export function sortSearchResultsNearYou(
   cards: OfferCardItem[],
   coords: { lat: number; lng: number } | null
