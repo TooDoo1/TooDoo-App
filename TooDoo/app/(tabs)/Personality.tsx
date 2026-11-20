@@ -5,16 +5,30 @@ import {
   Pressable,
   Alert,
   Platform,
+  ScrollView,
 } from "react-native";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/context/auth-context";
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { apiUrl } from "@/lib/api";
-import { hasForegroundLocationPermission, resolveUserCityFromDevice } from "@/lib/geo";
+import {
+  geocodeAddressCached,
+  hasForegroundLocationPermission,
+  isPlausibleSwedenCoordinate,
+  peekGeocodeCache,
+  resolveUserCityFromDevice,
+} from "@/lib/geo";
 import { useThemePreference } from "@/context/theme-preference-context";
-import { BrandColors } from "@/lib/brand-colors";
 import { getCategoryAccentColor, getOnAccentTextColor } from "@/lib/category-colors";
+import { setRegionSelection } from "@/lib/region-selection";
+import { staticCoordsForCity } from "@/lib/sweden-city-coords";
+import {
+  findLanByName,
+  geocodeQueryForCity,
+  SWEDEN_REGIONS,
+} from "@/lib/sweden-regions";
 import { uiTheme } from "@/lib/ui-theme";
 import { RegistrationScreenShell } from "@/components/registration-screen-shell";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -40,6 +54,8 @@ export default function PersonalityScreen() {
   const [lastName, setLastName] = useState('');
   const [birthDate, setBirthDate] = useState<Date | null>(null);
   const [draftBirthDate, setDraftBirthDate] = useState<Date>(() => new Date(2000, 0, 1));
+  const draftBirthDateRef = useRef(draftBirthDate);
+  draftBirthDateRef.current = draftBirthDate;
   const [isDatePickerVisible, setIsDatePickerVisible] = useState(false);
   const [selectedGender, setSelectedGender] = useState<'MALE' | 'FEMALE' | 'NON_BINARY' | 'OTHER' | null>(null);
   const [categoryOptions, setCategoryOptions] = useState<Array<{ id?: string; name: string }>>([]);
@@ -47,6 +63,9 @@ export default function PersonalityScreen() {
   const [categoryLoadError, setCategoryLoadError] = useState('');
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [city, setCity] = useState('');
+  const [selectedLan, setSelectedLan] = useState<string | null>(null);
+  const [locationPickerLan, setLocationPickerLan] = useState<string | null>(null);
+  const [locationPicking, setLocationPicking] = useState(false);
   const [skipLocationStep, setSkipLocationStep] = useState(false);
   const [isResolvingLocation, setIsResolvingLocation] = useState(false);
   const formSteps = buildFormSteps(skipLocationStep);
@@ -73,6 +92,9 @@ export default function PersonalityScreen() {
     setSelectedGender(null);
     setSelectedCategoryIds([]);
     setCity('');
+    setSelectedLan(null);
+    setLocationPickerLan(null);
+    setLocationPicking(false);
     setSkipLocationStep(false);
     setIsResolvingLocation(false);
 
@@ -197,6 +219,55 @@ export default function PersonalityScreen() {
     };
   }, []);
 
+  const locationPickerCities = useMemo(() => {
+    if (!locationPickerLan) return [];
+    return findLanByName(locationPickerLan)?.cities ?? [];
+  }, [locationPickerLan]);
+
+  const selectRegistrationCity = async (lan: string, nextCity: string) => {
+    if (locationPicking) return;
+
+    const applyCity = async (lat: number, lng: number) => {
+      setSelectedLan(lan);
+      setCity(nextCity);
+      // Stay on the city list so the checkmark stays visible (no separate "Byt" UI).
+      setLocationPickerLan(lan);
+      try {
+        await setRegionSelection({ lan, city: nextCity, lat, lng });
+      } catch {
+        // Registration can continue with city name even if persist fails.
+      }
+    };
+
+    const staticCoords = staticCoordsForCity(lan, nextCity);
+    if (staticCoords) {
+      await applyCity(staticCoords.lat, staticCoords.lng);
+      return;
+    }
+
+    const query = geocodeQueryForCity(lan, nextCity);
+    const cached = peekGeocodeCache(query);
+    if (cached && isPlausibleSwedenCoordinate(cached.lat, cached.lng)) {
+      await applyCity(cached.lat, cached.lng);
+      return;
+    }
+
+    setLocationPicking(true);
+    try {
+      const coordsResult = await geocodeAddressCached(query);
+      if (
+        !coordsResult ||
+        !isPlausibleSwedenCoordinate(coordsResult.lat, coordsResult.lng)
+      ) {
+        Alert.alert('Kunde inte hitta platsen', 'Försök med en annan ort.');
+        return;
+      }
+      await applyCity(coordsResult.lat, coordsResult.lng);
+    } finally {
+      setLocationPicking(false);
+    }
+  };
+
   const resolveRegistrationLocation = async (): Promise<string | null> => {
     const trimmed = city.trim();
     if (trimmed) return trimmed;
@@ -261,7 +332,7 @@ export default function PersonalityScreen() {
                   return;
                 }
                 if (currentFormStep === 'location' && !city.trim()) {
-                  Alert.alert("Saknad stad", "Ange vilken stad du befinner dig i innan du går vidare.");
+                  Alert.alert("Saknad stad", "Välj län och stad innan du går vidare.");
                   return;
                 }
                 if (currentFormStep === 'gender' && !selectedGender) {
@@ -474,8 +545,11 @@ export default function PersonalityScreen() {
                 className="mt-2 rounded-2xl px-4 py-3"
                 style={{ backgroundColor: accentColor }}
                 onPress={() => {
-                  setBirthDate(draftBirthDate);
-                  setIsDatePickerVisible(false);
+                  // Let web wheel debounce flush so Klar doesn't keep Jan 1 2000.
+                  setTimeout(() => {
+                    setBirthDate(draftBirthDateRef.current);
+                    setIsDatePickerVisible(false);
+                  }, 120);
                 }}
               >
                 <Text className="text-center font-medium text-white">Klar</Text>
@@ -489,28 +563,130 @@ export default function PersonalityScreen() {
         <View className="rounded-2xl px-4 py-5" style={{ backgroundColor: theme.cardBgMuted }}>
           <Text className="text-2xl" style={{ color: theme.text }}>Var befinner du dig?</Text>
           <Text className="pt-2 text-sm" style={{ color: theme.textMuted }}>
-            Behövs för att visa erbjudanden nära dig.
+            Välj län och stad — samma som på startsidan.
           </Text>
           {isResolvingLocation && Platform.OS !== 'web' ? (
             <Text className="pt-2 text-sm" style={{ color: theme.textMuted }}>
               Hämtar din plats...
             </Text>
           ) : null}
-          <Text className="pt-4 text-lg" style={{ color: theme.text }}>Stad:</Text>
-          <TextInput
-            value={city}
-            onChangeText={setCity}
-            placeholder="T.ex. Helsingborg"
-            placeholderTextColor={theme.textFaint}
-            autoCapitalize="words"
-            className="mt-2 rounded-2xl border px-4 py-3"
+
+          <View
+            className="mt-4 overflow-hidden"
             style={{
-              borderColor: theme.border,
-              backgroundColor: theme.cardBgMuted,
-              color: theme.text,
-              fontSize: 16,
+              backgroundColor: 'transparent',
+              maxHeight: 320,
             }}
-          />
+          >
+            <View className="flex-row items-center px-3 pt-3 pb-1" style={{ minHeight: 36, gap: 8 }}>
+              {locationPickerLan ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Tillbaka till län"
+                  onPress={() => setLocationPickerLan(null)}
+                  hitSlop={8}
+                  style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <Ionicons name="chevron-back" size={18} color={theme.text} />
+                </Pressable>
+              ) : null}
+              <Text style={{ flex: 1, color: theme.text, fontSize: 15, fontWeight: '700' }}>
+                {locationPickerLan ? 'Välj stad' : 'Välj län'}
+              </Text>
+              {locationPicking ? (
+                <Text style={{ color: theme.textMuted, fontSize: 12 }}>Hämtar...</Text>
+              ) : null}
+            </View>
+            <ScrollView
+              style={{ maxHeight: 270 }}
+              contentContainerStyle={{ paddingHorizontal: 10, paddingBottom: 12 }}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+            >
+              {locationPickerLan
+                ? locationPickerCities.map((item) => {
+                    const selected = selectedLan === locationPickerLan && city === item;
+                    return (
+                      <Pressable
+                        key={item}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                        disabled={locationPicking}
+                        onPress={() => void selectRegistrationCity(locationPickerLan, item)}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 12,
+                          paddingVertical: 12,
+                          paddingHorizontal: 2,
+                          opacity: locationPicking ? 0.6 : 1,
+                        }}
+                      >
+                        <Ionicons
+                          name="location-outline"
+                          size={18}
+                          color={selected ? theme.primary : theme.textMuted}
+                        />
+                        <Text
+                          numberOfLines={1}
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            fontSize: 16,
+                            letterSpacing: -0.2,
+                            color: selected ? theme.text : theme.textMuted,
+                            fontWeight: selected ? '700' : '500',
+                          }}
+                        >
+                          {item}
+                        </Text>
+                        {selected ? (
+                          <Ionicons name="checkmark" size={18} color={theme.primary} />
+                        ) : null}
+                      </Pressable>
+                    );
+                  })
+                : SWEDEN_REGIONS.map((lan) => {
+                    const selected = selectedLan === lan.name;
+                    return (
+                      <Pressable
+                        key={lan.name}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                        onPress={() => setLocationPickerLan(lan.name)}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 12,
+                          paddingVertical: 12,
+                          paddingHorizontal: 2,
+                        }}
+                      >
+                        <Ionicons
+                          name="map-outline"
+                          size={18}
+                          color={selected ? theme.primary : theme.textMuted}
+                        />
+                        <Text
+                          numberOfLines={1}
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            fontSize: 16,
+                            letterSpacing: -0.2,
+                            color: selected ? theme.text : theme.textMuted,
+                            fontWeight: selected ? '700' : '500',
+                          }}
+                        >
+                          {lan.name}
+                        </Text>
+                        <Ionicons name="chevron-forward" size={16} color={theme.textFaint} />
+                      </Pressable>
+                    );
+                  })}
+            </ScrollView>
+          </View>
+
           {Platform.OS !== 'web' ? (
             <Pressable
               className="mt-3 rounded-2xl px-4 py-3"
@@ -521,14 +697,19 @@ export default function PersonalityScreen() {
                   const detected = await resolveUserCityFromDevice({ requestPermission: true });
                   if (detected?.city) {
                     setCity(detected.city);
+                    setSelectedLan(null);
+                    setLocationPickerLan(null);
                   } else {
-                    Alert.alert('Kunde inte hitta stad', 'Ange din stad manuellt eller aktivera platsåtkomst.');
+                    Alert.alert(
+                      'Kunde inte hitta stad',
+                      'Välj län och stad i listan eller aktivera platsåtkomst.'
+                    );
                   }
                 } finally {
                   setIsResolvingLocation(false);
                 }
               }}
-              disabled={isResolvingLocation}
+              disabled={isResolvingLocation || locationPicking}
             >
               <Text className="text-center font-medium text-white">
                 {isResolvingLocation ? 'Hämtar plats...' : 'Använd min plats'}
@@ -549,22 +730,26 @@ export default function PersonalityScreen() {
               </Text>
               </View>
 
-              <View className=" flex-row flex-wrap justify-between">
+              <View className="mb-4 flex-row flex-wrap gap-3">
                 {genderOptions.map((option) => {
                   const isSelected = selectedGender === option.value;
                   return (
                     <Pressable
                       key={option.value}
-                      className="mb-3 w-[48%] rounded-2xl border px-4 py-3"
+                      className="rounded-2xl border px-5 py-3"
                       style={{
-                        backgroundColor: isSelected ? accentColor : BrandColors.dark.secondary,
-                        borderColor: isSelected ? accentColor : '#ffffff',
+                        backgroundColor: isSelected ? accentColor : theme.cardBgMuted,
+                        borderColor: isSelected ? accentColor : theme.border,
                       }}
                       onPress={() => setSelectedGender(option.value)}
                     >
                       <Text
                         className="text-center text-lg font-medium"
-                        style={{ color: '#ffffff' }}
+                        style={{
+                          color: isSelected
+                            ? getOnAccentTextColor(accentColor)
+                            : theme.text,
+                        }}
                       >
                         {option.label}
                       </Text>

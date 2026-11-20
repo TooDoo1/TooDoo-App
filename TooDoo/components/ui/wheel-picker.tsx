@@ -111,36 +111,97 @@ function WheelColumn({ items, selectedIndex, onSelect, theme, style, columnKey }
   const scrollRef = useRef<ScrollView>(null);
   const isUserScrollingRef = useRef(false);
   const onSelectRef = useRef(onSelect);
+  const itemsLengthRef = useRef(items.length);
+  const centerIndexRef = useRef(selectedIndex);
+  const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const boundedSelectedIndex = Math.max(0, Math.min(selectedIndex, Math.max(items.length - 1, 0)));
   const [centerIndex, setCenterIndex] = useState(boundedSelectedIndex);
 
   onSelectRef.current = onSelect;
+  itemsLengthRef.current = items.length;
+
+  const indexFromOffset = (offsetY: number) =>
+    Math.max(
+      0,
+      Math.min(Math.round(offsetY / ITEM_HEIGHT), Math.max(itemsLengthRef.current - 1, 0))
+    );
+
+  const commitIndex = (nextIndex: number, snap: boolean) => {
+    const safe = Math.max(0, Math.min(nextIndex, Math.max(itemsLengthRef.current - 1, 0)));
+    centerIndexRef.current = safe;
+    setCenterIndex(safe);
+    if (snap) {
+      scrollRef.current?.scrollTo({ y: safe * ITEM_HEIGHT, animated: true });
+    }
+    onSelectRef.current(safe);
+    isUserScrollingRef.current = false;
+  };
+
+  const scheduleCommit = (offsetY: number) => {
+    const nextIndex = indexFromOffset(offsetY);
+    centerIndexRef.current = nextIndex;
+    setCenterIndex(nextIndex);
+    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+    // Web CSS scroll-snap often never fires momentum/end — commit after scroll settles.
+    commitTimerRef.current = setTimeout(() => {
+      commitTimerRef.current = null;
+      // Don't animate snap here — CSS snap / prior end handlers already aligned.
+      commitIndex(centerIndexRef.current, false);
+    }, Platform.OS === 'web' ? 100 : 80);
+  };
 
   useEffect(() => {
     if (isUserScrollingRef.current) return;
-    const nextIndex = Math.max(0, Math.min(selectedIndex, items.length - 1));
+    const nextIndex = Math.max(0, Math.min(selectedIndex, Math.max(items.length - 1, 0)));
+    centerIndexRef.current = nextIndex;
     setCenterIndex(nextIndex);
     scrollRef.current?.scrollTo({ y: nextIndex * ITEM_HEIGHT, animated: false });
   }, [selectedIndex, items.length, columnKey]);
 
-  const indexFromOffset = (offsetY: number) =>
-    Math.max(0, Math.min(Math.round(offsetY / ITEM_HEIGHT), items.length - 1));
+  useEffect(
+    () => () => {
+      if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+    },
+    []
+  );
 
-  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    isUserScrollingRef.current = true;
-    setCenterIndex(indexFromOffset(event.nativeEvent.contentOffset.y));
-  };
+  // Web: native scrollend is more reliable than RN momentum events with CSS snap.
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const node = scrollRef.current as unknown as {
+      getScrollableNode?: () => HTMLElement | null;
+    } | null;
+    const el =
+      typeof node?.getScrollableNode === 'function' ? node.getScrollableNode() : null;
+    if (!el || typeof el.addEventListener !== 'function') return;
 
-  const handleScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    isUserScrollingRef.current = false;
-    const nextIndex = indexFromOffset(event.nativeEvent.contentOffset.y);
-    scrollRef.current?.scrollTo({ y: nextIndex * ITEM_HEIGHT, animated: true });
-    setCenterIndex(nextIndex);
-    onSelectRef.current(nextIndex);
-  };
+    const onScrollEnd = () => {
+      if (commitTimerRef.current) {
+        clearTimeout(commitTimerRef.current);
+        commitTimerRef.current = null;
+      }
+      commitIndex(indexFromOffset(el.scrollTop), false);
+    };
+    el.addEventListener('scrollend', onScrollEnd);
+    return () => el.removeEventListener('scrollend', onScrollEnd);
+    // Re-bind when column remounts / length changes; handlers use refs for latest values.
+  }, [items.length, columnKey]);
 
   const handleScrollBegin = () => {
     isUserScrollingRef.current = true;
+  };
+
+  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    isUserScrollingRef.current = true;
+    scheduleCommit(event.nativeEvent.contentOffset.y);
+  };
+
+  const handleScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (commitTimerRef.current) {
+      clearTimeout(commitTimerRef.current);
+      commitTimerRef.current = null;
+    }
+    commitIndex(indexFromOffset(event.nativeEvent.contentOffset.y), true);
   };
 
   if (items.length === 0) {
