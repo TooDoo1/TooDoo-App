@@ -29,7 +29,7 @@ export const MAP_RASTER_TILE_TEMPLATES = {
   light: 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
 } as const;
 
-export const MAP_ATTRIBUTION = '© OpenStreetMap · © OpenFreeMap';
+export const MAP_ATTRIBUTION = '© OpenStreetMap';
 
 export function mapLibreStyleUrlForMode(_mode: ThemeMode) {
   // Liberty keeps readable roads; TooDoo navy/cream via applyTooDooMapPaints.

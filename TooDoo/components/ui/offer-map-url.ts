@@ -75,8 +75,11 @@ export function buildStyledLeafletMapHtml(options: {
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
       html, body, #map { margin: 0; padding: 0; height: 100%; width: 100%; background: ${bg}; }
-      .leaflet-control-attribution { font-size: 10px !important; background: rgba(14,19,37,0.75) !important; color: rgba(255,255,255,0.75) !important; }
-      .leaflet-control-attribution a { color: #6c9ef5 !important; }
+      .leaflet-control-attribution {
+        left: 0 !important; right: 0 !important; width: 100% !important; text-align: center !important;
+        font-size: 7px !important; background: transparent !important; color: rgba(255,255,255,0.28) !important; box-shadow: none !important;
+      }
+      .leaflet-control-attribution a { color: rgba(255,255,255,0.28) !important; }
     </style>
   </head>
   <body>
