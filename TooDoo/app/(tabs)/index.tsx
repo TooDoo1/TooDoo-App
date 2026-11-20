@@ -1660,9 +1660,6 @@ export default function HomeScreen() {
 
   const greetingCollapseStyle = useAnimatedStyle(() => {
     const collapse = Math.min(homeScrollYSv.value, homeGreetingBandHeight);
-    // Only clip while collapsing — at rest, keep overflow visible so descenders
-    // (Helsingborg "g") aren't cut off before/while the web font settles.
-    const collapsing = collapse > 0.5;
     return {
       height: Math.max(0, homeGreetingBandHeight - collapse),
       opacity: interpolate(
@@ -1681,7 +1678,8 @@ export default function HomeScreen() {
           ),
         },
       ],
-      overflow: collapsing ? ('hidden' as const) : ('visible' as const),
+      // Always clip — overflow visible let the city title paint under the search bar.
+      overflow: 'hidden' as const,
     };
   });
 
@@ -4308,9 +4306,9 @@ export default function HomeScreen() {
           // (absolute bottom + overflow was clipping the title on iPhone / Vercel web).
           justifyContent: 'space-between',
           paddingTop: 8,
-          paddingBottom: 14,
-          // Let Plus Jakarta descenders (g/y/p) paint; parent chrome still clips the photo.
-          overflow: 'visible',
+          // Extra bottom pad so "Helsingborg" sits above the opaque search seam.
+          paddingBottom: 22,
+          overflow: 'hidden',
         },
       ]}
       pointerEvents="box-none"
@@ -4375,9 +4373,8 @@ export default function HomeScreen() {
         <Text numberOfLines={1} style={styles.homeHeroEyebrow}>
           Upptäck
         </Text>
-        <Text numberOfLines={1} style={styles.homeHeroTitle}>
-          {homeKommunLabel}
-        </Text>
+        {/* No numberOfLines — RN Web overflow:hidden on truncated Text clips descenders. */}
+        <Text style={styles.homeHeroTitle}>{homeKommunLabel}</Text>
       </Pressable>
 
       <Modal
@@ -4940,12 +4937,18 @@ export default function HomeScreen() {
             </View>
           </Reanimated.View>
           <View
-            style={{
-              zIndex: 1,
-              // JS inset only — CSS env() here raced ahead of measured heights and
-              // shoved "Helsingborg" under the pinned header's overflow clip on first paint.
-              paddingTop: homeHeaderInset,
-            }}
+            style={[
+              {
+                zIndex: 1,
+                paddingTop: homeHeaderInset,
+              },
+              Platform.OS === 'web'
+                ? ({
+                    // Real island/notch only — no invented gap when env is 0.
+                    paddingTop: `max(${homeHeaderInset}px, env(safe-area-inset-top, 0px))`,
+                  } as object)
+                : null,
+            ]}
             pointerEvents="box-none"
           >
             <Reanimated.View style={greetingCollapseStyle} pointerEvents="box-none">
@@ -5431,7 +5434,7 @@ const styles = StyleSheet.create({
   searchHeaderRoot: {
     position: 'relative',
     width: '100%',
-    overflow: 'visible',
+    overflow: 'hidden',
   },
   searchHeaderSticky: {
     position: 'relative',
@@ -5467,7 +5470,8 @@ const styles = StyleSheet.create({
   homeHeroCopy: {
     zIndex: 2,
     paddingRight: 8,
-    paddingBottom: 4,
+    // Keep title glyphs above the greeting clip + search panel seam.
+    paddingBottom: 8,
   },
   homeHeroEyebrow: {
     color: 'rgba(255,255,255,0.9)',
@@ -5482,9 +5486,8 @@ const styles = StyleSheet.create({
     fontSize: 34,
     fontWeight: '800',
     letterSpacing: -1,
-    // Tall line box + padding so Plus Jakarta descenders clear overflow clips.
-    lineHeight: 48,
-    paddingBottom: 6,
+    // Plus Jakarta Sans needs extra line box height or "Helsingborg" clips on web/Vercel.
+    lineHeight: 46,
     includeFontPadding: false,
   },
   homeLocationButton: {
