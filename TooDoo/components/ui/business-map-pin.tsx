@@ -136,7 +136,7 @@ function BusinessMapPinComponent({
             <MiniActivityIcon icon="calendar" color={EVENT_ACTIVITY_COLOR} />
           ) : null}
           {hasOffer ? (
-            <MiniActivityIcon icon="pricetag" color={OFFER_ACTIVITY_COLOR} />
+            <MiniActivityIcon icon="pricetag-outline" color={OFFER_ACTIVITY_COLOR} />
           ) : null}
         </View>
       ) : null}

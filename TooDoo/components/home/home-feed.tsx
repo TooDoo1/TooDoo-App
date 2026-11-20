@@ -581,9 +581,13 @@ function HomeListingCard({
         <View style={styles.dealTopRow} pointerEvents="box-none">
           <View style={{ gap: 4, alignItems: 'flex-start', flexShrink: 1 }}>
             {tagLabel ? <CategoryTagPill label={tagLabel} /> : null}
-            {showActivityDots && !isEvent ? (
+            {!isEvent &&
+            (Boolean(card.deal) ||
+              (showActivityDots && (businessIdsWithEvents?.has(card.id) ?? false))) ? (
               <CompanyActivityDots
-                hasEvent={businessIdsWithEvents?.has(card.id) ?? false}
+                hasEvent={
+                  Boolean(showActivityDots && businessIdsWithEvents?.has(card.id))
+                }
                 hasOffer={Boolean(card.deal)}
                 eventColor={theme.eventColor}
               />
@@ -761,7 +765,16 @@ export function HomeDealTile({
             />
           </View>
           <View style={styles.dealTopRow} pointerEvents="box-none">
-            {tagLabel ? <CategoryTagPill label={tagLabel} /> : <View />}
+            <View style={{ gap: 4, alignItems: 'flex-start', flexShrink: 1 }}>
+              {tagLabel ? <CategoryTagPill label={tagLabel} /> : null}
+              {card.resultKind !== 'event' && card.deal ? (
+                <CompanyActivityDots
+                  hasEvent={false}
+                  hasOffer
+                  eventColor={theme.eventColor}
+                />
+              ) : null}
+            </View>
             <CardFavoriteButton businessId={card.id} enabled={canFavorite} />
           </View>
           <LinearGradient
@@ -844,7 +857,16 @@ export function HomeDealTile({
               displayWidth={IMAGE_DISPLAY_WIDTH.cardWide}
             />
             <View style={styles.dealTopRow} pointerEvents="box-none">
-              {tagLabel ? <CategoryTagPill label={tagLabel} /> : <View />}
+              <View style={{ gap: 4, alignItems: 'flex-start', flexShrink: 1 }}>
+                {tagLabel ? <CategoryTagPill label={tagLabel} /> : null}
+                {card.resultKind !== 'event' && card.deal ? (
+                  <CompanyActivityDots
+                    hasEvent={false}
+                    hasOffer
+                    eventColor={theme.eventColor}
+                  />
+                ) : null}
+              </View>
               <CardFavoriteButton businessId={card.id} enabled={canFavorite} />
             </View>
           </View>
@@ -920,7 +942,16 @@ const FeaturedSlideBody = memo(function FeaturedSlideBody({
           />
         )}
         <View style={styles.dealTopRow} pointerEvents="box-none">
-          {tagLabel ? <CategoryTagPill label={tagLabel} /> : <View />}
+          <View style={{ gap: 4, alignItems: 'flex-start', flexShrink: 1 }}>
+            {tagLabel ? <CategoryTagPill label={tagLabel} /> : null}
+            {card.resultKind !== 'event' && card.deal ? (
+              <CompanyActivityDots
+                hasEvent={false}
+                hasOffer
+                eventColor={theme.eventColor}
+              />
+            ) : null}
+          </View>
           <CardFavoriteButton businessId={card.id} enabled={canFavorite} />
         </View>
       </View>

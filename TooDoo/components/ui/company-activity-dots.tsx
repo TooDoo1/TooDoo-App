@@ -1,11 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Platform, View } from 'react-native';
 
-/** Warm deal accent for companies with an active erbjudande. */
-export const OFFER_ACTIVITY_COLOR = '#ff8a3d';
+import { OFFERS_CATEGORY_ACCENT } from '@/lib/category-colors';
+
+/** Same red as the Erbjudanden filter. */
+export const OFFER_ACTIVITY_COLOR = OFFERS_CATEGORY_ACCENT;
 
 /** Blue accent for companies with an active event (matches theme.eventColor). */
 export const EVENT_ACTIVITY_COLOR = '#478beb';
+
+/** Same icon as the Erbjudanden home filter. */
+const OFFER_FILTER_ICON = 'pricetag-outline' as const;
 
 /** Horizontal padding on the Nära dig / distance pill (`px-2`). */
 const BADGE_TEXT_INSET = 8;
@@ -89,7 +94,7 @@ export function CompanyActivityDots({
 			) : null}
 			{hasOffer ? (
 				<ActivityIconPill
-					icon="pricetag"
+					icon={OFFER_FILTER_ICON}
 					color={offerColor}
 					label="Har erbjudande"
 				/>
