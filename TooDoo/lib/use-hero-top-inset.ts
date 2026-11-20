@@ -1,19 +1,31 @@
-import { useEffect, useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
 import { Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { isStandaloneWebApp } from '@/lib/pwa-standalone';
 
+/** Prefer the boot probe from +html.tsx so first paint matches safe-area. */
+function readBootSafeAreaTop(): number {
+  if (typeof document === 'undefined') return 0;
+  const raw = getComputedStyle(document.documentElement)
+    .getPropertyValue('--toodoo-safe-top')
+    .trim();
+  if (!raw) return 0;
+  const px = parseFloat(raw);
+  return Number.isFinite(px) ? px : 0;
+}
+
 function readWebSafeAreaTop(): number {
   if (typeof document === 'undefined') return 0;
 
+  const boot = readBootSafeAreaTop();
   const probe = document.createElement('div');
   probe.style.cssText =
     'position:fixed;top:0;left:0;height:0;padding-top:constant(safe-area-inset-top);padding-top:env(safe-area-inset-top);visibility:hidden;pointer-events:none;';
   document.body.appendChild(probe);
   const top = parseFloat(getComputedStyle(probe).paddingTop) || 0;
   document.body.removeChild(probe);
-  return top;
+  return Math.max(boot, top);
 }
 
 function isIosWeb(): boolean {
@@ -54,7 +66,8 @@ export function useHeroTopInset(): number {
     Platform.OS === 'web' ? resolveWebTopInset() : 0
   );
 
-  useEffect(() => {
+  // Before paint — avoids one frame of inset=0 that clips the hero city title.
+  useLayoutEffect(() => {
     if (Platform.OS !== 'web') return;
 
     const update = () => {
@@ -62,7 +75,7 @@ export function useHeroTopInset(): number {
     };
 
     update();
-    const timers = [50, 100, 400, 1000].map((ms) => setTimeout(update, ms));
+    const timers = [50, 100, 400].map((ms) => setTimeout(update, ms));
     window.addEventListener('resize', update);
     window.addEventListener('orientationchange', update);
     return () => {

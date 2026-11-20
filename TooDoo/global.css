@@ -138,7 +138,8 @@ html.light #home-search-panel.home-pinned-header {
 
 #home-greeting {
   position: relative !important;
-  overflow: hidden !important;
+  /* Visible so Plus Jakarta descenders (Helsingborg "g") aren't clipped on first paint. */
+  overflow: visible !important;
   background-color: transparent !important;
   border: none !important;
 }

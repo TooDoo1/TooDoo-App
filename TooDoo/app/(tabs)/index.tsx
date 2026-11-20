@@ -4940,18 +4940,12 @@ export default function HomeScreen() {
             </View>
           </Reanimated.View>
           <View
-            style={[
-              {
-                zIndex: 1,
-                paddingTop: homeHeaderInset,
-              },
-              Platform.OS === 'web'
-                ? ({
-                    // Real island/notch only — no invented gap when env is 0.
-                    paddingTop: `max(${homeHeaderInset}px, env(safe-area-inset-top, 0px))`,
-                  } as object)
-                : null,
-            ]}
+            style={{
+              zIndex: 1,
+              // JS inset only — CSS env() here raced ahead of measured heights and
+              // shoved "Helsingborg" under the pinned header's overflow clip on first paint.
+              paddingTop: homeHeaderInset,
+            }}
             pointerEvents="box-none"
           >
             <Reanimated.View style={greetingCollapseStyle} pointerEvents="box-none">
@@ -5437,7 +5431,7 @@ const styles = StyleSheet.create({
   searchHeaderRoot: {
     position: 'relative',
     width: '100%',
-    overflow: 'hidden',
+    overflow: 'visible',
   },
   searchHeaderSticky: {
     position: 'relative',
@@ -5488,9 +5482,9 @@ const styles = StyleSheet.create({
     fontSize: 34,
     fontWeight: '800',
     letterSpacing: -1,
-    // Plus Jakarta Sans needs extra line box height or "Helsingborg" clips on web/Vercel.
-    lineHeight: 46,
-    paddingBottom: 2,
+    // Tall line box + padding so Plus Jakarta descenders clear overflow clips.
+    lineHeight: 48,
+    paddingBottom: 6,
     includeFontPadding: false,
   },
   homeLocationButton: {

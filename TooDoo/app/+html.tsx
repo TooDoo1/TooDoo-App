@@ -12,6 +12,16 @@ const pwaViewportHeight = `
     );
   }
 
+  function readSafeAreaTop() {
+    var probe = document.createElement('div');
+    probe.style.cssText =
+      'position:fixed;top:0;left:0;height:0;padding-top:constant(safe-area-inset-top);padding-top:env(safe-area-inset-top);visibility:hidden;pointer-events:none;';
+    document.documentElement.appendChild(probe);
+    var top = parseFloat(window.getComputedStyle(probe).paddingTop) || 0;
+    document.documentElement.removeChild(probe);
+    return top;
+  }
+
   function applyViewportHeight() {
     var root = document.documentElement;
     if (isStandalonePwa()) {
@@ -22,6 +32,8 @@ const pwaViewportHeight = `
       root.classList.remove('standalone-pwa');
       root.style.setProperty('--app-height', '100dvh');
     }
+    // Expose safe-area before React mounts so hero band height matches first paint.
+    root.style.setProperty('--toodoo-safe-top', readSafeAreaTop() + 'px');
   }
 
   applyViewportHeight();
