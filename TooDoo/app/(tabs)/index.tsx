@@ -532,13 +532,19 @@ function matchCardsToSearchTip(
   return matched.slice(0, SEARCH_TIP_PREVIEW_LIMIT);
 }
 
+/** ~100 m — ignore GPS jitter so returning to home doesn't refetch the whole feed. */
+const COORDS_EQUAL_EPS = 0.0009;
+
 function sameCoords(
   a: { lat: number; lng: number } | null | undefined,
   b: { lat: number; lng: number } | null | undefined
 ) {
   if (a === b) return true;
   if (!a || !b) return false;
-  return Math.abs(a.lat - b.lat) < 1e-7 && Math.abs(a.lng - b.lng) < 1e-7;
+  return (
+    Math.abs(a.lat - b.lat) < COORDS_EQUAL_EPS &&
+    Math.abs(a.lng - b.lng) < COORDS_EQUAL_EPS
+  );
 }
 
 function sortDealsByDistance(deals: CardItem[]): CardItem[] {
@@ -1554,11 +1560,8 @@ export default function HomeScreen() {
       scrollRef.current?.scrollToOffset({ offset: y, animated: false });
     };
     apply();
-    requestAnimationFrame(() => {
-      apply();
-      requestAnimationFrame(apply);
-    });
-    // Web layout often settles after the first paint when returning from a stack screen.
+    // One follow-up frame is enough on native; web layout settles later.
+    requestAnimationFrame(apply);
     if (Platform.OS === 'web') {
       setTimeout(apply, 50);
       setTimeout(apply, 160);
@@ -1716,18 +1719,23 @@ export default function HomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      setNowMs(Date.now());
+      // Only bump when the minute changes — avoids a full home re-render on every back.
+      setNowMs((prev) => {
+        const now = Date.now();
+        return Math.floor(prev / 60_000) === Math.floor(now / 60_000) ? prev : now;
+      });
       const tick = setInterval(() => setNowMs(Date.now()), 60_000);
       blurActiveElementOnWeb();
       const task = InteractionManager.runAfterInteractions(() => {
         restoreHomeScroll();
       });
-      // Extra pass after stack transition / layout on return.
-      const restoreTimer = setTimeout(() => restoreHomeScroll(), 220);
+      // Web layout settles late after stack pop; native one InteractionManager pass is enough.
+      const restoreTimer =
+        Platform.OS === 'web' ? setTimeout(() => restoreHomeScroll(), 220) : null;
 
       return () => {
         clearInterval(tick);
-        clearTimeout(restoreTimer);
+        if (restoreTimer) clearTimeout(restoreTimer);
         task.cancel();
         tabBarScrollHiddenSv.value = 0;
         scrollHideProgress.value = withTiming(0, { duration: 220 });
@@ -1769,6 +1777,7 @@ export default function HomeScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- recompute when place or list size changes
   }, [coords?.lat, coords?.lng, deals.length, refreshNonce]);
 
+  const lastFocusCoordsAtRef = useRef(0);
   const refreshEffectiveCoords = useCallback(async () => {
     // Prefer custom place / already-granted GPS. Never overwrite a known position
     // with Helsingborg just because a GPS read failed momentarily.
@@ -1951,6 +1960,11 @@ export default function HomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      // Throttle GPS on tab focus — every return from company detail was
+      // jittering coords and kicking a full home soft-reload.
+      const now = Date.now();
+      if (now - lastFocusCoordsAtRef.current < 90_000) return;
+      lastFocusCoordsAtRef.current = now;
       void refreshEffectiveCoords();
     }, [refreshEffectiveCoords])
   );
@@ -1982,12 +1996,15 @@ export default function HomeScreen() {
       }
 
       let cancelled = false;
-      void fetchRecentBusinesses(authFetch).then((cards) => {
-        if (!cancelled) setRecentCompanies(cards);
+      const task = InteractionManager.runAfterInteractions(() => {
+        void fetchRecentBusinesses(authFetch).then((cards) => {
+          if (!cancelled) setRecentCompanies(cards);
+        });
       });
 
       return () => {
         cancelled = true;
+        task.cancel();
       };
     }, [authFetch, isLoggedIn, refreshNonce])
   );
@@ -2919,6 +2936,7 @@ export default function HomeScreen() {
     let cancelled = false;
     const thisRequest = ++homeLoadGenRef.current;
     const isStale = () => cancelled || thisRequest !== homeLoadGenRef.current;
+    let afterInteractionsTask: { cancel: () => void } | null = null;
 
     void (async () => {
       try {
@@ -2973,6 +2991,14 @@ export default function HomeScreen() {
             });
         }
 
+        // Defer settle + geocode until after the back/transition animation so
+        // returning from a company detail doesn't hitch the home screen.
+        await new Promise<void>((resolve) => {
+          afterInteractionsTask = InteractionManager.runAfterInteractions(() => resolve());
+        });
+        afterInteractionsTask = null;
+        if (isStale()) return;
+
         const settled = await settleHomeScreenAssetsWithinBudget({
           deals: dealsWithDistance,
           nearYouCards: nearWithDistance,
@@ -3018,6 +3044,7 @@ export default function HomeScreen() {
 
     return () => {
       cancelled = true;
+      afterInteractionsTask?.cancel();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coords?.lat, coords?.lng, markDataReady, token]);
@@ -5037,8 +5064,9 @@ export default function HomeScreen() {
           // (absolute bottom + overflow was clipping the title on iPhone / Vercel web).
           justifyContent: 'space-between',
           paddingTop: 8,
-          // Keep Upptäck + city fully above the search bar (was still half-covered).
-          paddingBottom: 56,
+          // Android: lower copy toward the search seam (56 left it mid-hero).
+          // iOS/web: keep more clearance so the title isn't half-covered.
+          paddingBottom: Platform.OS === 'android' ? 22 : 40,
           overflow: 'hidden',
         },
       ]}
