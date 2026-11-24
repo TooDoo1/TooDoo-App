@@ -8,7 +8,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import MapView, { Marker, Polyline, UrlTile, type Region } from 'react-native-maps';
+import MapView, { Marker, Polyline, type Region } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -50,7 +50,7 @@ import {
   type Coords,
 } from '@/lib/geo';
 import { loadRegionSelection } from '@/lib/region-selection';
-import { MAP_ATTRIBUTION, mapShellBackground, mapTileUrlForMode } from '@/lib/map-style';
+import { mapShellBackground } from '@/lib/map-style';
 import {
   fetchTravelRoutes,
   formatRouteSummary,
@@ -197,7 +197,6 @@ export default function BusinessMapScreen() {
   const [routes, setRoutes] = useState<TravelRoutes | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
   const routeRequestRef = useRef(0);
-  const tileUrl = mapTileUrlForMode(mode);
   const shellBg = mapShellBackground(mode);
   const bottomPad = Math.max(insets.bottom, 12) + 16;
   const fromNaraDig = paramString(params.returnTo) === 'naradig';
@@ -590,14 +589,14 @@ export default function BusinessMapScreen() {
           ref={mapRef}
           style={[StyleSheet.absoluteFill, { backgroundColor: shellBg }]}
           initialRegion={initialRegion}
-          mapType="none"
+          mapType="standard"
+          userInterfaceStyle={mode === 'dark' ? 'dark' : 'light'}
           showsUserLocation={false}
           showsMyLocationButton={Platform.OS === 'android'}
           mapPadding={{ top: insets.top + 56, right: 0, bottom: bottomPad, left: 0 }}
           onRegionChange={handleRegionChangeLive}
           onRegionChangeComplete={handleRegionChange}
         >
-          <UrlTile urlTemplate={tileUrl} maximumZ={19} flipY={false} />
           {walkingLine?.length ? (
             <Polyline
               coordinates={walkingLine}
@@ -675,16 +674,6 @@ export default function BusinessMapScreen() {
             )}
           </View>
         ) : null}
-
-        <Text
-          style={[
-            styles.attribution,
-            mode === 'dark' ? styles.attributionDark : styles.attributionLight,
-            { bottom: bottomPad + 8 },
-          ]}
-        >
-          {MAP_ATTRIBUTION}
-        </Text>
 
         {pinsLoading || searchingCatalog ? (
           <View style={[styles.emptyBanner, { bottom: bottomPad + 16 }]}>
@@ -783,24 +772,6 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 14,
     backgroundColor: 'rgba(14,19,37,0.88)',
-  },
-  attribution: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    zIndex: 20,
-    fontSize: 7,
-    letterSpacing: 0.1,
-    textAlign: 'center',
-    paddingHorizontal: 0,
-    paddingVertical: 0,
-    backgroundColor: 'transparent',
-  },
-  attributionDark: {
-    color: 'rgba(255,255,255,0.28)',
-  },
-  attributionLight: {
-    color: 'rgba(0,0,0,0.32)',
   },
   card: {
     position: 'absolute',

@@ -5,7 +5,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import MapView, { Marker, Polyline, UrlTile } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 
 import { BusinessMapPin } from './business-map-pin';
@@ -13,7 +13,7 @@ import { UserLocationArrow } from './user-location-arrow';
 import type { OfferMapProps } from './offer-map.types';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { getCategoryAccentColor } from '@/lib/category-colors';
-import { MAP_ATTRIBUTION, mapShellBackground, mapTileUrlForMode } from '@/lib/map-style';
+import { mapShellBackground } from '@/lib/map-style';
 import {
   fetchTravelRoutes,
   formatRouteSummary,
@@ -77,7 +77,6 @@ function OfferMapComponent({
   const chipBg = chipBackgroundColor ?? theme.cardBg;
   const chipFg = theme.isDark ? '#ffffff' : theme.text;
   const shellBg = mapShellBackground(mode);
-  const tileUrl = mapTileUrlForMode(mode);
   const pinColor = getCategoryAccentColor(categoryName);
   const hasCoords =
     Number.isFinite(latitude) &&
@@ -141,7 +140,8 @@ function OfferMapComponent({
         key={`${mapKey}-${mode}-${drivingLine || walkingLine ? 'r' : 'p'}`}
         style={[styles.map, { backgroundColor: shellBg }]}
         initialRegion={region}
-        mapType="none"
+        mapType="standard"
+        userInterfaceStyle={mode === 'dark' ? 'dark' : 'light'}
         scrollEnabled
         zoomEnabled
         pitchEnabled={false}
@@ -149,7 +149,6 @@ function OfferMapComponent({
         toolbarEnabled={false}
         showsUserLocation={false}
       >
-        <UrlTile urlTemplate={tileUrl} maximumZ={19} flipY={false} />
         {walkingLine?.length ? (
           <Polyline
             coordinates={walkingLine}
@@ -189,14 +188,6 @@ function OfferMapComponent({
           />
         </Marker>
       </MapView>
-      <Text
-        style={[
-          styles.attribution,
-          mode === 'dark' ? styles.attributionDark : styles.attributionLight,
-        ]}
-      >
-        {MAP_ATTRIBUTION}
-      </Text>
 
       {routeLoading ? (
         <View
@@ -255,23 +246,5 @@ const styles = StyleSheet.create({
   },
   map: {
     ...StyleSheet.absoluteFillObject,
-  },
-  attribution: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 3,
-    fontSize: 7,
-    letterSpacing: 0.1,
-    textAlign: 'center',
-    paddingHorizontal: 0,
-    paddingVertical: 0,
-    backgroundColor: 'transparent',
-  },
-  attributionDark: {
-    color: 'rgba(255,255,255,0.28)',
-  },
-  attributionLight: {
-    color: 'rgba(0,0,0,0.32)',
   },
 });

@@ -2,13 +2,14 @@ import type { ThemeMode } from '@/context/theme-preference-context';
 
 /**
  * Architecture:
- *   OpenStreetMap data ──► MapLibre (web) / Carto raster (native)
+ *   Web:     OpenStreetMap data ──► MapLibre / OpenFreeMap
+ *   Native:  Google Maps SDK (standard mapType) — Carto UrlTiles retired
  *                              │
  *                              ▼
  *                        TooDoo UI layer
  *                   pins · cards · categories · offers
  *
- * Customize basemap colors: Maputnik → export JSON → public/map-styles/
+ * Customize web basemap colors: Maputnik → export JSON → public/map-styles/
  * https://maputnik.github.io/
  */
 export const OPENFREEMAP_STYLES = {
