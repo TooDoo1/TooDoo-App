@@ -25,7 +25,8 @@ const pillShadow =
 					shadowRadius: 6,
 					shadowOffset: { width: 0, height: 2 },
 				}
-			: { elevation: 3 };
+			: // Avoid elevation on every card badge — costly during Android scroll.
+				null;
 
 function ActivityIconPill({
 	icon,
@@ -49,7 +50,7 @@ function ActivityIconPill({
 					justifyContent: 'center',
 					backgroundColor: color,
 				},
-				pillShadow,
+				pillShadow ?? undefined,
 			]}
 		>
 			<Ionicons name={icon} size={13} color="#ffffff" />

@@ -1,5 +1,5 @@
 import { createElement, memo, useCallback, useEffect, useRef } from 'react';
-import { Image, Platform, StyleSheet } from 'react-native';
+import { Image, Platform, StyleSheet, View } from 'react-native';
 import Animated, {
 	Easing,
 	useAnimatedStyle,
@@ -13,6 +13,9 @@ import { getLightningIntroHtml } from '@/lib/lightning-intro-html';
 const logoSrc = require('../../assets/images/TooDoo.jpg');
 
 export const SPLASH_EXIT_DURATION_MS = 380;
+const NATIVE_LOGO_REVEAL_MS = 520;
+/** Signal intro-complete shortly after the logo is visible — don't wait on WebView. */
+const NATIVE_INTRO_COMPLETE_MS = 640;
 
 type LightningIntroSplashProps = {
 	isExiting?: boolean;
@@ -24,6 +27,7 @@ function LightningIntroSplash({
 	onIntroComplete,
 }: LightningIntroSplashProps) {
 	const exitProgress = useSharedValue(0);
+	const logoProgress = useSharedValue(0);
 	const iframeRef = useRef<HTMLIFrameElement | null>(null);
 	const webViewRef = useRef<WebView>(null);
 	const introCompleteRef = useRef(false);
@@ -41,7 +45,7 @@ function LightningIntroSplash({
 
 		if (Platform.OS === 'web') {
 			iframeRef.current?.contentWindow?.postMessage(exitMessage, '*');
-		} else {
+		} else if (Platform.OS === 'ios') {
 			webViewRef.current?.injectJavaScript(
 				`window.dispatchEvent(new MessageEvent('message', { data: ${JSON.stringify(exitMessage)} })); true;`
 			);
@@ -66,9 +70,29 @@ function LightningIntroSplash({
 		return () => window.removeEventListener('message', onMessage);
 	}, [notifyIntroComplete]);
 
+	// Android (and any non-web/iOS): native logo — WebView + asset file URIs often show a blank screen.
+	useEffect(() => {
+		if (Platform.OS === 'web' || Platform.OS === 'ios') return;
+
+		logoProgress.value = withTiming(1, {
+			duration: NATIVE_LOGO_REVEAL_MS,
+			easing: Easing.out(Easing.cubic),
+		});
+		const completeTimer = setTimeout(notifyIntroComplete, NATIVE_INTRO_COMPLETE_MS);
+		return () => clearTimeout(completeTimer);
+	}, [logoProgress, notifyIntroComplete]);
+
 	const containerStyle = useAnimatedStyle(() => ({
 		opacity: 1 - exitProgress.value,
 	}));
+
+	const nativeLogoStyle = useAnimatedStyle(() => {
+		const p = logoProgress.value;
+		return {
+			opacity: p,
+			transform: [{ scale: 0.85 + 0.15 * p }],
+		};
+	});
 
 	if (Platform.OS === 'web') {
 		return (
@@ -91,6 +115,18 @@ function LightningIntroSplash({
 		);
 	}
 
+	// Android: native Image splash — reliable logo, no WebView startup cost.
+	if (Platform.OS === 'android') {
+		return (
+			<Animated.View style={[styles.container, containerStyle]}>
+				<Animated.View style={[styles.logoWrap, nativeLogoStyle]}>
+					<Image source={logoSrc} style={styles.logoImage} resizeMode="cover" />
+				</Animated.View>
+			</Animated.View>
+		);
+	}
+
+	// iOS: keep the HTML lightning intro (local assets load reliably in WKWebView).
 	const logoUri = Image.resolveAssetSource(logoSrc).uri;
 
 	return (
@@ -102,6 +138,7 @@ function LightningIntroSplash({
 				scrollEnabled={false}
 				bounces={false}
 				originWhitelist={['*']}
+				allowingReadAccessToURL={logoUri}
 				onMessage={(event) => {
 					try {
 						const data = JSON.parse(event.nativeEvent.data);
@@ -115,6 +152,10 @@ function LightningIntroSplash({
 					}
 				}}
 			/>
+			{/* Fallback if WebView message never fires */}
+			<View style={styles.hiddenFallback} pointerEvents="none">
+				<Image source={logoSrc} style={styles.logoImage} />
+			</View>
 		</Animated.View>
 	);
 }
@@ -136,5 +177,28 @@ const styles = StyleSheet.create({
 		width: '100%',
 		height: '100%',
 		backgroundColor: '#0e1325',
+	},
+	logoWrap: {
+		width: 200,
+		height: 200,
+		borderRadius: 36,
+		overflow: 'hidden',
+		shadowColor: '#ffdc50',
+		shadowOpacity: 0.45,
+		shadowRadius: 18,
+		shadowOffset: { width: 0, height: 0 },
+		elevation: 12,
+	},
+	logoImage: {
+		width: 200,
+		height: 200,
+		borderRadius: 36,
+	},
+	hiddenFallback: {
+		position: 'absolute',
+		opacity: 0,
+		width: 1,
+		height: 1,
+		overflow: 'hidden',
 	},
 });

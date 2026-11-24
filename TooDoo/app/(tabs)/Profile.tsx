@@ -209,7 +209,7 @@ export default function ProfileScreen() {
                 <View style={styles.settingCopy}>
                   <Text style={[styles.settingTitle, { color: theme.text }]}>Notiser</Text>
                   <Text style={[styles.settingDesc, { color: theme.textMuted }]}>
-                    Påminnelser om deals och erbjudanden
+                    Favoriter, snart slut, lunch, helg och tips när du varit borta
                   </Text>
                 </View>
                 <Switch

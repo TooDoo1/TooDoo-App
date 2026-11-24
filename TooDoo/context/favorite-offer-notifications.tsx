@@ -6,7 +6,12 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/auth-context';
 import { useFavorites } from '@/context/favorites-context';
 import { apiUrl } from '@/lib/api';
+import {
+  refreshEngagementNotifications,
+  scheduleFavoriteOfferExpiryNotifications,
+} from '@/lib/engagement-notifications';
 import { getOrderBusinessId, getOrderId, isActiveOffer, parseOrdersList } from '@/lib/offers';
+import { requestOpenHomeSearch } from '@/lib/home-search-handoff';
 import {
   getExpoPushToken,
   registerPushTokenWithBackend,
@@ -40,6 +45,21 @@ async function saveSeenOfferIds(userId: string, ids: Set<string>) {
   }
 }
 
+async function fetchNotificationsEnabled(
+  authFetch: (path: string, init?: RequestInit) => Promise<Response>,
+  hasToken: boolean
+): Promise<boolean> {
+  if (!hasToken) return true;
+  try {
+    const meRes = await authFetch('/user/me');
+    const me = await meRes.json().catch(() => ({}));
+    if (me?.notificationsEnabled === false) return false;
+  } catch {
+    // keep enabled on transient errors
+  }
+  return true;
+}
+
 export function FavoriteOfferNotificationsProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { token, role, isAuthReady, authFetch } = useAuth();
@@ -50,13 +70,30 @@ export function FavoriteOfferNotificationsProvider({ children }: { children: Rea
 
   favoriteIdsRef.current = favoriteBusinessIds;
 
+  const syncEngagement = useCallback(async () => {
+    if (Platform.OS === 'web') return;
+    const enabled = await fetchNotificationsEnabled(authFetch, Boolean(token));
+    await refreshEngagementNotifications(enabled);
+  }, [authFetch, token]);
+
   const scanFavoriteOffers = useCallback(async () => {
-    if (!token || role !== 'USER' || favoriteIdsRef.current.size === 0) return;
+    if (Platform.OS === 'web') return;
+    if (!token || role !== 'USER') {
+      await syncEngagement();
+      return;
+    }
 
     try {
       const meRes = await authFetch('/user/me');
       const me = await meRes.json().catch(() => ({}));
-      if (me?.notificationsEnabled === false) return;
+      const notificationsEnabled = me?.notificationsEnabled !== false;
+
+      await refreshEngagementNotifications(notificationsEnabled);
+
+      if (!notificationsEnabled || favoriteIdsRef.current.size === 0) {
+        await scheduleFavoriteOfferExpiryNotifications([], new Set(), false);
+        return;
+      }
 
       const userId = String(me?.id ?? me?.email ?? 'me');
       userIdRef.current = userId;
@@ -72,8 +109,19 @@ export function FavoriteOfferNotificationsProvider({ children }: { children: Rea
         return businessId && favoriteSet.has(businessId) && isActiveOffer(order, nowMs);
       });
 
+      await scheduleFavoriteOfferExpiryNotifications(
+        activeFromFavorites,
+        favoriteSet,
+        notificationsEnabled
+      );
+
       const seen = await loadSeenOfferIds(userId);
-      const newlyFound: { orderId: string; title: string; businessName: string; businessId: string }[] = [];
+      const newlyFound: {
+        orderId: string;
+        title: string;
+        businessName: string;
+        businessId: string;
+      }[] = [];
 
       for (const order of activeFromFavorites) {
         const orderId = getOrderId(order);
@@ -101,6 +149,7 @@ export function FavoriteOfferNotificationsProvider({ children }: { children: Rea
           `Nytt erbjudande från ${item.businessName}`,
           item.title,
           {
+            type: 'favorite_offer',
             businessId: item.businessId,
             orderId: item.orderId,
           }
@@ -109,7 +158,7 @@ export function FavoriteOfferNotificationsProvider({ children }: { children: Rea
     } catch {
       // ignore transient failures
     }
-  }, [authFetch, role, token]);
+  }, [authFetch, role, syncEngagement, token]);
 
   useEffect(() => {
     if (!isAuthReady || !token || role !== 'USER' || Platform.OS === 'web') return;
@@ -123,7 +172,8 @@ export function FavoriteOfferNotificationsProvider({ children }: { children: Rea
   }, [isAuthReady, token, role]);
 
   useEffect(() => {
-    if (!isAuthReady || !token || role !== 'USER') return;
+    if (Platform.OS === 'web') return;
+    if (!isAuthReady) return;
 
     isFirstScanRef.current = true;
     void scanFavoriteOffers();
@@ -147,9 +197,13 @@ export function FavoriteOfferNotificationsProvider({ children }: { children: Rea
 
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
       const data = response.notification.request.content.data as {
+        type?: string;
         businessId?: string;
         orderId?: string;
+        screen?: string;
+        query?: string;
       };
+
       if (data?.businessId) {
         router.push({
           pathname: '/company-detail',
@@ -160,7 +214,16 @@ export function FavoriteOfferNotificationsProvider({ children }: { children: Rea
             ...(data.orderId ? { claimOrderId: data.orderId } : {}),
           },
         });
+        return;
       }
+
+      if (data?.query) {
+        requestOpenHomeSearch(data.query);
+        router.push('/(tabs)');
+        return;
+      }
+
+      router.push('/(tabs)');
     });
 
     return () => sub.remove();

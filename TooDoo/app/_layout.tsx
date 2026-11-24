@@ -3,6 +3,8 @@ import { Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { ReanimatedScreenProvider } from 'react-native-screens/reanimated';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -41,7 +43,8 @@ import { warmHomeScreenDuringStartup } from '@/lib/warm-home-screen';
 SplashScreen.preventAutoHideAsync().catch(() => {});
 applyAppTextDefaults();
 
-const MAX_SPLASH_DURATION_MS = 12000;
+/** Hard cap — Android used to sit on a blank WebView splash for the full 12s. */
+const MAX_SPLASH_DURATION_MS = Platform.OS === 'android' ? 4500 : 9000;
 const WEB_SPLASH_SEEN_KEY = 'toodoo_splash_seen';
 
 function hasWebSplashBeenSeen() {
@@ -79,6 +82,8 @@ function AppShell() {
 	const theme = uiTheme(mode);
 	const isStandalonePwa = useStandalonePwa();
 	const { isDataReady, markDataReady } = useAppReady();
+	// Warm tab-bar icon font during splash so Android doesn't reveal empty slots.
+	useFonts(MaterialIcons.font);
 	const swipeableStackScreenOptions = useMemo(
 		() => getSwipeableStackScreenOptions(windowWidth),
 		[windowWidth]
@@ -132,10 +137,24 @@ function AppShell() {
 
 	useEffect(() => {
 		SplashScreen.hideAsync().catch(() => {});
-		// Load map + frontpage under the splash so both are warm when it exits.
-		warmBusinessMapDuringStartup();
+		// Frontpage first — defer map warmup on Android so it doesn't fight the home JS thread.
 		warmHomeScreenDuringStartup();
+		if (Platform.OS === 'android') {
+			const mapWarmTimer = setTimeout(() => {
+				warmBusinessMapDuringStartup();
+			}, 2500);
+			const maxTimer = setTimeout(() => {
+				setHasMaxElapsed(true);
+				setIntroComplete(true);
+				markDataReady();
+			}, MAX_SPLASH_DURATION_MS);
+			return () => {
+				clearTimeout(mapWarmTimer);
+				clearTimeout(maxTimer);
+			};
+		}
 
+		warmBusinessMapDuringStartup();
 		const maxTimer = setTimeout(() => {
 			setHasMaxElapsed(true);
 			setIntroComplete(true);
@@ -148,7 +167,10 @@ function AppShell() {
 	useEffect(() => {
 		if (!isSplashMounted || introComplete) return;
 
-		const introFallback = setTimeout(() => setIntroComplete(true), 5200);
+		const introFallback = setTimeout(
+			() => setIntroComplete(true),
+			Platform.OS === 'android' ? 1800 : 5200
+		);
 		return () => clearTimeout(introFallback);
 	}, [introComplete, isSplashMounted]);
 
@@ -194,7 +216,9 @@ function AppShell() {
 		onboardingStatus === 'needed' &&
 		startupResolved &&
 		(isExiting || !isSplashMounted);
-	const showTabBar = !hideAppShell && !isSplashMounted;
+	// Mount the tab bar under the splash so MaterialIcons load before reveal
+	// (otherwise Android often shows empty icon slots after a long splash).
+	const showTabBar = !hideAppShell;
 
 	return (
 		<TabBarMotionProvider>

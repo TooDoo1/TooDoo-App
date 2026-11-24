@@ -6,10 +6,13 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
+  type RefObject,
   type UIEvent,
 } from 'react';
 import {
   ImageSourcePropType,
+  InteractionManager,
   Platform,
   Pressable,
   ScrollView,
@@ -65,9 +68,14 @@ import { IMAGE_DISPLAY_WIDTH, sizedImageUrl } from '@/lib/image-url';
 import { FAVORITE_HEART_COLOR } from '@/lib/tab-colors';
 import { uiTheme } from '@/lib/ui-theme';
 
+type RailScrollable = {
+  scrollTo?: (opts: { x: number; y?: number; animated?: boolean }) => void;
+  scrollToOffset?: (opts: { offset: number; animated?: boolean }) => void;
+};
+
 /** Remember horizontal rail position across company/detail navigation. */
 function usePersistedRailScroll(scrollKey?: string) {
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<RailScrollable | null>(null);
   const isFocused = useIsFocused();
   const initialX = scrollKey ? getHomeRailScrollOffset(scrollKey) : 0;
 
@@ -84,7 +92,12 @@ function usePersistedRailScroll(scrollKey?: string) {
     const x = getHomeRailScrollOffset(scrollKey);
     if (x <= 0) return;
     const apply = () => {
-      scrollRef.current?.scrollTo({ x, animated: false });
+      const node = scrollRef.current;
+      if (node?.scrollToOffset) {
+        node.scrollToOffset({ offset: x, animated: false });
+      } else {
+        node?.scrollTo?.({ x, animated: false });
+      }
     };
     apply();
     requestAnimationFrame(() => {
@@ -113,6 +126,7 @@ function usePersistedRailScroll(scrollKey?: string) {
 export const HOME_RADIUS = 16;
 export const HOME_PAGE_PAD = 20;
 const POSTER_WIDTH = 168;
+const POSTER_RAIL_GAP = 14;
 const POSTER_IMAGE_H = 112;
 const POSTER_IMAGE_H_COMPACT = 100;
 const POSTER_IMAGE_H_FULL = 200;
@@ -155,14 +169,24 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
 }
 
-/** Frosted blur wash behind card overlays (category tag, heart) — same as Helsingborg pill. */
+/**
+ * Frosted wash behind card overlays (category tag, heart).
+ * Android: solid tint only — live BlurView/dimezisBlurView on every card kills scroll FPS.
+ */
 function FrostedOverlayWash() {
   if (Platform.OS === 'web') return null;
+  if (Platform.OS === 'android') {
+    return (
+      <View
+        pointerEvents="none"
+        style={[StyleSheet.absoluteFillObject, styles.androidFrostedWash]}
+      />
+    );
+  }
   return (
     <BlurView
       tint="systemThinMaterialDark"
-      intensity={Platform.OS === 'android' ? 64 : 40}
-      experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
+      intensity={40}
       style={StyleSheet.absoluteFillObject}
     />
   );
@@ -186,7 +210,44 @@ function featuredImageUri(card: HomeFeedCard): string | undefined {
     typeof card.image === 'object' && card.image && 'uri' in card.image && typeof card.image.uri === 'string'
       ? card.image.uri
       : undefined;
-  return sizedImageUrl(raw, IMAGE_DISPLAY_WIDTH.hero) ?? raw;
+  return sizedImageUrl(raw, IMAGE_DISPLAY_WIDTH.featured) ?? raw;
+}
+
+/**
+ * On Android, mount heavy home sections only after interactions settle so the
+ * first paint (search + top rails) stays responsive.
+ */
+export function HomeDeferredMount({
+  children,
+  delayMs = 0,
+  placeholderHeight = 160,
+}: {
+  children: ReactNode;
+  delayMs?: number;
+  placeholderHeight?: number;
+}) {
+  const [ready, setReady] = useState(Platform.OS !== 'android');
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const handle = InteractionManager.runAfterInteractions(() => {
+      timeoutId = setTimeout(() => {
+        if (!cancelled) setReady(true);
+      }, delayMs);
+    });
+    return () => {
+      cancelled = true;
+      handle.cancel?.();
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [delayMs]);
+
+  if (!ready) {
+    return <View style={{ minHeight: placeholderHeight }} />;
+  }
+  return <>{children}</>;
 }
 
 function cssImageUrl(uri: string) {
@@ -938,7 +999,7 @@ const FeaturedSlideBody = memo(function FeaturedSlideBody({
             svgFit="fill"
             priority="high"
             cachePolicy="memory-disk"
-            displayWidth={IMAGE_DISPLAY_WIDTH.hero}
+            displayWidth={IMAGE_DISPLAY_WIDTH.featured}
           />
         )}
         <View style={styles.dealTopRow} pointerEvents="box-none">
@@ -1345,7 +1406,8 @@ export function HomeFeaturedPick({
   const isFocused = useIsFocused();
   const items = cards.slice(0, 6);
   const count = items.length;
-  const looping = count > 1;
+  // Android: skip 3× slide cloning — mounts triple the images for infinite wrap (RN perf guides).
+  const looping = count > 1 && Platform.OS !== 'android';
   const slides = useMemo(
     () => (looping ? [...items, ...items, ...items] : items),
     [items, looping]
@@ -1581,7 +1643,7 @@ export function HomeRecentCompanies({
         return typeof raw === 'string' ? sizedImageUrl(raw, IMAGE_DISPLAY_WIDTH.thumb) ?? raw : undefined;
       })
       .filter((uri): uri is string => Boolean(uri));
-    void prefetchImageUris(uris, 12);
+    void prefetchImageUris(uris, Platform.OS === 'android' ? 6 : 12);
   }, [items]);
 
   if (items.length === 0) return null;
@@ -1589,7 +1651,7 @@ export function HomeRecentCompanies({
   return (
     <View style={{ marginHorizontal: -HOME_PAGE_PAD }}>
       <ScrollView
-        ref={rail.scrollRef}
+        ref={rail.scrollRef as RefObject<ScrollView>}
         horizontal
         nestedScrollEnabled
         directionalLockEnabled={Platform.OS === 'ios'}
@@ -1708,20 +1770,24 @@ export function HomePosterCarousel({
 }) {
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
-  const items = cards.slice(0, 10);
+  // Fewer decoded bitmaps on Android — rails are horizontal so 6 is enough to scroll.
+  const items = cards.slice(0, Platform.OS === 'android' ? 6 : 10);
   const rail = usePersistedRailScroll(scrollKey);
   const imageH = compact ? POSTER_IMAGE_H_COMPACT : POSTER_IMAGE_H;
+  const padH = bleed ? HOME_PAGE_PAD : 0;
 
   if (items.length === 0) {
     return <Text style={{ color: theme.textMuted }}>{emptyText}</Text>;
   }
 
+  // Keep horizontal rails as ScrollView — nested FlatList inside the vertical FlashList
+  // home feed causes blank cells / gesture fights. Rails are already capped to ≤10 cards.
   return (
     <View style={bleed ? { marginHorizontal: -HOME_PAGE_PAD } : undefined}>
       <ScrollView
-        ref={rail.scrollRef}
+        ref={rail.scrollRef as RefObject<ScrollView>}
         horizontal
-        removeClippedSubviews
+        removeClippedSubviews={Platform.OS === 'android'}
         nestedScrollEnabled
         directionalLockEnabled={Platform.OS === 'ios'}
         decelerationRate={Platform.OS === 'android' ? 0.992 : 'normal'}
@@ -1729,7 +1795,7 @@ export function HomePosterCarousel({
         // RN Web ScrollView defaults to flex:1 and can leave a tall empty gap under rails.
         style={{ flexGrow: 0, flexShrink: 0 }}
         contentContainerStyle={{
-          paddingHorizontal: bleed ? HOME_PAGE_PAD : 0,
+          paddingHorizontal: padH,
           flexGrow: 0,
           alignItems: 'flex-start',
         }}
@@ -1737,7 +1803,7 @@ export function HomePosterCarousel({
         scrollEventThrottle={rail.scrollEventThrottle}
         onScroll={rail.onScroll}
       >
-        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 14 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: POSTER_RAIL_GAP }}>
           {items.map((card, idx) => (
             <View key={`${card.resultKind ?? 'business'}:${card.orderIds?.[0] ?? card.id}-${idx}`} style={styles.poster}>
               <HomeListingCard
@@ -1780,7 +1846,7 @@ export function HomeEventTickets({
   return (
     <View style={{ marginHorizontal: -HOME_PAGE_PAD }}>
       <ScrollView
-        ref={rail.scrollRef}
+        ref={rail.scrollRef as RefObject<ScrollView>}
         horizontal
         nestedScrollEnabled
         directionalLockEnabled={Platform.OS === 'ios'}
@@ -1939,6 +2005,9 @@ const styles = StyleSheet.create({
   overlayDarkLens: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: OVERLAY_DARK_LENS,
+  },
+  androidFrostedWash: {
+    backgroundColor: 'rgba(10, 14, 28, 0.62)',
   },
   categoryTag: {
     flexDirection: 'row',

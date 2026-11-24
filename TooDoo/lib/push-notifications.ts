@@ -4,6 +4,8 @@ import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { apiUrl } from '@/lib/api';
 
+export const TOODOO_NOTIFICATION_CHANNEL_ID = 'toodoo-default';
+
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -14,9 +16,24 @@ Notifications.setNotificationHandler({
   }),
 });
 
+let channelReady = false;
+
+export async function ensureAndroidNotificationChannel(): Promise<void> {
+  if (Platform.OS !== 'android' || channelReady) return;
+  await Notifications.setNotificationChannelAsync(TOODOO_NOTIFICATION_CHANNEL_ID, {
+    name: 'TooDoo',
+    importance: Notifications.AndroidImportance.DEFAULT,
+    vibrationPattern: [0, 250, 150, 250],
+    lightColor: '#ff3b30',
+  });
+  channelReady = true;
+}
+
 export async function ensureNotificationPermissions(): Promise<boolean> {
   if (Platform.OS === 'web') return false;
   if (!Device.isDevice) return false;
+
+  await ensureAndroidNotificationChannel();
 
   const current = await Notifications.getPermissionsAsync();
   let status = current.status;
@@ -67,15 +84,76 @@ export async function registerPushTokenWithBackend(accessToken: string, expoPush
   return false;
 }
 
-export async function scheduleLocalOfferNotification(title: string, body: string, data?: Record<string, string>) {
+export type LocalNotificationData = Record<string, string>;
+
+export async function scheduleLocalOfferNotification(
+  title: string,
+  body: string,
+  data?: LocalNotificationData
+) {
   if (Platform.OS === 'web') return;
+  if (!(await ensureNotificationPermissions())) return;
+
   await Notifications.scheduleNotificationAsync({
     content: {
       title,
       body,
       data,
       sound: true,
+      ...(Platform.OS === 'android' ? { channelId: TOODOO_NOTIFICATION_CHANNEL_ID } : null),
     },
     trigger: null,
   });
+}
+
+export async function scheduleLocalNotification(options: {
+  identifier: string;
+  title: string;
+  body: string;
+  data?: LocalNotificationData;
+  trigger: Notifications.NotificationTriggerInput;
+}) {
+  if (Platform.OS === 'web') return;
+  if (!(await ensureNotificationPermissions())) return;
+
+  try {
+    await Notifications.cancelScheduledNotificationAsync(options.identifier);
+  } catch {
+    // ignore missing id
+  }
+
+  await Notifications.scheduleNotificationAsync({
+    identifier: options.identifier,
+    content: {
+      title: options.title,
+      body: options.body,
+      data: options.data,
+      sound: true,
+      ...(Platform.OS === 'android' ? { channelId: TOODOO_NOTIFICATION_CHANNEL_ID } : null),
+    },
+    trigger: options.trigger,
+  });
+}
+
+export async function cancelNotificationsByPrefix(prefix: string) {
+  if (Platform.OS === 'web') return;
+  try {
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    await Promise.all(
+      scheduled
+        .filter((item) => item.identifier.startsWith(prefix))
+        .map((item) => Notifications.cancelScheduledNotificationAsync(item.identifier))
+    );
+  } catch {
+    // ignore
+  }
+}
+
+export async function cancelNotification(identifier: string) {
+  if (Platform.OS === 'web') return;
+  try {
+    await Notifications.cancelScheduledNotificationAsync(identifier);
+  } catch {
+    // ignore
+  }
 }

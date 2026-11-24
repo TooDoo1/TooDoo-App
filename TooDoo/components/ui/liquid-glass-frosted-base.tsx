@@ -9,20 +9,31 @@ type Props = {
  * Frosted blur base — the Liquid Glass approximation used wherever the native iOS 26
  * `GlassView` is unavailable (Expo Go, Android, web, iOS < 26).
  *
- * Real Liquid Glass reads through to the content behind it, so we use the thinnest
- * translucent material (not the opaque `systemChromeMaterial`) plus only a faint wash
- * to keep icons/labels legible without turning the bar milky.
+ * On Android we skip live BlurView (dimezisBlurView) — it re-samples the screen every
+ * frame and makes scrolling / the tab bar feel laggy. A near-opaque tint is enough.
  */
 export function LiquidGlassFrostedBase({ isDark }: Props) {
+  if (Platform.OS === 'android') {
+    return (
+      <View
+        style={[
+          StyleSheet.absoluteFill,
+          {
+            backgroundColor: isDark ? 'rgba(14, 19, 37, 0.94)' : 'rgba(255, 255, 255, 0.94)',
+          },
+        ]}
+      />
+    );
+  }
+
   const tint = isDark ? 'systemThinMaterialDark' : 'systemThinMaterialLight';
 
   return (
     <>
       <BlurView
         tint={tint}
-        intensity={Platform.OS === 'android' ? 72 : 48}
-        experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
-        blurReductionFactor={Platform.OS === 'android' ? 2.5 : 4}
+        intensity={48}
+        blurReductionFactor={4}
         style={StyleSheet.absoluteFill}
       />
       <View

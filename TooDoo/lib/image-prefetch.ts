@@ -2,8 +2,9 @@ import { useEffect } from 'react';
 import { Image } from 'expo-image';
 import { InteractionManager, Platform } from 'react-native';
 
-const PREFETCH_CONCURRENCY = 4;
-const DEFAULT_MAX = 16;
+/** Android Glide decode is expensive — keep concurrency low (expo-image / RN perf guides). */
+const PREFETCH_CONCURRENCY = Platform.OS === 'android' ? 2 : 4;
+const DEFAULT_MAX = Platform.OS === 'android' ? 8 : 16;
 
 function extractUri(source: unknown): string | undefined {
   if (typeof source === 'string' && source.trim()) return source.trim();
@@ -27,7 +28,9 @@ function uniquePrefetchableUris(sources: unknown[], max: number) {
 }
 
 function prefetchCachePolicy(): 'disk' | 'memory-disk' {
-  return Platform.OS === 'web' ? 'disk' : 'memory-disk';
+  // Android: disk-only prefetch avoids filling RAM with decoded bitmaps before paint.
+  // https://docs.expo.dev/versions/latest/sdk/image/
+  return Platform.OS === 'ios' ? 'memory-disk' : 'disk';
 }
 
 async function prefetchUris(uris: string[]) {

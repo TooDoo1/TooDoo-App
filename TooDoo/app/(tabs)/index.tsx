@@ -1,5 +1,5 @@
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -12,6 +12,7 @@ import {
   RefreshControl,
   Pressable,
   ScrollView,
+  StatusBar as RNStatusBar,
   StyleSheet,
   Text,
   TextInput,
@@ -33,6 +34,7 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { useAppReady } from '@/context/app-ready-context';
 import { fetchApprovedBusinessesCatalog, invalidateCatalogCache } from '@/lib/catalog-cache';
 import { apiUrl } from '@/lib/api';
@@ -59,6 +61,10 @@ import {
   HomeRecentCompanies,
   HomeSectionHeader,
 } from '@/components/home/home-feed';
+import {
+  estimateExploreBodyY,
+  type HomeFeedRow,
+} from '@/components/home/home-feed-rows';
 import {
   DEFAULT_EXPLORE_FILTERS,
   ExploreFilterPanel,
@@ -197,6 +203,13 @@ import {
   prependLocalRecentSearch,
 } from '@/lib/search-history';
 
+// Reanimated's createAnimatedComponent erases FlashList generics — widen for JSX.
+const ReanimatedFlashList = Reanimated.createAnimatedComponent(FlashList) as React.ComponentType<
+  React.ComponentProps<typeof FlashList<HomeFeedRow>> & {
+    ref?: React.Ref<FlashListRef<HomeFeedRow>>;
+  }
+>;
+
 const ALL_CATEGORIES_ID = 'all';
 const OFFERS_CATEGORY_ID = 'offers';
 /** Home feed sections rendered after the spotlight rows. */
@@ -221,10 +234,13 @@ const SEARCH_DROPDOWN_CLOSE_MS = 240;
 const SEARCH_TIPS_DEBOUNCE_MS = 120;
 const SEARCH_BAR_HEIGHT = 44;
 /**
- * Native: pull chrome slightly into the status area for a tighter top.
- * Web: chrome uses measured safe-area only (no invented island gap).
+ * iOS: pull chrome slightly into the status area for a tighter top.
+ * Android (edge-to-edge): keep clear of the status bar — negative inset
+ * put "Upptäck" / city under the system icons.
+ * Web: measured safe-area only (no invented island gap).
  */
-const HOME_NAV_EXTRA_TOP = Platform.OS === 'web' ? 0 : -8;
+const HOME_NAV_EXTRA_TOP =
+  Platform.OS === 'ios' ? -8 : Platform.OS === 'android' ? 8 : 0;
 /**
  * Keep the hero photo frame tall even when safe-area is 0 (desktop / RDM).
  * Without this, inset→0 shrinks the image box and the photo looks squeezed.
@@ -1413,15 +1429,21 @@ export default function HomeScreen() {
   const { width: windowWidth } = useWindowDimensions();
   const scrollBottomPadding = getFloatingTabBarScrollPadding(insets.bottom);
   const heroTopInset = useHeroTopInset();
+  const androidStatusFallback =
+    Platform.OS === 'android' ? RNStatusBar.currentHeight ?? 24 : 0;
   const homeHeaderInset = Math.max(
     0,
-    Math.max(heroTopInset, insets.top, Platform.OS === 'ios' ? 47 : 0) + HOME_NAV_EXTRA_TOP
+    Math.max(
+      heroTopInset,
+      insets.top,
+      Platform.OS === 'ios' ? 47 : androidStatusFallback
+    ) + HOME_NAV_EXTRA_TOP
   );
   /** Full hero photo band — never shorter than greeting + bleed (avoids stretch). */
   const homeHeroBandHeight =
     HOME_GREETING_HEIGHT + Math.max(homeHeaderInset, HOME_HERO_PHOTO_BLEED);
   const homeGreetingBandHeight = homeHeroBandHeight - homeHeaderInset;
-  const scrollRef = useRef<Reanimated.ScrollView>(null);
+  const scrollRef = useRef<FlashListRef<HomeFeedRow>>(null);
   const scrollOffsetRef = useRef(getHomeScrollOffset());
   const featuredPauseRef = useRef(false);
   const featuredPauseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1521,7 +1543,7 @@ export default function HomeScreen() {
       return;
     }
     const apply = () => {
-      scrollRef.current?.scrollTo({ y, animated: false });
+      scrollRef.current?.scrollToOffset({ offset: y, animated: false });
     };
     apply();
     requestAnimationFrame(() => {
@@ -1572,9 +1594,9 @@ export default function HomeScreen() {
   }, []);
 
   const updateExploreFilterAnchorY = useCallback(() => {
-    // Home content View uses paddingTop: 16; children y is inside that box.
+    // Row Y is relative to FlashList content (below hero paddingTop spacer).
     exploreFilterYSv.value =
-      16 + exploreBlockYRef.current + exploreFilterOffsetInBlockRef.current;
+      exploreBlockYRef.current + exploreFilterOffsetInBlockRef.current;
   }, [exploreFilterYSv]);
 
   // Greeting collapse stays on the UI thread; persist Y often enough to restore after detail.
@@ -2644,6 +2666,8 @@ export default function HomeScreen() {
           setEventCards(cachedEvents);
           setIsLoadingData(false);
           setIsLoadingEvents(false);
+          // Release splash as soon as cached content is painted — don't wait on image settle.
+          markDataReady();
 
           try {
             const settled = await settleHomeScreenAssetsWithinBudget({
@@ -2680,8 +2704,9 @@ export default function HomeScreen() {
           } catch {
             // Content is already visible from the snapshot.
           }
+        } else if (!cancelled && thisRequest === requestId) {
+          markDataReady();
         }
-        if (!cancelled && thisRequest === requestId) markDataReady();
         setTimeout(() => {
           if (!cancelled && !hasFreshHomeScreenSnapshot(60_000)) {
             void loadHomeData(true, loadCoords);
@@ -2728,7 +2753,7 @@ export default function HomeScreen() {
           ? applyHaversineDistances(data.hotOfferCards, loadCoords)
           : data.hotOfferCards;
 
-        // Paint content immediately — don't wait for image settle to clear Laddar.
+        // Paint content immediately — don't wait for image settle to clear Laddar / splash.
         setCategoryFilters(data.categoryFilters);
         setDeals(dealsList);
         setNearYouCards(nearYouFromApi);
@@ -2738,6 +2763,7 @@ export default function HomeScreen() {
         setIsLoadingData(false);
         setIsLoadingEvents(false);
         setIsRefreshing(false);
+        markDataReady();
 
         setHomeScreenSnapshot({
           categoryFilters: data.categoryFilters,
@@ -3788,6 +3814,98 @@ export default function HomeScreen() {
 
   const searchedHot = useMemo(() => sortSearchResultsHot(searchResults), [searchResults]);
 
+  const homeFeedRows = useMemo((): HomeFeedRow[] => {
+    if (showCommittedSearchResults || showCommittedSearchPrompt) {
+      const rows: HomeFeedRow[] = [{ key: 'search-header', kind: 'search-header' }];
+      if (isSearchTooShort) {
+        rows.push({ key: 'search-too-short', kind: 'search-too-short' });
+        return rows;
+      }
+      if (isSearchLoading) {
+        rows.push({ key: 'search-loading', kind: 'search-loading' });
+        return rows;
+      }
+      rows.push({ key: 'search-carousel', kind: 'search-carousel' });
+      if (searchResults.length > 0) {
+        rows.push(
+          { key: 'search-hot', kind: 'search-hot' },
+          { key: 'search-near', kind: 'search-near' },
+          { key: 'search-more', kind: 'search-more' }
+        );
+      }
+      return rows;
+    }
+
+    const rows: HomeFeedRow[] = [{ key: 'recommended', kind: 'recommended' }];
+    if (isSpecificCategorySelected && selectedCategory) {
+      rows.push({
+        key: `category:${selectedCategory.id}`,
+        kind: 'category',
+        id: selectedCategory.id,
+        label: selectedCategory.label,
+      });
+    }
+    rows.push(
+      { key: 'popular', kind: 'popular' },
+      { key: 'events', kind: 'events' },
+      { key: 'near', kind: 'near' }
+    );
+    if (recentCompanies.length > 0) {
+      rows.push({ key: 'recent', kind: 'recent' });
+    }
+    if (lunchCards.length > 0) {
+      rows.push({ key: 'lunch', kind: 'lunch' });
+    }
+    if (weekendStripCards.length > 0) {
+      rows.push({ key: 'weekend', kind: 'weekend' });
+    }
+    for (const section of categorySpotlightSections) {
+      rows.push({
+        key: `spotlight:${section.id}`,
+        kind: 'spotlight',
+        id: section.id,
+        label: section.label,
+        scrollKey: `home:spotlight:${section.id}`,
+      });
+    }
+    for (const section of afterShoppingSections) {
+      rows.push({
+        key: `after-shopping:${section.id}`,
+        kind: 'after-shopping',
+        id: section.id,
+        label: section.label,
+        scrollKey: `home:after-shopping:${section.id}`,
+      });
+    }
+    rows.push({ key: 'explore', kind: 'explore' });
+    return rows;
+  }, [
+    afterShoppingSections,
+    categorySpotlightSections,
+    isSearchLoading,
+    isSearchTooShort,
+    isSpecificCategorySelected,
+    lunchCards.length,
+    recentCompanies.length,
+    searchResults.length,
+    selectedCategory,
+    showCommittedSearchPrompt,
+    showCommittedSearchResults,
+    weekendStripCards.length,
+  ]);
+
+  // Sticky Utforska needs a Y before the explore row mounts (virtualized).
+  useEffect(() => {
+    if (showCommittedSearchResults || showCommittedSearchPrompt) return;
+    exploreBlockYRef.current = estimateExploreBodyY(homeFeedRows);
+    updateExploreFilterAnchorY();
+  }, [
+    homeFeedRows,
+    showCommittedSearchPrompt,
+    showCommittedSearchResults,
+    updateExploreFilterAnchorY,
+  ]);
+
   const captureHomeScrollBeforeLeave = useCallback(() => {
     const y = Math.max(0, homeScrollYSv.value || scrollOffsetRef.current);
     scrollOffsetRef.current = y;
@@ -4313,6 +4431,474 @@ export default function HomeScreen() {
     };
   }, [locationMenuLan, locationMenuMounted]);
 
+  const spotlightCardsById = useMemo(() => {
+    const map = new Map<string, CardItem[]>();
+    for (const section of categorySpotlightSections) {
+      map.set(section.id, section.cards);
+    }
+    return map;
+  }, [categorySpotlightSections]);
+
+  const afterShoppingCardsById = useMemo(() => {
+    const map = new Map<string, CardItem[]>();
+    for (const section of afterShoppingSections) {
+      map.set(section.id, section.cards);
+    }
+    return map;
+  }, [afterShoppingSections]);
+
+  const renderHomeFeedRow = useCallback(
+    ({ item }: { item: HomeFeedRow }) => {
+      const sectionPad = { marginTop: item.kind === 'recommended' || item.kind === 'search-header' ? 8 : 26 };
+
+      switch (item.kind) {
+        case 'search-header':
+          return (
+            <View>
+              <SectionTitleRow
+                title="Sökresultat"
+                onSeeAllPress={() => openSearchResultsView('all')}
+              />
+            </View>
+          );
+        case 'search-too-short':
+          return (
+            <Text style={{ color: theme.textMuted }}>Skriv minst 2 tecken för att söka.</Text>
+          );
+        case 'search-loading':
+          return <LoadingSpinner label="Söker..." />;
+        case 'search-carousel':
+          return (
+            <ForYouOrderCarousel
+              cards={searchResults}
+              onCardPress={handleCardPress}
+              badgeLabel="Träff"
+              badgeColor={brandInkRgba(0.75)}
+              getBadgeLabel={getSearchResultBadge}
+              getBadgeColor={(card) =>
+                card.resultKind === 'event' ? theme.eventColor : brandInkRgba(0.75)
+              }
+              showBadge={false}
+              showFavoriteButton
+              scrollKey="home:search:all"
+              emptyText={`Inga träffar för "${trimmedSearchQuery}".`}
+            />
+          );
+        case 'search-hot':
+          return (
+            <View style={sectionPad}>
+              <SectionTitleRow
+                title="Populärt just nu"
+                subtitle="Baserat på din sökning"
+                onSeeAllPress={() => openSearchResultsView('hot')}
+              />
+              <FeaturedDealsSplit
+                cards={searchedHot}
+                onCardPress={handleCardPress}
+                emptyText={`Inga populära erbjudanden för "${trimmedSearchQuery}".`}
+              />
+            </View>
+          );
+        case 'search-near':
+          return (
+            <View style={sectionPad}>
+              <SectionTitleRow
+                title="Nära dig"
+                onSeeAllPress={() => openSearchResultsView('near')}
+              />
+              <ForYouOrderCarousel
+                cards={searchedNearYou}
+                onCardPress={handleCardPress}
+                badgeLabel="Nära dig"
+                badgeColor={brandInkRgba(0.75)}
+                getBadgeLabel={getNearbyBadge}
+                getBadgeColor={(card) =>
+                  card.resultKind === 'event' ? theme.eventColor : brandInkRgba(0.75)
+                }
+                showActivityDots
+                businessIdsWithEvents={businessIdsWithEvents}
+                scrollKey="home:search:near"
+                emptyText={`Inga träffar nära dig för "${trimmedSearchQuery}".`}
+              />
+            </View>
+          );
+        case 'search-more':
+          return (
+            <View style={sectionPad}>
+              <SectionTitleRow title="Fler träffar" />
+              <HomeCardGrid
+                cards={searchResults}
+                onCardPress={handleCardPress}
+                emptyText={`Inga fler träffar för "${trimmedSearchQuery}".`}
+                maxItems={null}
+                columns={1}
+                showFavoriteButton
+              />
+              {isLoadingMoreSearch ? (
+                <LoadingSpinner label="Laddar fler..." style={{ marginTop: 8 }} />
+              ) : searchHasMore ? (
+                <Text
+                  style={{
+                    color: theme.textMuted,
+                    textAlign: 'center',
+                    marginTop: 26,
+                    marginBottom: 4,
+                    fontSize: 13,
+                  }}
+                >
+                  Scrolla för fler träffar
+                </Text>
+              ) : searchResults.length > 0 ? (
+                <Text
+                  style={{
+                    color: theme.textMuted,
+                    textAlign: 'center',
+                    marginTop: 26,
+                    marginBottom: 4,
+                    fontSize: 13,
+                  }}
+                >
+                  Inga fler träffar
+                </Text>
+              ) : null}
+            </View>
+          );
+        case 'recommended':
+          return (
+            <View style={sectionPad}>
+              <SectionTitleRow
+                title={recommendedNowSubtitle || recommendedNowTitle}
+                onSeeAllPress={() => {
+                  const city = resolveEventFeedCity(userCity, coords);
+                  router.push({
+                    pathname: SEARCH_RESULTS_PATH,
+                    params: {
+                      source: 'now',
+                      ...(city ? { city } : {}),
+                      ...(isSpecificCategorySelected && selectedCategory
+                        ? {
+                            categoryId: selectedCategory.id,
+                            categoryName: selectedCategory.label,
+                          }
+                        : {}),
+                    },
+                  });
+                }}
+              />
+              {isLoadingRecommendedNow && recommendedNowCards.length === 0 ? (
+                <LoadingSpinner label="Laddar..." />
+              ) : (
+                <ForYouOrderCarousel
+                  cards={recommendedNowCards}
+                  onCardPress={handleCardPress}
+                  badgeLabel=""
+                  badgeColor={brandInkRgba(0.75)}
+                  showBadge={false}
+                  showFavoriteButton
+                  scrollKey="home:recommended"
+                  emptyText="Inga förslag just nu."
+                />
+              )}
+            </View>
+          );
+        case 'category':
+          return (
+            <View style={sectionPad}>
+              <SectionTitleRow
+                title={item.label}
+                onSeeAllPress={() => openSeeAllWithCategory(NARA_DIG_PATH)}
+              />
+              {isLoadingData && selectedCategoryCards.length === 0 ? (
+                <LoadingSpinner label="Laddar..." />
+              ) : (
+                <ForYouOrderCarousel
+                  cards={selectedCategoryCards}
+                  onCardPress={handleCardPress}
+                  badgeLabel={item.label}
+                  badgeColor={getCategoryAccentColor(item.label)}
+                  showFavoriteButton
+                  scrollKey={`home:category:${item.id}`}
+                  emptyText={`Inga träffar i ${item.label} just nu.`}
+                />
+              )}
+            </View>
+          );
+        case 'popular':
+          return (
+            <View style={sectionPad}>
+              <SectionTitleRow
+                title="Populärt just nu"
+                onSeeAllPress={() => openSeeAllWithCategory(HETA_ERBJUDANDEN_PATH)}
+              />
+              {isLoadingData && hotOfferCards.length === 0 ? (
+                <LoadingSpinner label="Laddar..." />
+              ) : (
+                <AnimatedFeaturedDeals
+                  cards={filteredHotOfferCards}
+                  onCardPress={handleCardPress}
+                  emptyText="Inga populära erbjudanden just nu."
+                />
+              )}
+            </View>
+          );
+        case 'events':
+          return (
+            <View style={sectionPad}>
+              <SectionTitleRow
+                title="Evenemang"
+                onSeeAllPress={() => router.push(EVENEMANG_PATH)}
+              />
+              {isLoadingEvents && eventCards.length === 0 ? (
+                <LoadingSpinner label="Laddar..." />
+              ) : (
+                <HomeEventTickets
+                  events={eventCards}
+                  onEventPress={handleEventPress}
+                  emptyText="Inga evenemang just nu."
+                />
+              )}
+            </View>
+          );
+        case 'near':
+          return (
+            <View style={sectionPad}>
+              <SectionTitleRow
+                title="Nära dig"
+                onSeeAllPress={() => openSeeAllWithCategory(NARA_DIG_PATH)}
+              />
+              {isLoadingData && filteredDeals.length === 0 ? (
+                <LoadingSpinner label="Laddar..." />
+              ) : (
+                <ForYouOrderCarousel
+                  cards={filteredDeals}
+                  onCardPress={handleCardPress}
+                  badgeLabel="Nära dig"
+                  badgeColor={brandInkRgba(0.75)}
+                  getBadgeLabel={getNearbyBadge}
+                  getBadgeColor={(card) =>
+                    card.resultKind === 'event' ? theme.eventColor : brandInkRgba(0.75)
+                  }
+                  showFavoriteButton
+                  compact
+                  scrollKey="home:near"
+                  emptyText="Inga erbjudanden nära dig just nu."
+                />
+              )}
+            </View>
+          );
+        case 'recent':
+          return (
+            <View style={sectionPad}>
+              <SectionTitleRow title="Senast besökt" />
+              <HomeRecentCompanies cards={recentCompanies} onCardPress={handleCardPress} />
+            </View>
+          );
+        case 'lunch':
+          return (
+            <View style={sectionPad}>
+              <SectionTitleRow
+                title="Lunch"
+                onSeeAllPress={() =>
+                  router.push({ pathname: SEARCH_RESULTS_PATH, params: { q: 'lunch' } })
+                }
+              />
+              <ForYouOrderCarousel
+                cards={lunchCards}
+                onCardPress={handleCardPress}
+                badgeLabel=""
+                badgeColor={brandInkRgba(0.75)}
+                showBadge={false}
+                compact
+                scrollKey="home:lunch"
+                emptyText="Inga lunchförslag just nu."
+              />
+            </View>
+          );
+        case 'weekend':
+          return (
+            <View style={sectionPad}>
+              <SectionTitleRow
+                title="Till helgen"
+                onSeeAllPress={() =>
+                  weekendEvents.length > 0
+                    ? router.push(EVENEMANG_PATH)
+                    : router.push({ pathname: SEARCH_RESULTS_PATH, params: { q: 'helgen' } })
+                }
+              />
+              <ForYouOrderCarousel
+                cards={weekendStripCards}
+                onCardPress={handleCardPress}
+                badgeLabel="Evenemang"
+                badgeColor={theme.eventColor}
+                getBadgeLabel={(card) => (card.resultKind === 'event' ? 'Evenemang' : '')}
+                getBadgeColor={(card) =>
+                  card.resultKind === 'event' ? theme.eventColor : brandInkRgba(0.75)
+                }
+                compact
+                scrollKey="home:weekend"
+                emptyText="Inga helgtips just nu."
+              />
+            </View>
+          );
+        case 'spotlight': {
+          const cards = spotlightCardsById.get(item.id) ?? [];
+          return (
+            <View style={sectionPad}>
+              <SectionTitleRow
+                title={item.label}
+                onSeeAllPress={() =>
+                  router.push({
+                    pathname: NARA_DIG_PATH,
+                    params: {
+                      categoryId: item.id,
+                      categoryName: item.label,
+                    },
+                  })
+                }
+              />
+              <ForYouOrderCarousel
+                cards={cards}
+                onCardPress={handleCardPress}
+                badgeLabel=""
+                badgeColor={brandInkRgba(0.75)}
+                showBadge={false}
+                compact
+                scrollKey={item.scrollKey}
+                emptyText={`Inga träffar i ${item.label} just nu.`}
+              />
+            </View>
+          );
+        }
+        case 'after-shopping': {
+          const cards = afterShoppingCardsById.get(item.id) ?? [];
+          return (
+            <View style={sectionPad}>
+              <SectionTitleRow
+                title={item.label}
+                onSeeAllPress={() =>
+                  router.push({
+                    pathname: NARA_DIG_PATH,
+                    params: {
+                      categoryId: item.id,
+                      categoryName: item.label,
+                    },
+                  })
+                }
+              />
+              <ForYouOrderCarousel
+                cards={cards}
+                onCardPress={handleCardPress}
+                badgeLabel=""
+                badgeColor={brandInkRgba(0.75)}
+                showBadge={false}
+                compact
+                scrollKey={item.scrollKey}
+                emptyText={`Inga träffar i ${item.label} just nu.`}
+              />
+            </View>
+          );
+        }
+        case 'explore':
+          return (
+            <View style={{ marginTop: 22 }}>
+              <SectionTitleRow title="Utforska" />
+              <View
+                onLayout={(e) => {
+                  exploreFilterOffsetInBlockRef.current = e.nativeEvent.layout.y;
+                  updateExploreFilterAnchorY();
+                }}
+                pointerEvents={showStickyExploreFilter ? 'none' : 'auto'}
+                style={showStickyExploreFilter ? { opacity: 0 } : undefined}
+              >
+                <ExploreFilterPanel
+                  value={exploreFilters}
+                  subcategories={exploreSubcategories}
+                  onChange={setExploreFilters}
+                />
+              </View>
+              <View style={{ marginTop: 26 }}>
+                {isLoadingExplore && exploreCards.length === 0 ? (
+                  <LoadingSpinner label="Laddar bolag..." />
+                ) : (
+                  <>
+                    <HomeCardGrid
+                      cards={exploreCards}
+                      onCardPress={handleCardPress}
+                      emptyText="Inga bolag matchar filtret just nu."
+                      maxItems={null}
+                      columns={1}
+                      showFavoriteButton
+                    />
+                    {isLoadingMoreExplore ? (
+                      <LoadingSpinner label="Laddar fler..." style={{ marginTop: 8 }} />
+                    ) : exploreCards.length > 0 ? (
+                      <Text
+                        style={{
+                          color: theme.textMuted,
+                          textAlign: 'center',
+                          marginTop: 26,
+                          marginBottom: 4,
+                          fontSize: 13,
+                        }}
+                      >
+                        Scrolla för fler bolag
+                      </Text>
+                    ) : null}
+                  </>
+                )}
+              </View>
+            </View>
+          );
+        default:
+          return null;
+      }
+    },
+    [
+      afterShoppingCardsById,
+      businessIdsWithEvents,
+      coords,
+      eventCards,
+      exploreCards,
+      exploreFilters,
+      exploreSubcategories,
+      filteredDeals,
+      filteredHotOfferCards,
+      getNearbyBadge,
+      getSearchResultBadge,
+      hotOfferCards.length,
+      isLoadingData,
+      isLoadingEvents,
+      isLoadingExplore,
+      isLoadingMoreExplore,
+      isLoadingMoreSearch,
+      isLoadingRecommendedNow,
+      isSpecificCategorySelected,
+      lunchCards,
+      openSearchResultsView,
+      openSeeAllWithCategory,
+      recentCompanies,
+      recommendedNowCards,
+      recommendedNowSubtitle,
+      recommendedNowTitle,
+      router,
+      searchHasMore,
+      searchResults,
+      searchedHot,
+      searchedNearYou,
+      selectedCategory,
+      selectedCategoryCards,
+      showStickyExploreFilter,
+      spotlightCardsById,
+      theme.eventColor,
+      theme.textMuted,
+      trimmedSearchQuery,
+      updateExploreFilterAnchorY,
+      userCity,
+      weekendEvents.length,
+      weekendStripCards,
+    ]
+  );
+
   const renderHomeGreeting = () => (
     <View
       nativeID="home-greeting"
@@ -4341,14 +4927,16 @@ export default function HomeScreen() {
           hitSlop={8}
           style={styles.homeLocationButton}
         >
-          {Platform.OS !== 'web' ? (
+          {Platform.OS === 'android' ? (
+            <View
+              pointerEvents="none"
+              style={[StyleSheet.absoluteFillObject, styles.homeLocationBlurAndroid]}
+            />
+          ) : Platform.OS !== 'web' ? (
             <BlurView
               key={locationBlurKey}
               tint="systemThinMaterialDark"
-              intensity={Platform.OS === 'android' ? 64 : 40}
-              experimentalBlurMethod={
-                Platform.OS === 'android' ? 'dimezisBlurView' : undefined
-              }
+              intensity={40}
               style={StyleSheet.absoluteFillObject}
             />
           ) : (
@@ -5017,21 +5605,25 @@ export default function HomeScreen() {
           isSearchOverlayMounted ? homeContentDisappearStyle : null,
         ]}
       >
-        <Reanimated.ScrollView
+        <ReanimatedFlashList
           ref={scrollRef}
+          data={homeFeedRows}
           nativeID="home-scroll"
-          className="flex-1"
-          style={[styles.scroll, { backgroundColor: homeHeaderMeshBase }]}
+          style={[styles.scroll, { backgroundColor: homeHeaderMeshBase, flex: 1 }]}
           contentContainerStyle={{
             // Spacer matches full expanded header so greeting collapse stays in sync with scroll.
             paddingTop: homeHeroBandHeight + searchPanelHeight,
             paddingBottom: scrollBottomPadding,
-            flexGrow: 1,
+            paddingHorizontal: HOME_PAGE_PAD,
             backgroundColor: homeScreenBg,
             ...(Platform.OS === 'web' ? { width: '100%' as const, alignSelf: 'stretch' as const } : null),
           }}
+          renderItem={renderHomeFeedRow}
+          keyExtractor={(item) => item.key}
+          getItemType={(item) => item.kind}
           onScroll={onHomeScroll}
           scrollEventThrottle={16}
+          drawDistance={Platform.OS === 'android' ? 280 : 480}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
@@ -5041,403 +5633,7 @@ export default function HomeScreen() {
               progressViewOffset={homeHeroBandHeight + searchPanelHeight}
             />
           }
-        >
-        <View style={{ marginTop: 0, paddingTop: 16, paddingHorizontal: HOME_PAGE_PAD, backgroundColor: homeScreenBg, flexGrow: 1 }}>
-          {showCommittedSearchResults || showCommittedSearchPrompt ? (
-            <>
-              <SectionTitleRow
-                title="Sökresultat"
-                onSeeAllPress={() => openSearchResultsView('all')}
-              />
-              {isSearchTooShort ? (
-                <Text style={{ color: theme.textMuted }}>Skriv minst 2 tecken för att söka.</Text>
-              ) : isSearchLoading ? (
-                <LoadingSpinner label="Söker..." />
-              ) : (
-                <>
-                  <ForYouOrderCarousel
-                    cards={searchResults}
-                    onCardPress={handleCardPress}
-                    badgeLabel="Träff"
-                    badgeColor={brandInkRgba(0.75)}
-                    getBadgeLabel={getSearchResultBadge}
-                    getBadgeColor={(card) =>
-                      card.resultKind === 'event' ? theme.eventColor : brandInkRgba(0.75)
-                    }
-                    showBadge={false}
-                    showFavoriteButton
-                    scrollKey="home:search:all"
-                    emptyText={`Inga träffar för "${trimmedSearchQuery}".`}
-                  />
-
-                  {searchResults.length > 0 ? (
-                    <>
-                      <View style={{ marginTop: 26 }}>
-                        <SectionTitleRow
-                          title="Populärt just nu"
-                          subtitle="Baserat på din sökning"
-                          onSeeAllPress={() => openSearchResultsView('hot')}
-                        />
-                        <FeaturedDealsSplit
-                          cards={searchedHot}
-                          onCardPress={handleCardPress}
-                          emptyText={`Inga populära erbjudanden för "${trimmedSearchQuery}".`}
-                        />
-                      </View>
-
-                      <View style={{ marginTop: 26 }}>
-                        <SectionTitleRow
-                          title="Nära dig"
-                          onSeeAllPress={() => openSearchResultsView('near')}
-                        />
-                        <ForYouOrderCarousel
-                          cards={searchedNearYou}
-                          onCardPress={handleCardPress}
-                          badgeLabel="Nära dig"
-                          badgeColor={brandInkRgba(0.75)}
-                          getBadgeLabel={getNearbyBadge}
-                          getBadgeColor={(card) =>
-                            card.resultKind === 'event' ? theme.eventColor : brandInkRgba(0.75)
-                          }
-                          showActivityDots
-                          businessIdsWithEvents={businessIdsWithEvents}
-                          scrollKey="home:search:near"
-                          emptyText={`Inga träffar nära dig för "${trimmedSearchQuery}".`}
-                        />
-                      </View>
-
-                      <View style={{ marginTop: 26 }}>
-                        <SectionTitleRow title="Fler träffar" />
-                        <HomeCardGrid
-                          cards={searchResults}
-                          onCardPress={handleCardPress}
-                          emptyText={`Inga fler träffar för "${trimmedSearchQuery}".`}
-                          maxItems={null}
-                          columns={1}
-                          showFavoriteButton
-                        />
-                        {isLoadingMoreSearch ? (
-                          <LoadingSpinner label="Laddar fler..." style={{ marginTop: 8 }} />
-                        ) : searchHasMore ? (
-                          <Text
-                            style={{
-                              color: theme.textMuted,
-                              textAlign: 'center',
-                              marginTop: 26,
-                              marginBottom: 4,
-                              fontSize: 13,
-                            }}
-                          >
-                            Scrolla för fler träffar
-                          </Text>
-                        ) : searchResults.length > 0 ? (
-                          <Text
-                            style={{
-                              color: theme.textMuted,
-                              textAlign: 'center',
-                              marginTop: 26,
-                              marginBottom: 4,
-                              fontSize: 13,
-                            }}
-                          >
-                            Inga fler träffar
-                          </Text>
-                        ) : null}
-                      </View>
-                    </>
-                  ) : null}
-                </>
-              )}
-            </>
-          ) : (
-            <>
-              <View style={{ marginTop: 8 }}>
-                <SectionTitleRow
-                  title={recommendedNowSubtitle || recommendedNowTitle}
-                  onSeeAllPress={() => {
-                    const city = resolveEventFeedCity(userCity, coords);
-                    router.push({
-                      pathname: SEARCH_RESULTS_PATH,
-                      params: {
-                        source: 'now',
-                        ...(city ? { city } : {}),
-                        ...(isSpecificCategorySelected && selectedCategory
-                          ? {
-                              categoryId: selectedCategory.id,
-                              categoryName: selectedCategory.label,
-                            }
-                          : {}),
-                      },
-                    });
-                  }}
-                />
-                {isLoadingRecommendedNow && recommendedNowCards.length === 0 ? (
-                  <LoadingSpinner label="Laddar..." />
-                ) : (
-                  <ForYouOrderCarousel
-                    cards={recommendedNowCards}
-                    onCardPress={handleCardPress}
-                    badgeLabel=""
-                    badgeColor={brandInkRgba(0.75)}
-                    showBadge={false}
-                    showFavoriteButton
-                    scrollKey="home:recommended"
-                    emptyText="Inga förslag just nu."
-                  />
-                )}
-              </View>
-
-              {isSpecificCategorySelected && selectedCategory ? (
-                <View style={{ marginTop: 26 }}>
-                  <SectionTitleRow
-                    title={selectedCategory.label}
-                    onSeeAllPress={() => openSeeAllWithCategory(NARA_DIG_PATH)}
-                  />
-                  {isLoadingData && selectedCategoryCards.length === 0 ? (
-                    <LoadingSpinner label="Laddar..." />
-                  ) : (
-                    <ForYouOrderCarousel
-                      cards={selectedCategoryCards}
-                      onCardPress={handleCardPress}
-                      badgeLabel={selectedCategory.label}
-                      badgeColor={getCategoryAccentColor(selectedCategory.label)}
-                      showFavoriteButton
-                      scrollKey={`home:category:${selectedCategory.id}`}
-                      emptyText={`Inga träffar i ${selectedCategory.label} just nu.`}
-                    />
-                  )}
-                </View>
-              ) : null}
-
-              <View style={{ marginTop: 26 }}>
-                <SectionTitleRow
-                  title="Populärt just nu"
-                  onSeeAllPress={() => openSeeAllWithCategory(HETA_ERBJUDANDEN_PATH)}
-                />
-                {isLoadingData && hotOfferCards.length === 0 ? (
-                  <LoadingSpinner label="Laddar..." />
-                ) : (
-                  <AnimatedFeaturedDeals
-                    cards={filteredHotOfferCards}
-                    onCardPress={handleCardPress}
-                    emptyText="Inga populära erbjudanden just nu."
-                  />
-                )}
-              </View>
-
-              <View style={{ marginTop: 26 }}>
-                <SectionTitleRow
-                  title="Evenemang"
-                  onSeeAllPress={() => router.push(EVENEMANG_PATH)}
-                />
-                {isLoadingEvents && eventCards.length === 0 ? (
-                  <LoadingSpinner label="Laddar..." />
-                ) : (
-                  <HomeEventTickets
-                    events={eventCards}
-                    onEventPress={handleEventPress}
-                    emptyText="Inga evenemang just nu."
-                  />
-                )}
-              </View>
-
-              <View style={{ marginTop: 26 }}>
-                <SectionTitleRow
-                  title="Nära dig"
-                  onSeeAllPress={() => openSeeAllWithCategory(NARA_DIG_PATH)}
-                />
-                {isLoadingData && filteredDeals.length === 0 ? (
-                  <LoadingSpinner label="Laddar..." />
-                ) : (
-                  <ForYouOrderCarousel
-                    cards={filteredDeals}
-                    onCardPress={handleCardPress}
-                    badgeLabel="Nära dig"
-                    badgeColor={brandInkRgba(0.75)}
-                    getBadgeLabel={getNearbyBadge}
-                    getBadgeColor={(card) =>
-                      card.resultKind === 'event' ? theme.eventColor : brandInkRgba(0.75)
-                    }
-                    showFavoriteButton
-                    compact
-                    scrollKey="home:near"
-                    emptyText="Inga erbjudanden nära dig just nu."
-                  />
-                )}
-              </View>
-
-              {recentCompanies.length > 0 ? (
-                <View style={{ marginTop: 26 }}>
-                  <SectionTitleRow title="Senast besökt" />
-                  <HomeRecentCompanies
-                    cards={recentCompanies}
-                    onCardPress={handleCardPress}
-                  />
-                </View>
-              ) : null}
-
-              {lunchCards.length > 0 ? (
-                <View style={{ marginTop: 26 }}>
-                  <SectionTitleRow
-                    title="Lunch"
-                    onSeeAllPress={() =>
-                      router.push({ pathname: SEARCH_RESULTS_PATH, params: { q: 'lunch' } })
-                    }
-                  />
-                  <ForYouOrderCarousel
-                    cards={lunchCards}
-                    onCardPress={handleCardPress}
-                    badgeLabel=""
-                    badgeColor={brandInkRgba(0.75)}
-                    showBadge={false}
-                    compact
-                    scrollKey="home:lunch"
-                    emptyText="Inga lunchförslag just nu."
-                  />
-                </View>
-              ) : null}
-
-              {weekendStripCards.length > 0 ? (
-                <View style={{ marginTop: 26 }}>
-                  <SectionTitleRow
-                    title="Till helgen"
-                    onSeeAllPress={() =>
-                      weekendEvents.length > 0
-                        ? router.push(EVENEMANG_PATH)
-                        : router.push({ pathname: SEARCH_RESULTS_PATH, params: { q: 'helgen' } })
-                    }
-                  />
-                  <ForYouOrderCarousel
-                    cards={weekendStripCards}
-                    onCardPress={handleCardPress}
-                    badgeLabel="Evenemang"
-                    badgeColor={theme.eventColor}
-                    getBadgeLabel={(card) =>
-                      card.resultKind === 'event' ? 'Evenemang' : ''
-                    }
-                    getBadgeColor={(card) =>
-                      card.resultKind === 'event' ? theme.eventColor : brandInkRgba(0.75)
-                    }
-                    compact
-                    scrollKey="home:weekend"
-                    emptyText="Inga helgtips just nu."
-                  />
-                </View>
-              ) : null}
-
-              {categorySpotlightSections.map((section) => (
-                <View key={`spotlight:${section.id}`} style={{ marginTop: 26 }}>
-                  <SectionTitleRow
-                    title={section.label}
-                    onSeeAllPress={() =>
-                      router.push({
-                        pathname: NARA_DIG_PATH,
-                        params: {
-                          categoryId: section.id,
-                          categoryName: section.label,
-                        },
-                      })
-                    }
-                  />
-                  <ForYouOrderCarousel
-                    cards={section.cards}
-                    onCardPress={handleCardPress}
-                    badgeLabel=""
-                    badgeColor={brandInkRgba(0.75)}
-                    showBadge={false}
-                    compact
-                    scrollKey={`home:spotlight:${section.id}`}
-                    emptyText={`Inga träffar i ${section.label} just nu.`}
-                  />
-                </View>
-              ))}
-
-              {afterShoppingSections.map((section) => (
-                <View key={`after-shopping:${section.id}`} style={{ marginTop: 26 }}>
-                  <SectionTitleRow
-                    title={section.label}
-                    onSeeAllPress={() =>
-                      router.push({
-                        pathname: NARA_DIG_PATH,
-                        params: {
-                          categoryId: section.id,
-                          categoryName: section.label,
-                        },
-                      })
-                    }
-                  />
-                  <ForYouOrderCarousel
-                    cards={section.cards}
-                    onCardPress={handleCardPress}
-                    badgeLabel=""
-                    badgeColor={brandInkRgba(0.75)}
-                    showBadge={false}
-                    compact
-                    scrollKey={`home:after-shopping:${section.id}`}
-                    emptyText={`Inga träffar i ${section.label} just nu.`}
-                  />
-                </View>
-              ))}
-
-              <View
-                style={{ marginTop: 22 }}
-                onLayout={(e) => {
-                  exploreBlockYRef.current = e.nativeEvent.layout.y;
-                  updateExploreFilterAnchorY();
-                }}
-              >
-                <SectionTitleRow title="Utforska" />
-                <View
-                  onLayout={(e) => {
-                    exploreFilterOffsetInBlockRef.current = e.nativeEvent.layout.y;
-                    updateExploreFilterAnchorY();
-                  }}
-                  pointerEvents={showStickyExploreFilter ? 'none' : 'auto'}
-                  style={showStickyExploreFilter ? { opacity: 0 } : undefined}
-                >
-                  <ExploreFilterPanel
-                    value={exploreFilters}
-                    subcategories={exploreSubcategories}
-                    onChange={setExploreFilters}
-                  />
-                </View>
-                <View style={{ marginTop: 26 }}>
-                  {isLoadingExplore && exploreCards.length === 0 ? (
-                    <LoadingSpinner label="Laddar bolag..." />
-                  ) : (
-                    <>
-                      <HomeCardGrid
-                        cards={exploreCards}
-                        onCardPress={handleCardPress}
-                        emptyText="Inga bolag matchar filtret just nu."
-                        maxItems={null}
-                        columns={1}
-                        showFavoriteButton
-                      />
-                      {isLoadingMoreExplore ? (
-                        <LoadingSpinner label="Laddar fler..." style={{ marginTop: 8 }} />
-                      ) : exploreCards.length > 0 ? (
-                        <Text
-                          style={{
-                            color: theme.textMuted,
-                            textAlign: 'center',
-                            marginTop: 26,
-                            marginBottom: 4,
-                            fontSize: 13,
-                          }}
-                        >
-                          Scrolla för fler bolag
-                        </Text>
-                      ) : null}
-                    </>
-                  )}
-                </View>
-              </View>
-            </>
-          )}
-        </View>
-
-        </Reanimated.ScrollView>
+        />
       </Reanimated.View>
       {renderSearchOverlay()}
     </View>
@@ -5526,6 +5722,9 @@ const styles = StyleSheet.create({
     // @ts-expect-error web backdrop blur
     backdropFilter: 'blur(16px) saturate(150%)',
     WebkitBackdropFilter: 'blur(16px) saturate(150%)',
+  },
+  homeLocationBlurAndroid: {
+    backgroundColor: 'rgba(10, 14, 28, 0.55)',
   },
   homeLocationLabel: {
     flexShrink: 1,

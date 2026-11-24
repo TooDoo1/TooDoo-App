@@ -77,10 +77,20 @@ function CardMediaComponent({
         contentFit={contentFit}
         style={styles.container}
         contentPosition="top center"
-        cachePolicy={cachePolicy ?? (Platform.OS === 'web' ? 'disk' : 'memory-disk')}
+        cachePolicy={
+          cachePolicy ??
+          (Platform.OS === 'android'
+            ? priority === 'high'
+              ? 'memory-disk'
+              : 'disk'
+            : Platform.OS === 'web'
+              ? 'disk'
+              : 'memory-disk')
+        }
         priority={priority}
         allowDownscaling
-        transition={Platform.OS === 'web' || isSvg ? 0 : 120}
+        // Fade transitions during scroll decode on Android are a common jank source.
+        transition={Platform.OS === 'android' || Platform.OS === 'web' || isSvg ? 0 : 120}
         placeholder={Platform.OS === 'web' ? undefined : { blurhash: PLACEHOLDER_BLURHASH }}
       />
     </View>

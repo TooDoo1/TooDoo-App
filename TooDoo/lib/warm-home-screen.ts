@@ -82,8 +82,8 @@ export async function settleHomeScreenAssets(options: {
 
 	await prefetchImageUris(
 		[
-			...hydratedHot.slice(0, 6).map((card) => cardImageUri(card, IMAGE_DISPLAY_WIDTH.hero)),
-			...hydratedDeals.slice(0, 12).map((card) => cardImageUri(card, IMAGE_DISPLAY_WIDTH.hero)),
+			...hydratedHot.slice(0, 6).map((card) => cardImageUri(card, IMAGE_DISPLAY_WIDTH.featured)),
+			...hydratedDeals.slice(0, 8).map((card) => cardImageUri(card, IMAGE_DISPLAY_WIDTH.card)),
 			...hydratedNear.slice(0, 6).map((card) => cardImageUri(card, IMAGE_DISPLAY_WIDTH.card)),
 			...events.slice(0, 6).map((event) => event.image),
 		],
