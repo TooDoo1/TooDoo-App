@@ -163,19 +163,17 @@ export function OnboardingOverlay({ onDone }: OnboardingOverlayProps) {
       if (isLeavingRef.current) return;
       isLeavingRef.current = true;
 
-      if (navigateTo) {
-        router.push(navigateTo as never);
-      }
+      exitProgress.value = withTiming(1, {
+        duration: 260,
+        easing: Easing.out(Easing.quad),
+      });
 
-      exitProgress.value = withTiming(
-        1,
-        { duration: 260, easing: Easing.out(Easing.quad) },
-        () => {
-          'worklet';
-        }
-      );
-
+      // Navigate only after the fade finishes, while the overlay is still mounted
+      // (opacity 0) so the app shell never flashes home underneath.
       setTimeout(() => {
+        if (navigateTo) {
+          router.replace(navigateTo as never);
+        }
         onDone();
       }, 260);
     },

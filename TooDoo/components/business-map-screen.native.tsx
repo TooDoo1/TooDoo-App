@@ -44,10 +44,12 @@ import {
   getEffectiveUserCoordsIfGranted,
   getUserCoords,
   getUserCoordsIfGranted,
+  geocodeAddressCached,
   haversineKm,
   HELSINGBORG_COORDS,
   type Coords,
 } from '@/lib/geo';
+import { loadRegionSelection } from '@/lib/region-selection';
 import { MAP_ATTRIBUTION, mapShellBackground, mapTileUrlForMode } from '@/lib/map-style';
 import {
   fetchTravelRoutes,
@@ -395,7 +397,13 @@ export default function BusinessMapScreen() {
     setSearchingCatalog(true);
     setCatalogHits(null);
     const timer = setTimeout(() => {
-      void searchMapBusinesses(query, businessesRef.current, userCoords)
+      void loadRegionSelection()
+        .catch(() => null)
+        .then((region) =>
+          searchMapBusinesses(query, businessesRef.current, userCoords, {
+            city: region?.city,
+          })
+        )
         .then((hits) => {
           if (cancelled) return;
           setCatalogHits(hits);
@@ -444,6 +452,52 @@ export default function BusinessMapScreen() {
 
   const visibleMatches =
     searchQuery.trim().length >= 2 ? catalogHits ?? matchedBusinesses : businesses;
+
+  useEffect(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (query.length < 2) return;
+    const pending = visibleMatches.filter((item) => item.pendingGeocode && item.address.trim());
+    if (pending.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      for (const item of pending) {
+        const geo = await geocodeAddressCached(item.address);
+        if (cancelled || !geo) continue;
+        setBusinesses((prev) =>
+          prev.map((business) =>
+            business.id === item.id
+              ? {
+                  ...business,
+                  latitude: geo.lat,
+                  longitude: geo.lng,
+                  pendingGeocode: false,
+                  distanceKm: userCoords
+                    ? haversineKm(userCoords.lat, userCoords.lng, geo.lat, geo.lng)
+                    : business.distanceKm,
+                }
+              : business
+          )
+        );
+        setCatalogHits((prev) =>
+          prev
+            ? prev.map((business) =>
+                business.id === item.id
+                  ? {
+                      ...business,
+                      latitude: geo.lat,
+                      longitude: geo.lng,
+                      pendingGeocode: false,
+                    }
+                  : business
+              )
+            : prev
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visibleMatches, searchQuery, userCoords]);
 
   const shownIdsRef = useRef<Set<string>>(new Set());
   const visibleBusinesses = useMemo(() => {

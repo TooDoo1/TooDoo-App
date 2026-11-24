@@ -19,6 +19,7 @@ import {
   isPlausibleSwedenCoordinate,
   peekGeocodeCache,
   resolveUserCityFromDevice,
+  type Coords,
 } from "@/lib/geo";
 import { useThemePreference } from "@/context/theme-preference-context";
 import { getCategoryAccentColor, getOnAccentTextColor } from "@/lib/category-colors";
@@ -26,6 +27,7 @@ import { setRegionSelection } from "@/lib/region-selection";
 import { staticCoordsForCity } from "@/lib/sweden-city-coords";
 import {
   findLanByName,
+  findLanForCity,
   geocodeQueryForCity,
   SWEDEN_REGIONS,
 } from "@/lib/sweden-regions";
@@ -40,6 +42,22 @@ function buildFormSteps(skipLocation: boolean): FormStep[] {
   return skipLocation
     ? ['name', 'birthday', 'gender', 'interests']
     : ['name', 'birthday', 'location', 'gender', 'interests'];
+}
+
+async function persistDetectedRegion(cityName: string, coords: Coords): Promise<string | null> {
+  const matchedLan = findLanForCity(cityName);
+  const lan = matchedLan?.name ?? cityName;
+  const city = matchedLan
+    ? (matchedLan.cities.find(
+        (item) => item.toLocaleLowerCase('sv-SE') === cityName.trim().toLocaleLowerCase('sv-SE')
+      ) ?? cityName)
+    : cityName;
+  try {
+    await setRegionSelection({ lan, city, lat: coords.lat, lng: coords.lng });
+    return matchedLan ? lan : null;
+  } catch {
+    return null;
+  }
 }
 
 export default function PersonalityScreen() {
@@ -104,8 +122,11 @@ export default function PersonalityScreen() {
       if (cancelled) return;
 
       const resolvedCity = result?.city?.trim();
-      if (resolvedCity) {
+      if (resolvedCity && result?.coords) {
+        const lan = await persistDetectedRegion(resolvedCity, result.coords);
+        if (cancelled) return;
         setCity(resolvedCity);
+        if (lan) setSelectedLan(lan);
         setSkipLocationStep(true);
       }
     })();
@@ -129,8 +150,11 @@ export default function PersonalityScreen() {
       try {
         if (await hasForegroundLocationPermission()) {
           const result = await resolveUserCityFromDevice({ requestPermission: false });
-          if (!cancelled && result?.city) {
+          if (!cancelled && result?.city && result.coords) {
+            const lan = await persistDetectedRegion(result.city, result.coords);
+            if (cancelled) return;
             setCity(result.city);
+            if (lan) setSelectedLan(lan);
           }
         }
       } finally {
@@ -274,8 +298,10 @@ export default function PersonalityScreen() {
 
     if (Platform.OS !== 'web') {
       const detected = await resolveUserCityFromDevice({ requestPermission: true });
-      if (detected?.city) {
+      if (detected?.city && detected.coords) {
+        const lan = await persistDetectedRegion(detected.city, detected.coords);
         setCity(detected.city);
+        if (lan) setSelectedLan(lan);
         return detected.city;
       }
     }
@@ -695,10 +721,11 @@ export default function PersonalityScreen() {
                 setIsResolvingLocation(true);
                 try {
                   const detected = await resolveUserCityFromDevice({ requestPermission: true });
-                  if (detected?.city) {
+                  if (detected?.city && detected.coords) {
+                    const lan = await persistDetectedRegion(detected.city, detected.coords);
                     setCity(detected.city);
-                    setSelectedLan(null);
-                    setLocationPickerLan(null);
+                    setSelectedLan(lan);
+                    setLocationPickerLan(lan);
                   } else {
                     Alert.alert(
                       'Kunde inte hitta stad',

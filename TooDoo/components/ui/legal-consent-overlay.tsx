@@ -19,39 +19,72 @@ function LegalDocumentModal({
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const { mode } = useThemePreference();
+  const theme = uiTheme(mode);
   const document = LEGAL_DOCUMENTS[documentKey];
+  const body = document.body.trim();
+  const isEmpty = body.length === 0;
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.modalBackdrop}>
+    <Modal
+      visible
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
+      <View
+        style={[
+          styles.modalBackdrop,
+          { backgroundColor: theme.isDark ? 'rgba(0,0,0,0.82)' : 'rgba(10,15,28,0.72)' },
+        ]}
+      >
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Stäng" />
         <View
           style={[
             styles.documentSheet,
             {
+              backgroundColor: theme.cardBg,
+              borderColor: theme.border,
               marginTop: insets.top + 24,
               marginBottom: insets.bottom + 24,
             },
           ]}
         >
-          <View style={styles.documentHeader}>
-            <Text style={styles.documentTitle}>{document.title}</Text>
+          <View style={[styles.documentHeader, { borderBottomColor: theme.border }]}>
+            <Text style={[styles.documentTitle, { color: theme.text }]}>{document.title}</Text>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Stäng"
               onPress={onClose}
               hitSlop={12}
-              style={styles.documentCloseButton}
+              style={[styles.documentCloseButton, { backgroundColor: theme.cardBgMuted }]}
             >
-              <Ionicons name="close" size={22} color="#131720" />
+              <Ionicons name="close" size={22} color={theme.text} />
             </Pressable>
           </View>
           <ScrollView
             style={styles.documentScroll}
-            contentContainerStyle={styles.documentScrollContent}
+            contentContainerStyle={[
+              styles.documentScrollContent,
+              isEmpty && styles.documentScrollContentEmpty,
+            ]}
             showsVerticalScrollIndicator
           >
-            <Text style={styles.documentBody}>{document.body}</Text>
+            {isEmpty ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="document-text-outline" size={36} color={theme.textFaint} />
+                <Text style={[styles.emptyTitle, { color: theme.text }]}>
+                  Dokumentet saknas just nu
+                </Text>
+                <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
+                  Vi arbetar på att publicera den fullständiga texten. Du kan fortfarande godkänna
+                  villkoren för att fortsätta, eller stänga och försöka igen senare.
+                </Text>
+              </View>
+            ) : (
+              <Text style={[styles.documentBody, { color: theme.text }]}>{body}</Text>
+            )}
           </ScrollView>
         </View>
       </View>
@@ -79,94 +112,104 @@ export function LegalConsentOverlay({ onAccept }: LegalConsentOverlayProps) {
             borderColor: theme.border,
             marginTop: insets.top + 24,
             marginBottom: insets.bottom + 16,
+            maxHeight: '100%',
           },
         ]}
       >
-        <View style={styles.header}>
-          <View style={[styles.iconWrap, { backgroundColor: theme.cardBgMuted }]}>
-            <Ionicons name="document-text-outline" size={28} color={theme.primary} />
+        <ScrollView
+          bounces={false}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.sheetScrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.header}>
+            <View style={[styles.iconWrap, { backgroundColor: theme.cardBgMuted }]}>
+              <Ionicons name="document-text-outline" size={28} color={theme.primary} />
+            </View>
+            <Text style={[styles.title, { color: theme.text }]}>Villkor och integritet</Text>
+            <Text style={[styles.subtitle, { color: theme.textMuted }]}>
+              Läs våra villkor och integritetspolicy innan du fortsätter.
+            </Text>
           </View>
-          <Text style={[styles.title, { color: theme.text }]}>Villkor och integritet</Text>
-          <Text style={[styles.subtitle, { color: theme.textMuted }]}>
-            Läs våra villkor och integritetspolicy innan du fortsätter.
-          </Text>
-        </View>
 
-        <View style={styles.actions}>
+          <View style={styles.actions}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setOpenDocument('terms')}
+              style={({ pressed }) => [
+                styles.viewButton,
+                {
+                  backgroundColor: theme.isDark ? 'rgba(255,255,255,0.06)' : '#ffffff',
+                  borderColor: theme.border,
+                  opacity: pressed ? 0.88 : 1,
+                },
+              ]}
+            >
+              <Ionicons name="document-outline" size={18} color={theme.text} />
+              <Text style={[styles.viewButtonText, { color: theme.text }]}>
+                Visa användarvillkor
+              </Text>
+              <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setOpenDocument('privacy')}
+              style={({ pressed }) => [
+                styles.viewButton,
+                {
+                  backgroundColor: theme.isDark ? 'rgba(255,255,255,0.06)' : '#ffffff',
+                  borderColor: theme.border,
+                  opacity: pressed ? 0.88 : 1,
+                },
+              ]}
+            >
+              <Ionicons name="shield-checkmark-outline" size={18} color={theme.text} />
+              <Text style={[styles.viewButtonText, { color: theme.text }]}>
+                Visa integritetspolicy
+              </Text>
+              <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+            </Pressable>
+          </View>
+
           <Pressable
-            accessibilityRole="button"
-            onPress={() => setOpenDocument('terms')}
-            style={({ pressed }) => [
-              styles.viewButton,
-              {
-                backgroundColor: theme.isDark ? 'rgba(255,255,255,0.06)' : '#ffffff',
-                borderColor: theme.border,
-                opacity: pressed ? 0.88 : 1,
-              },
-            ]}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: hasAccepted }}
+            onPress={() => setHasAccepted((value) => !value)}
+            style={styles.checkboxRow}
           >
-            <Ionicons name="document-outline" size={18} color={theme.text} />
-            <Text style={[styles.viewButtonText, { color: theme.text }]}>Visa användarvillkor</Text>
-            <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+            <View
+              style={[
+                styles.checkbox,
+                {
+                  borderColor: hasAccepted ? theme.primary : theme.border,
+                  backgroundColor: hasAccepted ? theme.primary : 'transparent',
+                },
+              ]}
+            >
+              {hasAccepted ? <Ionicons name="checkmark" size={16} color="#ffffff" /> : null}
+            </View>
+            <Text style={[styles.checkboxLabel, { color: theme.text }]}>
+              Jag godkänner integritetspolicyn och användarvillkoren
+            </Text>
           </Pressable>
 
           <Pressable
             accessibilityRole="button"
-            onPress={() => setOpenDocument('privacy')}
+            accessibilityState={{ disabled: !hasAccepted }}
+            disabled={!hasAccepted}
+            onPress={onAccept}
             style={({ pressed }) => [
-              styles.viewButton,
+              styles.acceptButton,
               {
-                backgroundColor: theme.isDark ? 'rgba(255,255,255,0.06)' : '#ffffff',
-                borderColor: theme.border,
-                opacity: pressed ? 0.88 : 1,
+                backgroundColor: theme.primary,
+                opacity: !hasAccepted ? 0.45 : pressed ? 0.9 : 1,
               },
             ]}
           >
-            <Ionicons name="shield-checkmark-outline" size={18} color={theme.text} />
-            <Text style={[styles.viewButtonText, { color: theme.text }]}>Visa integritetspolicy</Text>
-            <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+            <Text style={[styles.acceptButtonText, { color: '#ffffff' }]}>Fortsätt</Text>
           </Pressable>
-        </View>
-
-        <Pressable
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: hasAccepted }}
-          onPress={() => setHasAccepted((value) => !value)}
-          style={styles.checkboxRow}
-        >
-          <View
-            style={[
-              styles.checkbox,
-              {
-                borderColor: hasAccepted ? theme.primary : theme.border,
-                backgroundColor: hasAccepted ? theme.primary : 'transparent',
-              },
-            ]}
-          >
-            {hasAccepted ? <Ionicons name="checkmark" size={16} color="#ffffff" /> : null}
-          </View>
-          <Text style={[styles.checkboxLabel, { color: theme.text }]}>
-            Jag godkänner integritetspolicyn och användarvillkoren
-          </Text>
-        </Pressable>
-
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ disabled: !hasAccepted }}
-          disabled={!hasAccepted}
-          onPress={onAccept}
-          style={({ pressed }) => [
-            styles.acceptButton,
-            {
-              backgroundColor: theme.primary,
-              opacity: !hasAccepted ? 0.45 : pressed ? 0.9 : 1,
-            },
-          ]}
-        >
-          <Text style={[styles.acceptButtonText, { color: '#ffffff' }]}>
-            Fortsätt
-          </Text>
-        </Pressable>
+        </ScrollView>
       </View>
 
       {openDocument ? (
@@ -187,6 +230,8 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     borderWidth: 1,
     overflow: 'hidden',
+  },
+  sheetScrollContent: {
     paddingBottom: 24,
   },
   header: {
@@ -267,17 +312,16 @@ const styles = StyleSheet.create({
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
     justifyContent: 'center',
     paddingHorizontal: 20,
   },
   documentSheet: {
-    backgroundColor: '#ffffff',
     borderRadius: 24,
     overflow: 'hidden',
     maxHeight: '88%',
+    minHeight: 280,
     borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.08)',
+    flexShrink: 1,
   },
   documentHeader: {
     flexDirection: 'row',
@@ -287,13 +331,11 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(0, 0, 0, 0.08)',
   },
   documentTitle: {
     flex: 1,
     fontSize: 20,
     fontWeight: '800',
-    color: '#131720',
     paddingRight: 12,
   },
   documentCloseButton: {
@@ -302,19 +344,39 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
   },
   documentScroll: {
-    flexGrow: 0,
+    flexGrow: 1,
+    flexShrink: 1,
   },
   documentScrollContent: {
     paddingHorizontal: 20,
     paddingVertical: 20,
     paddingBottom: 28,
+    flexGrow: 1,
+  },
+  documentScrollContentEmpty: {
+    justifyContent: 'center',
+    minHeight: 200,
   },
   documentBody: {
     fontSize: 15,
     lineHeight: 24,
-    color: '#131720',
+  },
+  emptyState: {
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+  },
+  emptyTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  emptyBody: {
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: 'center',
+    maxWidth: 280,
   },
 });

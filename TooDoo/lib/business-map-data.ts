@@ -90,7 +90,8 @@ function mergeMapBusiness(primary: MapBusiness | undefined, next: MapBusiness) {
 export async function searchMapBusinesses(
   query: string,
   known: MapBusiness[],
-  coords: Coords | null
+  coords: Coords | null,
+  options?: { city?: string }
 ): Promise<MapBusiness[]> {
   const q = query.trim();
   if (q.length < 2) return known;
@@ -99,7 +100,8 @@ export async function searchMapBusinesses(
   const byId = new Map(local.map((item) => [item.id, item]));
 
   try {
-    const cards = await searchCatalog(q, { take: 24, maxHydrate: 16 });
+    const city = options?.city?.trim() || undefined;
+    const cards = await searchCatalog(q, { take: 24, maxHydrate: 16, city });
     for (const card of cards) {
       if (card.resultKind === 'event') continue;
       const existing = known.find((item) => item.id === card.id) ?? byId.get(card.id);

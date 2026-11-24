@@ -165,6 +165,15 @@ export function findLanByName(name: string): SwedenLan | undefined {
   return SWEDEN_REGIONS.find((lan) => lan.name.toLocaleLowerCase('sv-SE') === key);
 }
 
+/** Match a kommun/city name to its län (exact, case-insensitive). */
+export function findLanForCity(city: string): SwedenLan | undefined {
+  const key = city.trim().toLocaleLowerCase('sv-SE');
+  if (!key) return undefined;
+  return SWEDEN_REGIONS.find((lan) =>
+    lan.cities.some((item) => item.toLocaleLowerCase('sv-SE') === key)
+  );
+}
+
 export function geocodeQueryForCity(lan: string, city: string) {
   return `${city}, ${lan}, Sverige`;
 }

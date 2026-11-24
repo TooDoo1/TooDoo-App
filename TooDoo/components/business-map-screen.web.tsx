@@ -49,6 +49,7 @@ import {
   HELSINGBORG_COORDS,
   type Coords,
 } from '@/lib/geo';
+import { loadRegionSelection } from '@/lib/region-selection';
 import { warmMapPinImages } from '@/lib/map-business-pin';
 import { MAP_PAINT_VERSION } from '@/lib/maplibre-brand';
 import { mapShellBackground } from '@/lib/map-style';
@@ -341,7 +342,13 @@ export default function BusinessMapScreen() {
     setSearchingCatalog(true);
     setCatalogHits(null);
     const timer = setTimeout(() => {
-      void searchMapBusinesses(query, businessesRef.current, userCoords)
+      void loadRegionSelection()
+        .catch(() => null)
+        .then((region) =>
+          searchMapBusinesses(query, businessesRef.current, userCoords, {
+            city: region?.city,
+          })
+        )
         .then((hits) => {
           if (cancelled) return;
           setCatalogHits(hits);

@@ -25,16 +25,20 @@ export default function RegistreringScreen() {
 	const { setPendingRegistration, signIn } = useAuth();
 	const { mode } = useThemePreference();
 	const theme = uiTheme(mode);
-	const { accountType, returnTo, returnParams } = useLocalSearchParams<{
-		accountType?: string;
-		returnTo?: string;
-		returnParams?: string;
-	}>();
+	const { accountType, returnTo, returnParams, inviteToken: inviteTokenParam } =
+		useLocalSearchParams<{
+			accountType?: string;
+			returnTo?: string;
+			returnParams?: string;
+			inviteToken?: string;
+		}>();
 	const isCompanyRegistration = accountType === 'company';
 	const [email, setEmail] = useState('');
 	const [password, setPassword] = useState('');
 	const [confirmPassword, setConfirmPassword] = useState('');
-	const [companyName, setCompanyName] = useState('');
+	const [inviteToken, setInviteToken] = useState(
+		typeof inviteTokenParam === 'string' ? inviteTokenParam : ''
+	);
 	const [isSubmittingRegister, setIsSubmittingRegister] = useState(false);
 
 	const fieldStyle = {
@@ -100,6 +104,15 @@ export default function RegistreringScreen() {
 		}
 
 		if (isCompanyRegistration) {
+			const trimmedInvite = inviteToken.trim();
+			if (!trimmedInvite) {
+				Alert.alert(
+					'Saknad inbjudan',
+					'Ange inbjudningskoden du fick för att skapa ett företagskonto.'
+				);
+				return;
+			}
+
 			setIsSubmittingRegister(true);
 			try {
 				const registerResponse = await fetch(apiUrl('/user/register/manager'), {
@@ -110,6 +123,7 @@ export default function RegistreringScreen() {
 					body: JSON.stringify({
 						email: email.trim(),
 						password,
+						inviteToken: trimmedInvite,
 					}),
 				});
 
@@ -242,7 +256,7 @@ export default function RegistreringScreen() {
 				</Text>
 				<Text style={[styles.formSubtitle, { color: theme.textMuted }]}>
 					{isCompanyRegistration
-						? 'Fyll i uppgifterna för att komma igång.'
+						? 'Du behöver en inbjudningskod för att skapa företagskonto.'
 						: 'Sedan väljer du intressen i nästa steg.'}
 				</Text>
 
@@ -261,13 +275,15 @@ export default function RegistreringScreen() {
 				{isCompanyRegistration ? (
 					<>
 						<Text style={[styles.fieldLabel, { color: theme.textMuted }]}>
-							Företagsnamn
+							Inbjudningskod
 						</Text>
 						<TextInput
-							value={companyName}
-							onChangeText={setCompanyName}
-							placeholder="Ange företagsnamn"
+							value={inviteToken}
+							onChangeText={setInviteToken}
+							placeholder="Klistra in din inbjudningskod"
 							placeholderTextColor={theme.textFaint}
+							autoCapitalize="none"
+							autoCorrect={false}
 							style={[styles.field, fieldStyle]}
 						/>
 					</>

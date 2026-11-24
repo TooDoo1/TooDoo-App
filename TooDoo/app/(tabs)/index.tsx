@@ -3241,16 +3241,29 @@ export default function HomeScreen() {
     const skip = searchResultsRef.current.length;
     searchLoadingMoreRef.current = true;
     setIsLoadingMoreSearch(true);
-    void searchCatalog(q, {
-      take: SEARCH_PAGE_SIZE,
-      skip,
-      maxHydrate: 8,
-      city: userCityRef.current ?? undefined,
-      knownCards: [
-        ...knownCardsRef.current,
-        ...(searchResultsRef.current as OfferCardItem[]),
-      ],
-    })
+    const knownCards = [
+      ...knownCardsRef.current,
+      ...(searchResultsRef.current as OfferCardItem[]),
+    ];
+    const city = userCityRef.current ?? undefined;
+    const useNatural = voiceQueryRef.current === q;
+    const pagePromise = useNatural
+      ? searchNatural(q, authFetch, {
+          source: 'voice',
+          city,
+          take: SEARCH_PAGE_SIZE,
+          skip,
+          maxHydrate: 8,
+          knownCards,
+        })
+      : searchCatalog(q, {
+          take: SEARCH_PAGE_SIZE,
+          skip,
+          maxHydrate: 8,
+          city,
+          knownCards,
+        });
+    void pagePromise
       .then((page) => {
         if (voiceQueryRef.current && voiceQueryRef.current !== q) return;
         if (page.length === 0) {
@@ -3271,7 +3284,7 @@ export default function HomeScreen() {
         searchLoadingMoreRef.current = false;
         setIsLoadingMoreSearch(false);
       });
-  }, [showCommittedSearchResults, trimmedSearchQuery]);
+  }, [authFetch, showCommittedSearchResults, trimmedSearchQuery]);
 
   loadMoreSearchRef.current = loadMoreSearch;
 
