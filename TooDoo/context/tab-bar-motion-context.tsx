@@ -17,11 +17,17 @@ type TabBarMotionContextValue = {
   /** Nested stack screens (e.g. Nära dig → map) must not reveal the bar between pops. */
   acquireStackHide: () => void;
   releaseStackHide: () => void;
-  tabBarProps: BottomTabBarProps | null;
-  setTabBarProps: (props: BottomTabBarProps | null) => void;
 };
 
+type SetTabBarProps = (props: BottomTabBarProps | null) => void;
+
+/**
+ * Tab bar navigation props live in their own contexts: they change on every tab
+ * press, and screens that only need the motion shared values must not re-render.
+ */
 const TabBarMotionContext = createContext<TabBarMotionContextValue | null>(null);
+const TabBarPropsContext = createContext<BottomTabBarProps | null>(null);
+const SetTabBarPropsContext = createContext<SetTabBarProps | null>(null);
 
 export function TabBarMotionProvider({ children }: { children: ReactNode }) {
   const stackHideProgress = useSharedValue(0);
@@ -51,20 +57,17 @@ export function TabBarMotionProvider({ children }: { children: ReactNode }) {
       scrollHideProgress,
       acquireStackHide,
       releaseStackHide,
-      tabBarProps,
-      setTabBarProps,
     }),
-    [
-      stackHideProgress,
-      scrollHideProgress,
-      acquireStackHide,
-      releaseStackHide,
-      tabBarProps,
-      setTabBarProps,
-    ]
+    [stackHideProgress, scrollHideProgress, acquireStackHide, releaseStackHide]
   );
 
-  return <TabBarMotionContext.Provider value={value}>{children}</TabBarMotionContext.Provider>;
+  return (
+    <TabBarMotionContext.Provider value={value}>
+      <SetTabBarPropsContext.Provider value={setTabBarProps}>
+        <TabBarPropsContext.Provider value={tabBarProps}>{children}</TabBarPropsContext.Provider>
+      </SetTabBarPropsContext.Provider>
+    </TabBarMotionContext.Provider>
+  );
 }
 
 export function useTabBarMotion() {
@@ -73,4 +76,16 @@ export function useTabBarMotion() {
     throw new Error('useTabBarMotion must be used within TabBarMotionProvider');
   }
   return context;
+}
+
+export function useTabBarProps() {
+  return useContext(TabBarPropsContext);
+}
+
+export function useSetTabBarProps() {
+  const setter = useContext(SetTabBarPropsContext);
+  if (!setter) {
+    throw new Error('useSetTabBarProps must be used within TabBarMotionProvider');
+  }
+  return setter;
 }

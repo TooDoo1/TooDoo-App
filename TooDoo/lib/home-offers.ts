@@ -1,7 +1,7 @@
 import type { ImageSourcePropType } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { apiUrl, normalizeImageUrl } from '@/lib/api';
+import { apiUrl, fetchWithTimeout, normalizeImageUrl } from '@/lib/api';
 import { businessImageCacheKey, extractOrderImageUrl } from '@/lib/business-image';
 import {
   fetchApprovedBusinessesCatalog,
@@ -308,7 +308,11 @@ async function fetchOrdersFromBusinessDetails(
       batch.map(async (business, index) => {
         const businessId = String(business.id ?? business._id ?? `business-${i + index}`);
         try {
-          const res = await fetch(apiUrl(`/business/${encodeURIComponent(businessId)}`));
+          const res = await fetchWithTimeout(
+            apiUrl(`/business/${encodeURIComponent(businessId)}`),
+            {},
+            6_000
+          );
           if (!res.ok) return [];
           const json = await res.json().catch(() => ({}));
           const businessObj = (json as any)?.business ?? json;
@@ -654,8 +658,9 @@ export async function fetchOfferListCards(
     const popularUrl = city
       ? `/business/popular?take=10&city=${encodeURIComponent(city)}`
       : '/business/popular?take=10';
-    const popularRes = await fetch(apiUrl(popularUrl));
-    const popularJson = popularRes.ok ? await popularRes.json().catch(() => ({})) : {};
+    const popularRes = await fetchWithTimeout(apiUrl(popularUrl)).catch(() => null);
+    const popularJson =
+      popularRes && popularRes.ok ? await popularRes.json().catch(() => ({})) : {};
     const popularBusinesses = parsePopularBusinesses(popularJson);
     if (popularBusinesses.length > 0) {
       const cachedCatalog = (peekApprovedBusinessesCatalog() as ApiBusiness[] | null) ?? [];
@@ -669,10 +674,10 @@ export async function fetchOfferListCards(
 
   if (mode === 'endingSoon' && token) {
     const take = Math.min(Math.max(limit, 1), 50);
-    const res = await fetch(apiUrl(`/orders/for-you/ending-soon?take=${take}`), {
+    const res = await fetchWithTimeout(apiUrl(`/orders/for-you/ending-soon?take=${take}`), {
       headers: { Authorization: `Bearer ${token}` },
-    });
-    const json = res.ok ? await res.json().catch(() => ({})) : {};
+    }).catch(() => null);
+    const json = res && res.ok ? await res.json().catch(() => ({})) : {};
     const orders = parseOrdersPayload(json).filter((order) => isActiveOffer(order, nowMs));
     if (orders.length > 0) {
       const cards = dedupeOfferCardsById(
@@ -684,7 +689,7 @@ export async function fetchOfferListCards(
 
   // Guest ending-soon / empty personalized response: single /orders call, no
   // catalog paging and no per-business detail fan-out.
-  const ordersJson = await fetch(apiUrl('/orders'))
+  const ordersJson = await fetchWithTimeout(apiUrl('/orders'))
     .then((res) => res.json().catch(() => []))
     .catch(() => []);
   const ordersRaw = parseOrdersPayload(ordersJson).filter((order) =>
@@ -1085,12 +1090,43 @@ export async function fetchHomeViaCityEndpoint(
   }
 }
 
-/** Optimized home bootstrap — prefers city-scoped GET /home, else legacy fan-out. */
-export async function fetchHomeScreenData(options: {
+type FetchHomeScreenOptions = {
   token?: string | null;
   coords?: { lat: number; lng: number } | null;
   city?: string | null;
-}): Promise<HomeScreenData> {
+};
+
+const homeScreenInflight = new Map<string, Promise<HomeScreenData>>();
+
+function homeScreenRequestKey({ token, coords, city }: FetchHomeScreenOptions) {
+  const coordsKey =
+    coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lng)
+      ? `${coords.lat.toFixed(3)},${coords.lng.toFixed(3)}`
+      : '';
+  return `${token ?? ''}|${city?.trim().toLowerCase() ?? ''}|${coordsKey}`;
+}
+
+/**
+ * Optimized home bootstrap — prefers city-scoped GET /home, else legacy fan-out.
+ * Concurrent calls with the same token/city/coords share one request, so the
+ * splash warmup and the home screen never fetch the same data twice.
+ */
+export function fetchHomeScreenData(options: FetchHomeScreenOptions): Promise<HomeScreenData> {
+  const key = homeScreenRequestKey(options);
+  const existing = homeScreenInflight.get(key);
+  if (existing) return existing;
+  const request = fetchHomeScreenDataUncached(options);
+  homeScreenInflight.set(key, request);
+  void request.then(
+    () => homeScreenInflight.delete(key),
+    () => homeScreenInflight.delete(key)
+  );
+  return request;
+}
+
+async function fetchHomeScreenDataUncached(
+  options: FetchHomeScreenOptions
+): Promise<HomeScreenData> {
   const { token, coords, city } = options;
 
   const viaHome = await fetchHomeViaCityEndpoint({ token, coords, city });
@@ -1105,19 +1141,19 @@ export async function fetchHomeScreenData(options: {
   const closeUrl = coords
     ? `/orders/for-you/close?take=10&lat=${coords.lat}&lng=${coords.lng}`
     : '/orders/for-you/close?take=10';
-  const ordersPromise = fetch(apiUrl('/orders'))
+  const ordersPromise = fetchWithTimeout(apiUrl('/orders'))
     .then((res) => res.json().catch(() => []))
     .catch(() => []);
-  const popularPromise = fetch(apiUrl(popularUrl)).catch(() => null);
+  const popularPromise = fetchWithTimeout(apiUrl(popularUrl)).catch(() => null);
   const closePromise = token
-    ? fetch(apiUrl(closeUrl), {
+    ? fetchWithTimeout(apiUrl(closeUrl), {
         headers: { Authorization: `Bearer ${token}` },
       }).catch(() => null)
     : null;
 
   const [categoriesRaw, businessesRaw] = await Promise.all([
-    fetchCategoriesCatalog(),
-    fetchApprovedBusinessesCatalog(),
+    fetchCategoriesCatalog().catch(() => [] as unknown[]),
+    fetchApprovedBusinessesCatalog().catch(() => [] as unknown[]),
   ]);
 
   const approvedBusinessesEarly = (businessesRaw as ApiBusiness[]).filter(

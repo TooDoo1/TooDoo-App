@@ -29,7 +29,12 @@ export type HomeFeedRow =
   | { key: string; kind: 'weekend' }
   | HomeFeedSpotlightRow
   | { key: string; kind: 'after-shopping'; id: string; label: string; scrollKey: string }
-  | { key: string; kind: 'explore' };
+  | { key: string; kind: 'explore' }
+  /** A slice of Utforska cards — one FlashList cell each instead of one endless cell. */
+  | { key: string; kind: 'explore-cards'; start: number }
+  | { key: string; kind: 'explore-footer' };
+
+export const EXPLORE_ROW_CHUNK = 3;
 
 /** Rough body heights (incl. title + margin) for sticky Utforska anchor before layout. */
 export const HOME_FEED_ROW_ESTIMATE: Record<HomeFeedRow['kind'], number> = {
@@ -51,6 +56,8 @@ export const HOME_FEED_ROW_ESTIMATE: Record<HomeFeedRow['kind'], number> = {
   spotlight: 230,
   'after-shopping': 230,
   explore: 520,
+  'explore-cards': 900,
+  'explore-footer': 60,
 };
 
 export function estimateExploreBodyY(rows: readonly HomeFeedRow[]): number {

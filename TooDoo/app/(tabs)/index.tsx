@@ -63,6 +63,7 @@ import {
 } from '@/components/home/home-feed';
 import {
   estimateExploreBodyY,
+  EXPLORE_ROW_CHUNK,
   type HomeFeedRow,
 } from '@/components/home/home-feed-rows';
 import {
@@ -76,6 +77,7 @@ import {
 } from '@/components/home/home-tip-cards';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { useTabBarMotion } from '@/context/tab-bar-motion-context';
+import { SearchOverlayInput } from '@/components/home/search-overlay-input';
 import { BrandColors, brandInkRgba, FilterChipTheme } from '@/lib/brand-colors';
 import { uiTheme } from '@/lib/ui-theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -192,6 +194,7 @@ import {
   fetchSearchTips,
   getLocalBusinessSearchTips,
   mergeSearchTips,
+  SEARCH_GENERIC_TIPS_TAKE,
   SEARCH_SHOP_TIPS_TAKE,
   splitSearchTips,
   type SearchTipItem,
@@ -231,7 +234,10 @@ function isAfterShoppingLabel(label: string) {
 
 const SEARCH_DROPDOWN_OPEN_MS = 220;
 const SEARCH_DROPDOWN_CLOSE_MS = 240;
-const SEARCH_TIPS_DEBOUNCE_MS = 120;
+/** On top of the input's own 200ms debounce — about 250ms after the last keystroke in total. */
+const SEARCH_TIPS_DEBOUNCE_MS = 50;
+/** Per tip group — the overlay list is a plain ScrollView, so keep it short. */
+const MAX_SEARCH_TIP_ROWS = 10;
 const SEARCH_BAR_HEIGHT = 44;
 /**
  * iOS: pull chrome slightly into the status area for a tighter top.
@@ -1293,7 +1299,7 @@ function HomeHeaderHeroFill({
             contentFit="cover"
             contentPosition="top center"
             cachePolicy="memory-disk"
-            transition={450}
+            transition={Platform.OS === 'android' ? 0 : 450}
             style={[StyleSheet.absoluteFillObject, { opacity: active ? 1 : 0 }]}
           />
         );
@@ -1456,6 +1462,8 @@ export default function HomeScreen() {
   /** Stable business-id order from the last natural/AI response — do not reshuffle. */
   const voiceResultOrderRef = useRef<string[] | null>(null);
   const userCityRef = useRef<string | null>(null);
+  /** Shared by the initial load and the coords refresh so only the newest result is painted. */
+  const homeLoadGenRef = useRef(0);
   const searchBlurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const homeSearchBarRef = useRef<View>(null);
   const tipPreviewRequestRef = useRef(0);
@@ -1986,6 +1994,7 @@ export default function HomeScreen() {
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     const trimmed = searchQuery.trim();
 
     if (trimmed.length >= 1) {
@@ -1995,10 +2004,10 @@ export default function HomeScreen() {
         SEARCH_SHOP_TIPS_TAKE
       );
       if (instantShops.length > 0) {
-        setSearchTips([
-          ...instantShops,
-          ...DEFAULT_SEARCH_TIPS.map((label) => ({ label, kind: 'tip' as const })),
-        ]);
+        // Same generic tail as the API response, so only the shop rows change when it lands.
+        setSearchTips(
+          mergeSearchTips(instantShops, DEFAULT_SEARCH_TIPS.slice(0, SEARCH_GENERIC_TIPS_TAKE))
+        );
       }
     }
 
@@ -2010,6 +2019,7 @@ export default function HomeScreen() {
           city: userCityRef.current ?? undefined,
           authFetch,
           isLoggedIn,
+          signal: controller.signal,
         });
         if (cancelled) return;
 
@@ -2055,6 +2065,7 @@ export default function HomeScreen() {
 
     return () => {
       cancelled = true;
+      controller.abort();
       clearTimeout(timer);
     };
   }, [searchQuery, authFetch, isLoggedIn]);
@@ -2310,6 +2321,42 @@ export default function HomeScreen() {
       return next;
     });
   }, []);
+
+  /** Latest typed text, ahead of the debounced `searchQuery`. */
+  const searchDraftRef = useRef(searchQuery);
+  const handleSearchDraftChange = useCallback((text: string) => {
+    searchDraftRef.current = text;
+  }, []);
+
+  const handleSearchQueryChange = useCallback(
+    (text: string) => {
+      clearVoiceSearchOwnership();
+      setSearchCommitted(false);
+      setSearchQuery(text);
+    },
+    [clearVoiceSearchOwnership]
+  );
+
+  const handleSearchSubmit = useCallback(
+    (text: string) => {
+      if (text.trim().length < 2) return;
+      setSearchQuery(text);
+      rememberSearch(text);
+      setSearchCommitted(true);
+      closeSearchOverlay();
+    },
+    [closeSearchOverlay, rememberSearch]
+  );
+
+  const handleSearchClear = useCallback(() => {
+    clearVoiceSearchOwnership();
+    stopVoiceSession();
+    setSearchCommitted(false);
+    setSearchQuery('');
+    setSearchResults([]);
+    setSearchHasMore(false);
+    clearHomeSearchCache();
+  }, [clearVoiceSearchOwnership, stopVoiceSession]);
 
   const selectSearchTip = useCallback(
     (tip: SearchTipItem) => {
@@ -2634,13 +2681,13 @@ export default function HomeScreen() {
 
   useEffect(() => {
     let cancelled = false;
-    let requestId = 0;
+    const isStale = (id: number) => cancelled || id !== homeLoadGenRef.current;
 
     const loadHomeData = async (
       background = false,
       loadCoords: { lat: number; lng: number } | null = coords
     ) => {
-      const thisRequest = ++requestId;
+      const thisRequest = ++homeLoadGenRef.current;
 
       if (hasFreshHomeScreenSnapshot() && refreshNonce === 0 && !background) {
         const snapshot = getHomeScreenSnapshot();
@@ -2676,7 +2723,7 @@ export default function HomeScreen() {
               hotOfferCards: withDistHot,
               events: cachedEvents,
             });
-            if (cancelled || thisRequest !== requestId) return;
+            if (isStale(thisRequest)) return;
             setDeals(
               loadCoords
                 ? sortDealsByDistance(applyHaversineDistances(settled.deals, loadCoords))
@@ -2698,13 +2745,13 @@ export default function HomeScreen() {
                 loadCoords,
                 { maxGeocode: 24 }
               );
-              if (cancelled || thisRequest !== requestId) return;
+              if (isStale(thisRequest)) return;
               setDeals(sortDealsByDistance(applyHaversineDistances(enriched, loadCoords)));
             }
           } catch {
             // Content is already visible from the snapshot.
           }
-        } else if (!cancelled && thisRequest === requestId) {
+        } else if (!isStale(thisRequest)) {
           markDataReady();
         }
         setTimeout(() => {
@@ -2737,7 +2784,7 @@ export default function HomeScreen() {
                 city: eventCity,
               }).catch(() => [] as EventFeedItem[]);
 
-        if (cancelled || thisRequest !== requestId) return;
+        if (isStale(thisRequest)) return;
 
         if (data.cityImageUris?.length) {
           setCityHeroUris(data.cityImageUris);
@@ -2807,7 +2854,7 @@ export default function HomeScreen() {
           hotOfferCards: hotFromApi,
           events,
         });
-        if (cancelled || thisRequest !== requestId) return;
+        if (isStale(thisRequest)) return;
 
         const settledDeals = loadCoords
           ? sortDealsByDistance(applyHaversineDistances(settled.deals, loadCoords))
@@ -2835,11 +2882,11 @@ export default function HomeScreen() {
           const enriched = await fillMissingDistancesFromAddresses(settledDeals, loadCoords, {
             maxGeocode: 24,
           });
-          if (cancelled || thisRequest !== requestId) return;
+          if (isStale(thisRequest)) return;
           setDeals(sortDealsByDistance(enriched));
         }
       } catch {
-        if (!cancelled && thisRequest === requestId) {
+        if (!isStale(thisRequest)) {
           setCategoryFilters([]);
           setDeals([]);
           setNearYouCards([]);
@@ -2848,7 +2895,7 @@ export default function HomeScreen() {
           Alert.alert('Fel', 'Kunde inte ladda startsidan just nu.');
         }
       } finally {
-        if (!cancelled && thisRequest === requestId) {
+        if (!isStale(thisRequest)) {
           setIsLoadingData(false);
           setIsLoadingEvents(false);
           setIsRefreshing(false);
@@ -2870,6 +2917,8 @@ export default function HomeScreen() {
   useEffect(() => {
     if (!coords) return;
     let cancelled = false;
+    const thisRequest = ++homeLoadGenRef.current;
+    const isStale = () => cancelled || thisRequest !== homeLoadGenRef.current;
 
     void (async () => {
       try {
@@ -2879,7 +2928,9 @@ export default function HomeScreen() {
           coords,
           city: eventCity,
         });
-        if (cancelled) return;
+        if (isStale()) return;
+        setIsLoadingData(false);
+        markDataReady();
 
         if (data.cityImageUris?.length) {
           setCityHeroUris(data.cityImageUris);
@@ -2908,14 +2959,18 @@ export default function HomeScreen() {
         if (data.source === 'home' && Array.isArray(data.events)) {
           setEventCards(data.events);
           setHomeEventsCache(data.events, data.resolvedCity ?? eventCity);
+          setIsLoadingEvents(false);
         } else {
           void fetchEventFeed({ days: EVENT_FEED_DAYS, city: eventCity })
             .then((events) => {
-              if (cancelled) return;
+              if (isStale()) return;
               setEventCards(events);
               setHomeEventsCache(events, eventCity);
             })
-            .catch(() => {});
+            .catch(() => {})
+            .finally(() => {
+              if (!isStale()) setIsLoadingEvents(false);
+            });
         }
 
         const settled = await settleHomeScreenAssetsWithinBudget({
@@ -2924,7 +2979,7 @@ export default function HomeScreen() {
           hotOfferCards: hotWithDistance,
           events: data.events,
         });
-        if (cancelled) return;
+        if (isStale()) return;
 
         const paintedDeals = sortDealsByDistance(
           applyHaversineDistances(settled.deals, coords)
@@ -2947,17 +3002,25 @@ export default function HomeScreen() {
         const enriched = await fillMissingDistancesFromAddresses(paintedDeals, coords, {
           maxGeocode: 24,
         });
-        if (cancelled) return;
+        if (isStale()) return;
         setDeals(sortDealsByDistance(enriched));
       } catch {
         // Keep whatever the first load already painted.
+      } finally {
+        if (!isStale()) {
+          setIsLoadingData(false);
+          setIsLoadingEvents(false);
+          setIsRefreshing(false);
+          markDataReady();
+        }
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [coords?.lat, coords?.lng, token]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coords?.lat, coords?.lng, markDataReady, token]);
 
   const filteredDeals = useMemo(
     () => filterCardsByActiveCategory(deals, activeCategory),
@@ -3100,6 +3163,8 @@ export default function HomeScreen() {
     showCommittedSearchResults && trimmedSearchQuery.length >= 2;
   const showCommittedSearchPrompt = searchCommitted && isSearchTooShort;
   const shouldFetchSearch = isSearchActive && searchCommitted;
+  /** Stays stable while the user types in the overlay, so feed rows don't re-render per keystroke. */
+  const committedSearchLabel = showCommittedSearchResults ? trimmedSearchQuery : '';
 
   useEffect(() => {
     if (showCommittedSearchResults || showCommittedSearchPrompt) {
@@ -3314,10 +3379,30 @@ export default function HomeScreen() {
 
   loadMoreSearchRef.current = loadMoreSearch;
 
+  const explorePoolBuiltOnceRef = useRef(false);
   useEffect(() => {
     if (isLoadingData) return;
     if (showCommittedSearchResults || showCommittedSearchPrompt) return;
-    void rebuildExplorePool();
+    if (explorePoolBuiltOnceRef.current) {
+      void rebuildExplorePool();
+      return;
+    }
+    // Utforska sits at the bottom of the feed: build its pool (full catalog filter +
+    // sort) only after the first paint has settled, so it doesn't delay startup.
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const task = InteractionManager.runAfterInteractions(() => {
+      timer = setTimeout(() => {
+        if (cancelled) return;
+        explorePoolBuiltOnceRef.current = true;
+        void rebuildExplorePool();
+      }, Platform.OS === 'android' ? 1500 : 400);
+    });
+    return () => {
+      cancelled = true;
+      task.cancel();
+      if (timer) clearTimeout(timer);
+    };
   }, [
     exploreFilters,
     isLoadingData,
@@ -3721,6 +3806,7 @@ export default function HomeScreen() {
       cached.query === trimmedSearchQuery && cached.results.length > 0;
 
     let cancelled = false;
+    const controller = new AbortController();
     const timer = setTimeout(() => {
       if (!hasCachedResults) {
         setIsSearchLoading(true);
@@ -3731,6 +3817,7 @@ export default function HomeScreen() {
         maxHydrate: 16,
         city: userCityRef.current ?? undefined,
         knownCards: knownCardsRef.current,
+        signal: controller.signal,
       })
         .then((results) => {
           if (cancelled) return;
@@ -3757,6 +3844,7 @@ export default function HomeScreen() {
 
     return () => {
       cancelled = true;
+      controller.abort();
       clearTimeout(timer);
     };
   }, [
@@ -3878,8 +3966,15 @@ export default function HomeScreen() {
       });
     }
     rows.push({ key: 'explore', kind: 'explore' });
+    if (exploreCards.length > 0) {
+      for (let start = 0; start < exploreCards.length; start += EXPLORE_ROW_CHUNK) {
+        rows.push({ key: `explore-cards:${start}`, kind: 'explore-cards', start });
+      }
+      rows.push({ key: 'explore-footer', kind: 'explore-footer' });
+    }
     return rows;
   }, [
+    exploreCards.length,
     afterShoppingSections,
     categorySpotlightSections,
     isSearchLoading,
@@ -3912,29 +4007,39 @@ export default function HomeScreen() {
     setHomeScrollOffset(y);
   }, [homeScrollYSv]);
 
-  const handleCardPress = (card: CardItem) => {
-    closeSearchOverlay();
-    captureHomeScrollBeforeLeave();
-    setHomeSearchCache(trimmedSearchQuery, searchResults as OfferCardItem[]);
-    openOfferDetail(router, card, 'index');
-  };
+  const handleCardPress = useCallback(
+    (card: CardItem) => {
+      closeSearchOverlay();
+      captureHomeScrollBeforeLeave();
+      setHomeSearchCache(
+        searchQueryRef.current.trim(),
+        searchResultsRef.current as OfferCardItem[]
+      );
+      openOfferDetail(router, card, 'index');
+    },
+    [captureHomeScrollBeforeLeave, closeSearchOverlay, router]
+  );
 
-  const handleEventPress = (event: EventFeedItem) => {
-    captureHomeScrollBeforeLeave();
-    openEventFeedItem(router, event, 'index');
-  };
+  const handleEventPress = useCallback(
+    (event: EventFeedItem) => {
+      captureHomeScrollBeforeLeave();
+      openEventFeedItem(router, event, 'index');
+    },
+    [captureHomeScrollBeforeLeave, router]
+  );
 
   const openSearchResultsView = useCallback(
     (view: 'all' | 'near' | 'hot') => {
-      if (!trimmedSearchQuery) return;
+      const q = searchQueryRef.current.trim();
+      if (!q) return;
       captureHomeScrollBeforeLeave();
-      setHomeSearchCache(trimmedSearchQuery, searchResults as OfferCardItem[]);
+      setHomeSearchCache(q, searchResultsRef.current as OfferCardItem[]);
       router.push({
         pathname: SEARCH_RESULTS_PATH,
-        params: { q: trimmedSearchQuery, view },
+        params: { q, view },
       });
     },
-    [captureHomeScrollBeforeLeave, router, searchResults, trimmedSearchQuery]
+    [captureHomeScrollBeforeLeave, router]
   );
 
   const openSeeAllWithCategory = useCallback(
@@ -3966,7 +4071,9 @@ export default function HomeScreen() {
         });
       }
 
-      const trimmed = searchQuery.trim();
+      const typed = fromSearchOverlay ? searchDraftRef.current : searchQuery;
+      if (typed !== searchQuery) setSearchQuery(typed);
+      const trimmed = typed.trim();
       // Name match on API-ranked results — never distance-sort (that pinned the wrong pizza).
       const rankedBusinesses = showCommittedSearchResults
         ? searchResults.filter((card) => card.resultKind !== 'event')
@@ -4141,7 +4248,7 @@ export default function HomeScreen() {
   );
 
   const renderSearchTipRows = (tips: SearchTipItem[]) =>
-    tips.map((tip, index) => {
+    tips.slice(0, MAX_SEARCH_TIP_ROWS).map((tip, index) => {
       const tipKey = getSearchTipKey(tip);
       const isExpanded = expandedSearchTipKey === tipKey;
       return (
@@ -4481,7 +4588,7 @@ export default function HomeScreen() {
               showBadge={false}
               showFavoriteButton
               scrollKey="home:search:all"
-              emptyText={`Inga träffar för "${trimmedSearchQuery}".`}
+              emptyText={`Inga träffar för "${committedSearchLabel}".`}
             />
           );
         case 'search-hot':
@@ -4495,7 +4602,7 @@ export default function HomeScreen() {
               <FeaturedDealsSplit
                 cards={searchedHot}
                 onCardPress={handleCardPress}
-                emptyText={`Inga populära erbjudanden för "${trimmedSearchQuery}".`}
+                emptyText={`Inga populära erbjudanden för "${committedSearchLabel}".`}
               />
             </View>
           );
@@ -4518,7 +4625,7 @@ export default function HomeScreen() {
                 showActivityDots
                 businessIdsWithEvents={businessIdsWithEvents}
                 scrollKey="home:search:near"
-                emptyText={`Inga träffar nära dig för "${trimmedSearchQuery}".`}
+                emptyText={`Inga träffar nära dig för "${committedSearchLabel}".`}
               />
             </View>
           );
@@ -4529,7 +4636,7 @@ export default function HomeScreen() {
               <HomeCardGrid
                 cards={searchResults}
                 onCardPress={handleCardPress}
-                emptyText={`Inga fler träffar för "${trimmedSearchQuery}".`}
+                emptyText={`Inga fler träffar för "${committedSearchLabel}".`}
                 maxItems={null}
                 columns={1}
                 showFavoriteButton
@@ -4632,6 +4739,13 @@ export default function HomeScreen() {
               />
               {isLoadingData && hotOfferCards.length === 0 ? (
                 <LoadingSpinner label="Laddar..." />
+              ) : Platform.OS === 'android' ? (
+                // The rotating layout animates width/height on the JS thread — too heavy on Android.
+                <FeaturedDealsSplit
+                  cards={filteredHotOfferCards}
+                  onCardPress={handleCardPress}
+                  emptyText="Inga populära erbjudanden just nu."
+                />
               ) : (
                 <AnimatedFeaturedDeals
                   cards={filteredHotOfferCards}
@@ -4816,38 +4930,47 @@ export default function HomeScreen() {
                   onChange={setExploreFilters}
                 />
               </View>
-              <View style={{ marginTop: 26 }}>
-                {isLoadingExplore && exploreCards.length === 0 ? (
-                  <LoadingSpinner label="Laddar bolag..." />
-                ) : (
-                  <>
-                    <HomeCardGrid
-                      cards={exploreCards}
-                      onCardPress={handleCardPress}
-                      emptyText="Inga bolag matchar filtret just nu."
-                      maxItems={null}
-                      columns={1}
-                      showFavoriteButton
-                    />
-                    {isLoadingMoreExplore ? (
-                      <LoadingSpinner label="Laddar fler..." style={{ marginTop: 8 }} />
-                    ) : exploreCards.length > 0 ? (
-                      <Text
-                        style={{
-                          color: theme.textMuted,
-                          textAlign: 'center',
-                          marginTop: 26,
-                          marginBottom: 4,
-                          fontSize: 13,
-                        }}
-                      >
-                        Scrolla för fler bolag
-                      </Text>
-                    ) : null}
-                  </>
-                )}
-              </View>
+              {exploreCards.length === 0 ? (
+                <View style={{ marginTop: 26 }}>
+                  {isLoadingExplore ? (
+                    <LoadingSpinner label="Laddar bolag..." />
+                  ) : (
+                    <Text style={{ color: theme.textMuted }}>
+                      Inga bolag matchar filtret just nu.
+                    </Text>
+                  )}
+                </View>
+              ) : null}
             </View>
+          );
+        case 'explore-cards':
+          return (
+            <View style={{ marginTop: item.start === 0 ? 26 : 22 }}>
+              <HomeCardGrid
+                cards={exploreCards.slice(item.start, item.start + EXPLORE_ROW_CHUNK)}
+                onCardPress={handleCardPress}
+                emptyText=""
+                maxItems={null}
+                columns={1}
+                showFavoriteButton
+              />
+            </View>
+          );
+        case 'explore-footer':
+          return isLoadingMoreExplore ? (
+            <LoadingSpinner label="Laddar fler..." style={{ marginTop: 8 }} />
+          ) : (
+            <Text
+              style={{
+                color: theme.textMuted,
+                textAlign: 'center',
+                marginTop: 26,
+                marginBottom: 4,
+                fontSize: 13,
+              }}
+            >
+              Scrolla för fler bolag
+            </Text>
           );
         default:
           return null;
@@ -4880,6 +5003,9 @@ export default function HomeScreen() {
       recommendedNowCards,
       recommendedNowSubtitle,
       recommendedNowTitle,
+      committedSearchLabel,
+      handleCardPress,
+      handleEventPress,
       router,
       searchHasMore,
       searchResults,
@@ -4891,7 +5017,6 @@ export default function HomeScreen() {
       spotlightCardsById,
       theme.eventColor,
       theme.textMuted,
-      trimmedSearchQuery,
       updateExploreFilterAnchorY,
       userCity,
       weekendEvents.length,
@@ -5317,55 +5442,20 @@ export default function HomeScreen() {
               color={FilterChipTheme.textMuted}
               style={styles.searchBarIcon}
             />
-            <View style={styles.searchBarInputSlot}>
-              <TextInput
-                autoFocus={searchInputReady}
-                value={searchQuery}
-                onChangeText={(text) => {
-                  clearVoiceSearchOwnership();
-                  setSearchCommitted(false);
-                  setSearchQuery(text);
-                }}
-                onSubmitEditing={() => {
-                  if (searchQuery.trim().length < 2) return;
-                  rememberSearch(searchQuery);
-                  setSearchCommitted(true);
-                  closeSearchOverlay();
-                }}
-                placeholder="Vad vill du göra?"
-                placeholderTextColor={FilterChipTheme.placeholder}
-                style={[
-                  styles.searchBarInput,
-                  {
-                    color: FilterChipTheme.text,
-                    height: SEARCH_BAR_HEIGHT,
-                    letterSpacing: -0.1,
-                  },
-                ]}
-                returnKeyType="search"
-                autoCorrect={false}
-                autoCapitalize="none"
-              />
-            </View>
-            <Pressable
-              onPress={() => {
-                clearVoiceSearchOwnership();
-                stopVoiceSession();
-                setSearchCommitted(false);
-                setSearchQuery('');
-                setSearchResults([]);
-                setSearchHasMore(false);
-                clearHomeSearchCache();
-              }}
-              style={[
-                styles.searchBarClearButton,
-                { opacity: searchQuery.trim() ? 1 : 0 },
-              ]}
-              pointerEvents={searchQuery.trim() ? 'auto' : 'none'}
-              disabled={!searchQuery.trim()}
-            >
-              <Ionicons name="close-circle" size={24} color={FilterChipTheme.textMuted} />
-            </Pressable>
+            <SearchOverlayInput
+              autoFocus={searchInputReady}
+              value={searchQuery}
+              onQueryChange={handleSearchQueryChange}
+              onDraftChange={handleSearchDraftChange}
+              onSubmit={handleSearchSubmit}
+              onClear={handleSearchClear}
+              placeholder="Vad vill du göra?"
+              placeholderTextColor={FilterChipTheme.placeholder}
+              iconColor={FilterChipTheme.textMuted}
+              slotStyle={styles.searchBarInputSlot}
+              inputStyle={searchOverlayInputStyle}
+              clearButtonStyle={styles.searchBarClearButton}
+            />
             <InlineMicButton
               variant="field"
               listening={voiceListening}
@@ -5623,7 +5713,7 @@ export default function HomeScreen() {
           getItemType={(item) => item.kind}
           onScroll={onHomeScroll}
           scrollEventThrottle={16}
-          drawDistance={Platform.OS === 'android' ? 280 : 480}
+          drawDistance={Platform.OS === 'android' ? 600 : 480}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
@@ -5868,3 +5958,12 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
 });
+
+const searchOverlayInputStyle = [
+  styles.searchBarInput,
+  {
+    color: FilterChipTheme.text,
+    height: SEARCH_BAR_HEIGHT,
+    letterSpacing: -0.1,
+  },
+] as React.ComponentProps<typeof SearchOverlayInput>['inputStyle'];

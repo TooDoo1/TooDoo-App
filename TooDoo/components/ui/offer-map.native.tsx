@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   StyleSheet,
@@ -88,6 +88,12 @@ function OfferMapComponent({
 
   const [routes, setRoutes] = useState<TravelRoutes | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
+  const [pinImageSettled, setPinImageSettled] = useState(false);
+  const handlePinImageSettled = useCallback(() => setPinImageSettled(true), []);
+
+  useEffect(() => {
+    setPinImageSettled(false);
+  }, [imageUri]);
 
   useEffect(() => {
     let cancelled = false;
@@ -171,7 +177,7 @@ function OfferMapComponent({
           coordinate={{ latitude, longitude }}
           title={title}
           anchor={{ x: 0.5, y: 0.5 }}
-          tracksViewChanges={Boolean(imageUri)}
+          tracksViewChanges={Boolean(imageUri) && !pinImageSettled}
         >
           <BusinessMapPin
             color={pinColor}
@@ -179,6 +185,7 @@ function OfferMapComponent({
             imageUri={imageUri}
             hasEvent={Boolean(hasEvent)}
             hasOffer={Boolean(hasOffer)}
+            onImageSettled={handlePinImageSettled}
           />
         </Marker>
       </MapView>

@@ -39,9 +39,10 @@ export default function TabLayout() {
   return (
     <View style={{ flex: 1, ...(Platform.OS === 'web' ? { minHeight: 0 } : {}) }}>
       <Tabs
-      // Unmount inactive tabs so auth screens (Registrering etc.) don't keep
-      // Upptäck in the accessibility / hit-test tree underneath.
-      detachInactiveScreens
+      // Web: detach inactive tabs so auth screens (Registrering etc.) don't keep
+      // Upptäck in the accessibility / hit-test tree underneath. Native: keep them
+      // attached (frozen via freezeOnBlur) so switching back to Upptäck is instant.
+      detachInactiveScreens={Platform.OS === 'web'}
       tabBar={(props) => <FloatingTabBar {...props} />}
       screenOptions={{
         ...(Platform.OS === 'web'

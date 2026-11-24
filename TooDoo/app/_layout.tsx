@@ -137,21 +137,16 @@ function AppShell() {
 
 	useEffect(() => {
 		SplashScreen.hideAsync().catch(() => {});
-		// Frontpage first — defer map warmup on Android so it doesn't fight the home JS thread.
-		warmHomeScreenDuringStartup();
+		warmHomeScreenDuringStartup({ onSettled: markDataReady });
 		if (Platform.OS === 'android') {
-			const mapWarmTimer = setTimeout(() => {
-				warmBusinessMapDuringStartup();
-			}, 2500);
+			// No map warmup on Android: it pulls the full business catalog and competes
+			// with the home screen on slower devices. The map screen loads its own data.
 			const maxTimer = setTimeout(() => {
 				setHasMaxElapsed(true);
 				setIntroComplete(true);
 				markDataReady();
 			}, MAX_SPLASH_DURATION_MS);
-			return () => {
-				clearTimeout(mapWarmTimer);
-				clearTimeout(maxTimer);
-			};
+			return () => clearTimeout(maxTimer);
 		}
 
 		warmBusinessMapDuringStartup();

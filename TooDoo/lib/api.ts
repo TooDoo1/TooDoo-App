@@ -6,6 +6,42 @@ export function apiUrl(path: string) {
 	return `${API_BASE_URL}${path}`;
 }
 
+export const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
+
+/**
+ * fetch with an abort deadline. Hung requests on flaky mobile networks otherwise
+ * never settle, which leaves loading spinners up forever.
+ */
+export async function fetchWithTimeout(
+	input: string,
+	init: RequestInit = {},
+	timeoutMs = DEFAULT_FETCH_TIMEOUT_MS
+): Promise<Response> {
+	const controller = new AbortController();
+	const outerSignal = init.signal;
+	const onOuterAbort = () => controller.abort();
+	if (outerSignal) {
+		if (outerSignal.aborted) controller.abort();
+		else outerSignal.addEventListener('abort', onOuterAbort);
+	}
+	const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+	try {
+		return await fetch(input, { ...init, signal: controller.signal });
+	} finally {
+		clearTimeout(timeoutId);
+		outerSignal?.removeEventListener('abort', onOuterAbort);
+	}
+}
+
+export function isAbortError(error: unknown) {
+	return (
+		typeof error === 'object' &&
+		error !== null &&
+		'name' in error &&
+		(error as { name?: unknown }).name === 'AbortError'
+	);
+}
+
 function ensureHttps(url: string) {
 	if (url.startsWith('http://')) {
 		return `https://${url.slice('http://'.length)}`;

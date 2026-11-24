@@ -16,6 +16,8 @@ type Props = {
   selected?: boolean;
   hasEvent?: boolean;
   hasOffer?: boolean;
+  /** Fires once the photo has faded in (or failed), so native markers can stop tracking view changes. */
+  onImageSettled?: () => void;
 };
 
 function MiniActivityIcon({
@@ -52,6 +54,7 @@ function BusinessMapPinComponent({
   selected = false,
   hasEvent = false,
   hasOffer = false,
+  onImageSettled,
 }: Props) {
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
@@ -83,7 +86,7 @@ function BusinessMapPinComponent({
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
-    ]).start();
+    ]).start(() => onImageSettled?.());
   };
 
   return (
@@ -114,7 +117,10 @@ function BusinessMapPinComponent({
             key={imageUri}
             source={{ uri: imageUri }}
             onLoad={revealPhoto}
-            onError={() => setImageFailed(true)}
+            onError={() => {
+              setImageFailed(true);
+              onImageSettled?.();
+            }}
             style={[styles.image, { opacity: photoOpacity }]}
           />
         ) : null}

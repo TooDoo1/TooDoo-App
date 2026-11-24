@@ -87,27 +87,46 @@ function mergeMapBusiness(primary: MapBusiness | undefined, next: MapBusiness) {
 }
 
 /** Search the live catalog (same as home search), then geocode hits so they can pin. */
+const GEOCODE_BATCH_SIZE = 4;
+
+async function mapInBatches<T, R>(
+  items: T[],
+  batchSize: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const out: R[] = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    out.push(...(await Promise.all(items.slice(i, i + batchSize).map(fn))));
+  }
+  return out;
+}
+
 export async function searchMapBusinesses(
   query: string,
   known: MapBusiness[],
   coords: Coords | null,
-  options?: { city?: string }
+  options?: { city?: string; signal?: AbortSignal }
 ): Promise<MapBusiness[]> {
   const q = query.trim();
   if (q.length < 2) return known;
 
   const local = filterBusinessesByQuery(known, q);
   const byId = new Map(local.map((item) => [item.id, item]));
+  const knownById = new Map(known.map((item) => [item.id, item]));
 
   try {
     const city = options?.city?.trim() || undefined;
-    const cards = await searchCatalog(q, { take: 24, maxHydrate: 16, city });
-    for (const card of cards) {
-      if (card.resultKind === 'event') continue;
-      const existing = known.find((item) => item.id === card.id) ?? byId.get(card.id);
+    const cards = await searchCatalog(q, {
+      take: 24,
+      maxHydrate: 16,
+      city,
+      signal: options?.signal,
+    });
+    const businessCards = cards.filter((card) => card.resultKind !== 'event');
+    const resolved = await mapInBatches(businessCards, GEOCODE_BATCH_SIZE, async (card) => {
+      const existing = knownById.get(card.id) ?? byId.get(card.id);
       if (existing && hasMapPinCoords(existing)) {
-        byId.set(card.id, existing);
-        continue;
+        return { id: card.id, business: existing };
       }
 
       const address =
@@ -116,7 +135,7 @@ export async function searchMapBusinesses(
       let longitude = existing?.longitude ?? card.longitude ?? Number.NaN;
       let pendingGeocode = !isPlausibleSwedenCoordinate(latitude, longitude);
 
-      if (pendingGeocode && address) {
+      if (pendingGeocode && address && !options?.signal?.aborted) {
         const geo = await geocodeAddressCached(address);
         if (geo) {
           latitude = geo.lat;
@@ -143,35 +162,46 @@ export async function searchMapBusinesses(
         hasOffer: existing?.hasOffer ?? Boolean(card.deal),
         pendingGeocode,
       };
-      byId.set(card.id, mergeMapBusiness(existing, next));
+      return { id: card.id, business: mergeMapBusiness(existing, next) };
+    });
+    for (const { id, business } of resolved) {
+      byId.set(id, business);
     }
   } catch {
     // Keep local matches if catalog search fails.
   }
 
-  if (byId.size === 0) {
+  if (byId.size === 0 && !options?.signal?.aborted) {
     try {
       const raw = parseBusinesses(await fetchApprovedBusinessesCatalog());
       const needle = q.toLocaleLowerCase('sv-SE');
-      for (const business of raw) {
-        const id = String(business?.id ?? business?._id ?? '');
-        if (!id) continue;
-        const name = String(business?.name ?? business?.title ?? '').trim();
-        const address = [business?.address, business?.city].filter(Boolean).join(', ');
-        const haystack = `${name} ${address}`.toLocaleLowerCase('sv-SE');
-        if (!haystack.includes(needle)) continue;
-        const parsed = parseLatLng(business);
+      const matches = raw
+        .map((business) => {
+          const id = String(business?.id ?? business?._id ?? '');
+          const name = String(business?.name ?? business?.title ?? '').trim();
+          const address = [business?.address, business?.city].filter(Boolean).join(', ');
+          return { business, id, name, address };
+        })
+        .filter(
+          ({ id, name, address }) =>
+            id && `${name} ${address}`.toLocaleLowerCase('sv-SE').includes(needle)
+        );
+      const resolved = await mapInBatches(matches, GEOCODE_BATCH_SIZE, async (match) => {
+        const parsed = parseLatLng(match.business);
         let latitude = parsed?.lat ?? Number.NaN;
         let longitude = parsed?.lng ?? Number.NaN;
         let pendingGeocode = !parsed;
-        if (pendingGeocode && address) {
-          const geo = await geocodeAddressCached(address);
+        if (pendingGeocode && match.address && !options?.signal?.aborted) {
+          const geo = await geocodeAddressCached(match.address);
           if (geo) {
             latitude = geo.lat;
             longitude = geo.lng;
             pendingGeocode = false;
           }
         }
+        return { ...match, latitude, longitude, pendingGeocode };
+      });
+      for (const { business, id, name, address, latitude, longitude, pendingGeocode } of resolved) {
         byId.set(id, {
           id,
           name: name || 'Företag',

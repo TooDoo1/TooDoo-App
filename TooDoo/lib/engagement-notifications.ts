@@ -7,6 +7,7 @@ import { getOrderBusinessId, getOrderId } from '@/lib/offers';
 import {
   cancelNotification,
   cancelNotificationsByPrefix,
+  hasNotificationPermission,
   scheduleLocalNotification,
 } from '@/lib/push-notifications';
 
@@ -66,9 +67,12 @@ export async function refreshEngagementNotifications(enabled: boolean) {
   }
 
   await markAppOpenedNow();
-  await scheduleLunchWeekdayNotifications();
-  await scheduleWeekendNotifications();
-  await scheduleReengagementNotification();
+  if (!(await hasNotificationPermission())) return;
+  await Promise.all([
+    scheduleLunchWeekdayNotifications(),
+    scheduleWeekendNotifications(),
+    scheduleReengagementNotification(),
+  ]);
 }
 
 /** Weekdays ~10:00 — lunch offers & places. */

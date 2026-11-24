@@ -29,6 +29,20 @@ export async function ensureAndroidNotificationChannel(): Promise<void> {
   channelReady = true;
 }
 
+/** Permission check that never shows the system prompt — safe for background scheduling. */
+export async function hasNotificationPermission(): Promise<boolean> {
+  if (Platform.OS === 'web') return false;
+  if (!Device.isDevice) return false;
+  try {
+    const current = await Notifications.getPermissionsAsync();
+    if (current.status !== 'granted') return false;
+    await ensureAndroidNotificationChannel();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function ensureNotificationPermissions(): Promise<boolean> {
   if (Platform.OS === 'web') return false;
   if (!Device.isDevice) return false;
@@ -92,7 +106,7 @@ export async function scheduleLocalOfferNotification(
   data?: LocalNotificationData
 ) {
   if (Platform.OS === 'web') return;
-  if (!(await ensureNotificationPermissions())) return;
+  if (!(await hasNotificationPermission())) return;
 
   await Notifications.scheduleNotificationAsync({
     content: {
@@ -114,7 +128,7 @@ export async function scheduleLocalNotification(options: {
   trigger: Notifications.NotificationTriggerInput;
 }) {
   if (Platform.OS === 'web') return;
-  if (!(await ensureNotificationPermissions())) return;
+  if (!(await hasNotificationPermission())) return;
 
   try {
     await Notifications.cancelScheduledNotificationAsync(options.identifier);

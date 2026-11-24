@@ -1,4 +1,4 @@
-import { apiUrl, normalizeImageUrl } from '@/lib/api';
+import { apiUrl, fetchWithTimeout, normalizeImageUrl } from '@/lib/api';
 import {
   fetchCategoryOptions,
   normalizeInterestIds,
@@ -163,7 +163,7 @@ export function getLocalBusinessSearchTips(
 
 /** Max individual shop rows above the generic tips while typing. */
 export const SEARCH_SHOP_TIPS_TAKE = 5;
-const SEARCH_GENERIC_TIPS_TAKE = 8;
+export const SEARCH_GENERIC_TIPS_TAKE = 8;
 export const EMPTY_SEARCH_TIPS_TAKE = 16;
 
 export function splitSearchTips(tips: SearchTipItem[]) {
@@ -190,7 +190,12 @@ export function mergeSearchTips(...groups: Array<Array<string | SearchTipItem>>)
   return [...shops, ...generics];
 }
 
-async function fetchBusinessSuggestions(q: string, take: number, city?: string) {
+async function fetchBusinessSuggestions(
+  q: string,
+  take: number,
+  city?: string,
+  signal?: AbortSignal
+) {
   const params = new URLSearchParams({
     q: q.trim().slice(0, 100),
     take: String(Math.min(take, SUGGESTIONS_MAX_TAKE)),
@@ -200,7 +205,9 @@ async function fetchBusinessSuggestions(q: string, take: number, city?: string) 
     params.set('city', city.trim());
   }
 
-  const response = await fetch(apiUrl(`/search/suggestions?${params.toString()}`));
+  const response = await fetchWithTimeout(apiUrl(`/search/suggestions?${params.toString()}`), {
+    signal,
+  });
   if (!response.ok) {
     return [] as SearchTipItem[];
   }
@@ -274,13 +281,19 @@ export async function fetchSearchTips(options?: {
   city?: string;
   authFetch?: (path: string, init?: RequestInit) => Promise<Response>;
   isLoggedIn?: boolean;
+  signal?: AbortSignal;
 }): Promise<SearchTipItem[]> {
   const take = options?.take ?? 8;
   const q = options?.q?.trim() ?? '';
 
   try {
     if (q.length >= 1) {
-      const businessTips = await fetchBusinessSuggestions(q, SEARCH_SHOP_TIPS_TAKE, options?.city);
+      const businessTips = await fetchBusinessSuggestions(
+        q,
+        SEARCH_SHOP_TIPS_TAKE,
+        options?.city,
+        options?.signal
+      );
       const shopHits = uniqueShopTips(businessTips, SEARCH_SHOP_TIPS_TAKE);
       // Generics sit below the shop rows (pizza, sushi, …) — not instead of them.
       const generics = labelsToTips(DEFAULT_SEARCH_TIPS, SEARCH_GENERIC_TIPS_TAKE);

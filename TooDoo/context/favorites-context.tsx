@@ -1,5 +1,16 @@
 import { Alert } from 'react-native';
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 import { useAuth } from '@/context/auth-context';
 import { apiUrl } from '@/lib/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -12,6 +23,18 @@ type FavoritesContextValue = {
 };
 
 const FavoritesContext = createContext<FavoritesContextValue | undefined>(undefined);
+
+/**
+ * Stable per-id subscription store: list cards subscribe to one id each, so
+ * toggling a favorite re-renders that card's heart instead of every card.
+ */
+type FavoritesStore = {
+  subscribe: (listener: () => void) => () => void;
+  getIds: () => Set<string>;
+  toggleFavorite: (businessId: string) => Promise<void>;
+};
+
+const FavoritesStoreContext = createContext<FavoritesStore | undefined>(undefined);
 
 const FAVORITES_CACHE_PREFIX = 'toodoo_favorite_business_ids_';
 
@@ -158,7 +181,50 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
     [favoriteBusinessIds, isFavorite, toggleFavorite, refreshFavorites]
   );
 
-  return <FavoritesContext.Provider value={value}>{children}</FavoritesContext.Provider>;
+  const idsRef = useRef(favoriteBusinessIds);
+  const listenersRef = useRef(new Set<() => void>());
+  const toggleRef = useRef(toggleFavorite);
+  toggleRef.current = toggleFavorite;
+
+  useLayoutEffect(() => {
+    idsRef.current = favoriteBusinessIds;
+    listenersRef.current.forEach((listener) => listener());
+  }, [favoriteBusinessIds]);
+
+  const store = useMemo<FavoritesStore>(
+    () => ({
+      subscribe: (listener) => {
+        listenersRef.current.add(listener);
+        return () => {
+          listenersRef.current.delete(listener);
+        };
+      },
+      getIds: () => idsRef.current,
+      toggleFavorite: (businessId) => toggleRef.current(businessId),
+    }),
+    []
+  );
+
+  return (
+    <FavoritesStoreContext.Provider value={store}>
+      <FavoritesContext.Provider value={value}>{children}</FavoritesContext.Provider>
+    </FavoritesStoreContext.Provider>
+  );
+}
+
+/** Re-renders only when this one business flips favorite state. */
+export function useIsFavorite(businessId: string) {
+  const store = useContext(FavoritesStoreContext);
+  if (!store) throw new Error('useIsFavorite must be used inside FavoritesProvider');
+  const id = String(businessId);
+  return useSyncExternalStore(store.subscribe, () => store.getIds().has(id));
+}
+
+/** Stable toggle that never changes identity. */
+export function useToggleFavorite() {
+  const store = useContext(FavoritesStoreContext);
+  if (!store) throw new Error('useToggleFavorite must be used inside FavoritesProvider');
+  return store.toggleFavorite;
 }
 
 export function useFavorites() {

@@ -147,7 +147,11 @@ let homeWarmupStarted = false;
  * Fetch + settle Upptäck during splash without opening the GPS permission prompt.
  * Permission can be requested after the frontpage is visible.
  */
-export function warmHomeScreenDuringStartup(options?: { token?: string | null }): void {
+export function warmHomeScreenDuringStartup(options?: {
+	token?: string | null;
+	/** Called once warmup finished or failed, so the splash can lift without waiting for its cap. */
+	onSettled?: () => void;
+}): void {
 	if (homeWarmupStarted) return;
 	homeWarmupStarted = true;
 
@@ -219,6 +223,8 @@ export function warmHomeScreenDuringStartup(options?: { token?: string | null })
 			setHomeEndingSoonCache(settled.nearYouCards);
 		} catch {
 			// Splash still has a max-duration safety valve.
+		} finally {
+			options?.onSettled?.();
 		}
 	})();
 }

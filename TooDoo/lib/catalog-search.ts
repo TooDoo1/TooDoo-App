@@ -1,4 +1,4 @@
-import { apiUrl, normalizeImageUrl } from '@/lib/api';
+import { apiUrl, fetchWithTimeout, normalizeImageUrl } from '@/lib/api';
 import { hydrateOfferCardImages } from '@/lib/business-image';
 import { haversineKm, isPlausibleSwedenCoordinate } from '@/lib/geo';
 import {
@@ -179,8 +179,11 @@ type UnifiedSearchResponse = {
   source?: string;
 };
 
-async function fetchUnifiedSearch(params: URLSearchParams): Promise<UnifiedSearchResult[]> {
-  const response = await fetch(apiUrl(`/search?${params.toString()}`));
+async function fetchUnifiedSearch(
+  params: URLSearchParams,
+  signal?: AbortSignal
+): Promise<UnifiedSearchResult[]> {
+  const response = await fetchWithTimeout(apiUrl(`/search?${params.toString()}`), { signal });
   if (!response.ok) {
     return [];
   }
@@ -370,9 +373,14 @@ function mapBusinessRecordToCard(business: any, orders: any[]): OfferCardItem {
   };
 }
 
-async function hydrateOrderCard(orderId: string): Promise<OfferCardItem | null> {
+async function hydrateOrderCard(
+  orderId: string,
+  signal?: AbortSignal
+): Promise<OfferCardItem | null> {
   try {
-    const response = await fetch(apiUrl(`/orders/${encodeURIComponent(orderId)}`));
+    const response = await fetchWithTimeout(apiUrl(`/orders/${encodeURIComponent(orderId)}`), {
+      signal,
+    });
     if (!response.ok) return null;
     const json = await response.json().catch(() => ({}));
     const order = (json as any)?.order ?? json;
@@ -383,9 +391,15 @@ async function hydrateOrderCard(orderId: string): Promise<OfferCardItem | null> 
   }
 }
 
-async function hydrateBusinessCard(businessId: string): Promise<OfferCardItem | null> {
+async function hydrateBusinessCard(
+  businessId: string,
+  signal?: AbortSignal
+): Promise<OfferCardItem | null> {
   try {
-    const response = await fetch(apiUrl(`/business/${encodeURIComponent(businessId)}`));
+    const response = await fetchWithTimeout(
+      apiUrl(`/business/${encodeURIComponent(businessId)}`),
+      { signal }
+    );
     if (!response.ok) return null;
     const json = await response.json().catch(() => ({}));
     const business = (json as any)?.business ?? json;
@@ -403,19 +417,23 @@ type HydrationTask =
   | { kind: 'event'; card: OfferCardItem; rank: number }
   | { kind: 'ready'; card: OfferCardItem; rank: number };
 
-async function hydrateTasks(tasks: HydrationTask[]): Promise<(OfferCardItem | null)[]> {
+async function hydrateTasks(
+  tasks: HydrationTask[],
+  signal?: AbortSignal
+): Promise<(OfferCardItem | null)[]> {
   const ordered: (OfferCardItem | null)[] = new Array(tasks.length).fill(null);
 
   for (let i = 0; i < tasks.length; i += SEARCH_HYDRATE_CONCURRENCY) {
+    if (signal?.aborted) break;
     const batch = tasks.slice(i, i + SEARCH_HYDRATE_CONCURRENCY);
     const cards = await Promise.all(
       batch.map(async (task) => {
         if (task.kind === 'event' || task.kind === 'ready') return task.card;
         if (task.kind === 'order') {
-          const orderCard = await hydrateOrderCard(task.id);
+          const orderCard = await hydrateOrderCard(task.id, signal);
           return orderCard;
         }
-        const hydrated = await hydrateBusinessCard(task.id);
+        const hydrated = await hydrateBusinessCard(task.id, signal);
         if (hydrated) {
           return task.fallback ? overlaySearchDistance(hydrated, task.fallback) : hydrated;
         }
@@ -575,13 +593,20 @@ function interleaveSearchHits(
 }
 
 /** "helgen" is event-intent on the backend — also pull weekend places so the mix isn't only evenemang. */
-async function fetchWeekendUnifiedResults(options: { take: number; city?: string; skip?: number }) {
+async function fetchWeekendUnifiedResults(options: {
+  take: number;
+  city?: string;
+  skip?: number;
+  signal?: AbortSignal;
+}) {
   const take = Math.min(options.take, 50);
   const skip = options.skip ?? 0;
   const city = options.city;
   const [weekendHits, ...companyBuckets] = await Promise.all([
-    fetchUnifiedSearch(unifiedSearchParams('helgen', 20, city)),
-    ...WEEKEND_COMPANY_QUERIES.map((q) => fetchUnifiedSearch(unifiedSearchParams(q, 10, city))),
+    fetchUnifiedSearch(unifiedSearchParams('helgen', 20, city), options.signal),
+    ...WEEKEND_COMPANY_QUERIES.map((q) =>
+      fetchUnifiedSearch(unifiedSearchParams(q, 10, city), options.signal)
+    ),
   ]);
 
   const events = uniqueSearchHits(
@@ -598,9 +623,9 @@ async function fetchWeekendUnifiedResults(options: { take: number; city?: string
 async function finalizeSearchCards(
   tasks: HydrationTask[],
   knownCards?: OfferCardItem[],
-  options?: { skipImageHydrate?: boolean }
+  options?: { skipImageHydrate?: boolean; signal?: AbortSignal }
 ): Promise<OfferCardItem[]> {
-  const hydrated = await hydrateTasks(tasks);
+  const hydrated = await hydrateTasks(tasks, options?.signal);
   const rankedCards: Array<{ card: OfferCardItem; rank: number }> = [];
   for (let i = 0; i < tasks.length; i += 1) {
     const card = hydrated[i];
@@ -618,7 +643,7 @@ async function finalizeSearchCards(
     deduped.push(card);
   }
 
-  if (options?.skipImageHydrate) return deduped;
+  if (options?.skipImageHydrate || options?.signal?.aborted) return deduped;
 
   try {
     return await hydrateOfferCardImages(deduped, { knownCards });
@@ -642,6 +667,8 @@ export async function searchCatalog(
     /** Max detail lookups used to hydrate hits into full cards (defaults to 20). */
     maxHydrate?: number;
     knownCards?: OfferCardItem[];
+    /** Abort when the query is superseded so stale requests stop hydrating. */
+    signal?: AbortSignal;
   } = {}
 ): Promise<OfferCardItem[]> {
   const normalized = normalizeCatalogSearchQuery(query, { city: options.city });
@@ -661,6 +688,7 @@ export async function searchCatalog(
           take: Math.min(options.take ?? 24, 50),
           skip: options.skip ?? 0,
           city: normalized.city,
+          signal: options.signal,
         })
       : await fetchUnifiedSearch(
           (() => {
@@ -676,10 +704,11 @@ export async function searchCatalog(
               params.set('city', normalized.city);
             }
             return params;
-          })()
+          })(),
+          options.signal
         );
   const tasks = buildHydrationTasks(results, hydrateLimit, options.knownCards);
-  return finalizeSearchCards(tasks, options.knownCards);
+  return finalizeSearchCards(tasks, options.knownCards, { signal: options.signal });
 }
 
 /**

@@ -1,4 +1,4 @@
-import { apiUrl } from '@/lib/api';
+import { apiUrl, fetchWithTimeout } from '@/lib/api';
 import { rememberCategories } from '@/lib/category-colors';
 
 const CATALOG_TTL_MS = 2 * 60 * 1000;
@@ -43,9 +43,13 @@ async function fetchApprovedBusinessPage(page: number): Promise<unknown[]> {
     skip > 0
       ? `/business?status=APPROVED&skip=${skip}`
       : '/business?status=APPROVED';
-  const res = await fetch(apiUrl(path));
-  const json = await res.json().catch(() => []);
-  return parseBusinessesPayload(json);
+  try {
+    const res = await fetchWithTimeout(apiUrl(path));
+    const json = await res.json().catch(() => []);
+    return parseBusinessesPayload(json);
+  } catch {
+    return [];
+  }
 }
 
 async function fetchAllApprovedBusinessPages(): Promise<unknown[]> {
@@ -158,7 +162,7 @@ export async function fetchApprovedBusinessesCatalog(force = false) {
 
 function startCategoriesRefresh(): Promise<unknown[]> {
   const inflight = (async () => {
-    const res = await fetch(apiUrl('/category'));
+    const res = await fetchWithTimeout(apiUrl('/category'));
     const json = await res.json().catch(() => []);
     const data = parseCategoriesPayload(json);
     rememberCategories(data);

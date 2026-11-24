@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useRef, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { AppState, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
@@ -13,6 +21,7 @@ import {
 import { getOrderBusinessId, getOrderId, isActiveOffer, parseOrdersList } from '@/lib/offers';
 import { requestOpenHomeSearch } from '@/lib/home-search-handoff';
 import {
+  ensureNotificationPermissions,
   getExpoPushToken,
   registerPushTokenWithBackend,
   scheduleLocalOfferNotification,
@@ -20,6 +29,7 @@ import {
 
 const SEEN_OFFERS_KEY_PREFIX = 'toodoo_seen_offer_ids_';
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
+const STARTUP_NOTIFICATION_DELAY_MS = 5000;
 
 const FavoriteOfferNotificationsContext = createContext<undefined>(undefined);
 
@@ -160,20 +170,31 @@ export function FavoriteOfferNotificationsProvider({ children }: { children: Rea
     }
   }, [authFetch, role, syncEngagement, token]);
 
+  // Notification work (permission prompt, push token, local schedules) waits until
+  // the first screen has painted so it never competes with startup.
+  const [startupSettled, setStartupSettled] = useState(false);
   useEffect(() => {
-    if (!isAuthReady || !token || role !== 'USER' || Platform.OS === 'web') return;
+    if (Platform.OS === 'web') return;
+    const timer = setTimeout(() => setStartupSettled(true), STARTUP_NOTIFICATION_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!startupSettled || !isAuthReady || Platform.OS === 'web') return;
 
     void (async () => {
+      const granted = await ensureNotificationPermissions();
+      if (!granted || !token || role !== 'USER') return;
       const pushToken = await getExpoPushToken();
       if (pushToken) {
         await registerPushTokenWithBackend(token, pushToken);
       }
     })();
-  }, [isAuthReady, token, role]);
+  }, [startupSettled, isAuthReady, token, role]);
 
   useEffect(() => {
     if (Platform.OS === 'web') return;
-    if (!isAuthReady) return;
+    if (!isAuthReady || !startupSettled) return;
 
     isFirstScanRef.current = true;
     void scanFavoriteOffers();
@@ -190,7 +211,7 @@ export function FavoriteOfferNotificationsProvider({ children }: { children: Rea
       clearInterval(interval);
       sub.remove();
     };
-  }, [isAuthReady, token, role, favoriteBusinessIds, scanFavoriteOffers]);
+  }, [isAuthReady, startupSettled, token, role, favoriteBusinessIds, scanFavoriteOffers]);
 
   useEffect(() => {
     if (Platform.OS === 'web') return;

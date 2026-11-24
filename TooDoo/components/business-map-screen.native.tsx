@@ -394,6 +394,7 @@ export default function BusinessMapScreen() {
       return;
     }
     let cancelled = false;
+    const controller = new AbortController();
     setSearchingCatalog(true);
     setCatalogHits(null);
     const timer = setTimeout(() => {
@@ -402,6 +403,7 @@ export default function BusinessMapScreen() {
         .then((region) =>
           searchMapBusinesses(query, businessesRef.current, userCoords, {
             city: region?.city,
+            signal: controller.signal,
           })
         )
         .then((hits) => {
@@ -446,6 +448,7 @@ export default function BusinessMapScreen() {
     }, 280);
     return () => {
       cancelled = true;
+      controller.abort();
       clearTimeout(timer);
     };
   }, [incomingSelect, searchQuery, userCoords]);

@@ -62,6 +62,8 @@ export function openOfferDetail(
     );
   }
 
+  // Only first-paint fields travel as route params; address, phone, website and
+  // coordinates come from loadCompanyDetail (already started above).
   router.push({
     pathname: COMPANY_DETAIL_PATH,
     params: compactParams({
@@ -73,11 +75,13 @@ export function openOfferDetail(
       title: card.title,
       deal: card.deal ? '1' : '0',
       imageUri: remoteImageUri,
-      Adress: card.Adress,
-      latitude: card.latitude != null ? String(card.latitude) : undefined,
-      longitude: card.longitude != null ? String(card.longitude) : undefined,
-      Telefon: card.Telefon,
-      Website: card.Website,
+      ...(businessId
+        ? null
+        : {
+            Adress: card.Adress,
+            latitude: card.latitude != null ? String(card.latitude) : undefined,
+            longitude: card.longitude != null ? String(card.longitude) : undefined,
+          }),
     }),
   });
 }

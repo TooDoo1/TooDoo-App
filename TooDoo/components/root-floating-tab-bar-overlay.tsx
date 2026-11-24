@@ -16,7 +16,7 @@ import {
   TAB_BAR_HEIGHT,
   TAB_BAR_TOP_RADIUS,
 } from '@/components/floating-tab-bar';
-import { useTabBarMotion } from '@/context/tab-bar-motion-context';
+import { useTabBarMotion, useTabBarProps } from '@/context/tab-bar-motion-context';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { DETAIL_SCREEN_MOTION_MS, getStackMotionMs } from '@/lib/detail-screen-motion';
 
@@ -26,7 +26,8 @@ export function RootFloatingTabBarOverlay() {
   const insets = useSafeAreaInsets();
   const { effectiveScheme } = useThemePreference();
   const isDark = effectiveScheme === 'dark';
-  const { stackHideProgress, scrollHideProgress, tabBarProps } = useTabBarMotion();
+  const { stackHideProgress, scrollHideProgress } = useTabBarMotion();
+  const tabBarProps = useTabBarProps();
 
   if (!tabBarProps) {
     return null;
@@ -54,7 +55,7 @@ export function RootFloatingTabBarOverlay() {
 }
 
 type RootFloatingTabBarOverlayContentProps = {
-  tabBarProps: NonNullable<ReturnType<typeof useTabBarMotion>['tabBarProps']>;
+  tabBarProps: NonNullable<ReturnType<typeof useTabBarProps>>;
   focusedRouteName: string;
   isDark: boolean;
   insets: ReturnType<typeof useSafeAreaInsets>;

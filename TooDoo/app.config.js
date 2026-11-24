@@ -9,9 +9,21 @@ const googleMapsApiKey =
  * react-native-maps is NOT an Expo config plugin (no app.plugin.js).
  * Do not list it under `plugins` — that crashes Expo start with
  * "Unexpected token '<'" when Node tries to load its JSX entry.
- * Android/iOS Google Maps keys below are only needed if you switch
- * MapView to the Google provider; OSM UrlTile works without them.
+ *
+ * On Android, react-native-maps always renders through the Google Maps SDK,
+ * even with mapType="none" + UrlTile. Without a key the app crashes natively
+ * as soon as a MapView mounts. Set GOOGLE_MAPS_API_KEY as an EAS environment
+ * variable (preview + production) — see docs/android-google-maps-key.md.
  */
+const isEasAndroidBuild =
+  process.env.EAS_BUILD === 'true' && process.env.EAS_BUILD_PLATFORM === 'android';
+
+if (!googleMapsApiKey && (isEasAndroidBuild || process.env.EXPO_WARN_MISSING_MAPS_KEY)) {
+  console.warn(
+    '\n[app.config] GOOGLE_MAPS_API_KEY is empty — the Android map will crash on open.\n' +
+      'Add it with: eas env:create --name GOOGLE_MAPS_API_KEY --environment preview --environment production --visibility sensitive\n'
+  );
+}
 module.exports = {
   expo: {
     ...appJson.expo,

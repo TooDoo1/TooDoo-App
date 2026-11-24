@@ -35,7 +35,7 @@ import Animated, {
 import { CardMedia } from '@/components/ui/card-media';
 import { CompanyActivityDots } from '@/components/ui/company-activity-dots';
 import { useAuth } from '@/context/auth-context';
-import { useFavorites } from '@/context/favorites-context';
+import { useIsFavorite, useToggleFavorite } from '@/context/favorites-context';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { type OfferCardItem } from '@/lib/home-offers';
 import {
@@ -427,9 +427,9 @@ function CardFavoriteButton({
   businessId: string;
   enabled: boolean;
 }) {
-  const { isFavorite, toggleFavorite } = useFavorites();
+  const active = useIsFavorite(businessId);
+  const toggleFavorite = useToggleFavorite();
   if (!enabled) return null;
-  const active = isFavorite(businessId);
   return (
     <Pressable
       onPress={async (e: any) => {
@@ -581,7 +581,7 @@ export function HomeSectionHeader({
   );
 }
 
-function HomeListingCard({
+const HomeListingCard = memo(function HomeListingCard({
   card,
   onPress,
   imageHeight = POSTER_IMAGE_H,
@@ -696,7 +696,7 @@ function HomeListingCard({
       </View>
     </Pressable>
   );
-}
+});
 
 /** Editorial grid used by home sections. Default two columns; `columns={1}` is full width. */
 export function HomeCardGrid({
