@@ -25,7 +25,7 @@
       }
     },
     "android": {
-      "package": "com.toodoo.app",
+      "package": "com.toodoo",
       "usesCleartextTraffic": true,
       "permissions": [
         "ACCESS_COARSE_LOCATION",
@@ -38,7 +38,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "versionCode": 2
+      "versionCode": 7
     },
     "web": {
       "bundler": "metro",

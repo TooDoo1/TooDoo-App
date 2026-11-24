@@ -12,7 +12,8 @@
     "web:lan:clear": "bash ./scripts/start-web-lan.sh --clear",
     "build:web": "expo export --platform web && npx workbox-cli generateSW workbox-config.js",
     "generate:cookie-inventory": "node ./scripts/generate-cookie-inventory-pdf.mjs",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",
@@ -65,6 +66,7 @@
     "@types/react": "~19.1.0",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
+    "patch-package": "^8.0.1",
     "pdfkit": "^0.19.1",
     "typescript": "~5.9.2",
     "workbox-cli": "^7.3.0"
