@@ -14,7 +14,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CompanyDetailTabBarSync } from '@/components/company-detail-tab-bar-sync';
-import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
 import { CardMedia } from '@/components/ui/card-media';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { IMAGE_DISPLAY_WIDTH } from '@/lib/image-url';
@@ -180,19 +179,16 @@ export function MunicipioEventDetailScreen() {
 
   if (isLoading) {
     return (
-      <WebStackSwipeContainer>
-        <View style={{ flex: 1, backgroundColor: theme.screenBg, alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ flex: 1, backgroundColor: theme.screenBg, alignItems: 'center', justifyContent: 'center' }}>
           <CompanyDetailTabBarSync />
           <LoadingSpinner variant="screen" label="Laddar..." />
         </View>
-      </WebStackSwipeContainer>
     );
   }
 
   if (!event) {
     return (
-      <WebStackSwipeContainer>
-        <View style={{ flex: 1, backgroundColor: theme.screenBg }}>
+      <View style={{ flex: 1, backgroundColor: theme.screenBg }}>
           <CompanyDetailTabBarSync />
           <Pressable
             accessibilityRole="button"
@@ -222,13 +218,11 @@ export function MunicipioEventDetailScreen() {
             </Text>
           </View>
         </View>
-      </WebStackSwipeContainer>
     );
   }
 
   return (
-    <WebStackSwipeContainer>
-      <View style={{ flex: 1, backgroundColor: theme.screenBg }}>
+    <View style={{ flex: 1, backgroundColor: theme.screenBg }}>
         <CompanyDetailTabBarSync />
         <Pressable
           accessibilityRole="button"
@@ -421,6 +415,5 @@ export function MunicipioEventDetailScreen() {
           ) : null}
         </ScrollView>
       </View>
-    </WebStackSwipeContainer>
   );
 }

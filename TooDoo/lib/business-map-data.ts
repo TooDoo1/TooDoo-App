@@ -8,7 +8,12 @@ import {
   type Coords,
 } from '@/lib/geo';
 import { resolveBusinessCategoryIds } from '@/lib/home-offers';
-import { fetchApprovedBusinessesCatalog, fetchCategoriesCatalog } from '@/lib/catalog-cache';
+import { fetchCategoriesCatalog } from '@/lib/catalog-cache';
+import {
+  fetchCityApprovedBusinesses,
+  MAP_BUSINESS_CANDIDATE_CAP,
+} from '@/lib/nearby-businesses';
+import { resolveEventFeedCity } from '@/lib/events-feed';
 import { rememberCategories } from '@/lib/category-colors';
 import {
   getHomeNearbyBusinessesCache,
@@ -147,7 +152,13 @@ export async function searchMapBusinesses(
       const next: MapBusiness = {
         id: card.id,
         name: card.title,
-        imageUri: card.image?.uri || existing?.imageUri,
+        imageUri:
+          (typeof card.image === 'object' &&
+          card.image &&
+          'uri' in card.image &&
+          typeof card.image.uri === 'string'
+            ? card.image.uri
+            : undefined) || existing?.imageUri,
         address,
         description: card.kortbeskrivning || existing?.description,
         latitude,
@@ -173,7 +184,13 @@ export async function searchMapBusinesses(
 
   if (byId.size === 0 && !options?.signal?.aborted) {
     try {
-      const raw = parseBusinesses(await fetchApprovedBusinessesCatalog());
+      const { businesses } = await fetchCityApprovedBusinesses({
+        city: options?.city,
+        coords,
+        take: MAP_BUSINESS_CANDIDATE_CAP,
+        signal: options?.signal,
+      });
+      const raw = parseBusinesses(businesses);
       const needle = q.toLocaleLowerCase('sv-SE');
       const matches = raw
         .map((business) => {
@@ -534,8 +551,8 @@ function toNearbyCard(item: MapBusiness): NearbyBusinessCard {
     title: item.name,
     image: { uri: item.imageUri ?? '' },
     Adress: item.address,
-    kortbeskrivning: item.description,
-    långbeskrivning: item.description,
+    kortbeskrivning: item.description ?? '',
+    långbeskrivning: item.description ?? '',
     latitude: item.latitude,
     longitude: item.longitude,
     distanceKm: item.distanceKm,
@@ -555,17 +572,24 @@ export function hasMapPinCoords(business: MapBusiness) {
 
 export async function loadMapBusinesses(
   coords: Coords | null,
-  onUpdate?: (businesses: MapBusiness[]) => void
+  onUpdate?: (businesses: MapBusiness[]) => void,
+  options?: { city?: string | null }
 ): Promise<MapBusiness[]> {
   const activityPromise = loadActivitySets();
 
   try {
-    const [json, categoriesRaw] = await Promise.all([
-      fetchApprovedBusinessesCatalog(),
+    const city =
+      options?.city?.trim() || resolveEventFeedCity(options?.city, coords) || undefined;
+    const [page, categoriesRaw] = await Promise.all([
+      fetchCityApprovedBusinesses({
+        city,
+        coords,
+        take: MAP_BUSINESS_CANDIDATE_CAP,
+      }),
       fetchCategoriesCatalog().catch(() => [] as unknown[]),
     ]);
     const { eventIds, offerIds } = await activityPromise;
-    const raw = parseBusinesses(json);
+    const raw = parseBusinesses(page.businesses);
 
     const categoryNameById = new Map<string, string>();
     (categoriesRaw as any[]).forEach((category) => {
@@ -634,11 +658,13 @@ export async function loadMapBusinesses(
       }
     }
 
-    let current = sortMapBusinesses([...ready, ...pending]);
+    // Prefer ready pins; only geocode a small pending budget so map open stays light.
+    const pendingBudget = pending.slice(0, MAP_MAX_PINS_ZOOMED);
+    let current = sortMapBusinesses([...ready, ...pendingBudget]);
     onUpdate?.(current);
 
-    for (let i = 0; i < pending.length; i += GEOCODE_CONCURRENCY) {
-      const batch = pending.slice(i, i + GEOCODE_CONCURRENCY);
+    for (let i = 0; i < pendingBudget.length; i += GEOCODE_CONCURRENCY) {
+      const batch = pendingBudget.slice(i, i + GEOCODE_CONCURRENCY);
       const resolved = await Promise.all(
         batch.map(async (item) => {
           const geo = await geocodeAddressCached(item.address);

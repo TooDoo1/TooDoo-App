@@ -36,7 +36,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { useAppReady } from '@/context/app-ready-context';
-import { fetchApprovedBusinessesCatalog, invalidateCatalogCache } from '@/lib/catalog-cache';
+import { invalidateCatalogCache } from '@/lib/catalog-cache';
+import {
+  fetchApprovedBusinessPage,
+  fetchCityApprovedBusinesses,
+  NEARBY_PAGE_SIZE,
+  UTFORSKA_BUSINESS_CAP,
+} from '@/lib/nearby-businesses';
 import { apiUrl } from '@/lib/api';
 import {
   isBusinessOpenNow,
@@ -161,7 +167,6 @@ import {
   setHomeScrollOffset,
   setHomeSearchCache,
 } from '@/lib/home-list-cache';
-import { blurActiveElementOnWeb } from '@/lib/web-focus';
 import { consumeOpenHomeSearch } from '@/lib/home-search-handoff';
 import {
   pickBestSearchNameMatch,
@@ -1417,6 +1422,10 @@ export default function HomeScreen() {
   const exploreCursorRef = useRef(0);
   const exploreLoadingRef = useRef(false);
   const explorePoolBuiltOnceRef = useRef(false);
+  /** Next skip for city-paged GET /business — never loads the national catalog. */
+  const exploreApiSkipRef = useRef(0);
+  const exploreApiHasMoreRef = useRef(false);
+  const exploreCityRef = useRef<string | undefined>(undefined);
   const loadMoreExploreRef = useRef<() => void>(() => {});
   const searchLoadingMoreRef = useRef(false);
   const loadMoreSearchRef = useRef<() => void>(() => {});
@@ -1750,19 +1759,14 @@ export default function HomeScreen() {
         return Math.floor(prev / 60_000) === Math.floor(now / 60_000) ? prev : now;
       });
       const tick = setInterval(() => setNowMs(Date.now()), 60_000);
-      blurActiveElementOnWeb();
       const task = InteractionManager.runAfterInteractions(() => {
         restoreHomeScroll();
       });
-      // Web layout settles late after stack pop; native one InteractionManager pass is enough.
-      const restoreTimer =
-        Platform.OS === 'web' ? setTimeout(() => restoreHomeScroll(), 220) : null;
 
       homeFocusedRef.current = true;
       return () => {
         homeFocusedRef.current = false;
         clearInterval(tick);
-        if (restoreTimer) clearTimeout(restoreTimer);
         task.cancel();
         tabBarScrollHiddenSv.value = 0;
         scrollHideProgress.value = withTiming(0, { duration: 220 });
@@ -2156,11 +2160,6 @@ export default function HomeScreen() {
   }, []);
 
   const openSearchDropdown = useCallback((_options?: { instant?: boolean }) => {
-    if (Platform.OS === 'web') {
-      void import('@/components/ui/maplibre-map.web').then((mod) => {
-        mod.prefetchBusinessMapAssets();
-      });
-    }
     if (searchBlurTimerRef.current) {
       clearTimeout(searchBlurTimerRef.current);
       searchBlurTimerRef.current = null;
@@ -2215,7 +2214,6 @@ export default function HomeScreen() {
       searchBlurTimerRef.current = null;
     }
     setSearchInputReady(false);
-    blurActiveElementOnWeb();
     cancelAnimation(searchOverlayProgress);
     searchOverlayProgress.value = withTiming(
       0,
@@ -2239,7 +2237,6 @@ export default function HomeScreen() {
       searchBlurTimerRef.current = null;
     }
     setSearchInputReady(false);
-    blurActiveElementOnWeb();
     cancelAnimation(searchOverlayProgress);
     searchOverlayProgress.value = 0;
     setIsSearchFocused(false);
@@ -3345,18 +3342,19 @@ export default function HomeScreen() {
     setIsLoadingExplore(true);
     exploreLoadingRef.current = true;
     try {
-      const businessesRaw = (await fetchApprovedBusinessesCatalog()) as any[];
-      const cityKey = userCity?.trim().toLocaleLowerCase('sv-SE') ?? '';
-      let scoped = cityKey
-        ? businessesRaw.filter(
-            (business) =>
-              typeof business?.city === 'string' &&
-              business.city.trim().toLocaleLowerCase('sv-SE') === cityKey
-          )
-        : businessesRaw;
-      // Fall back to the full catalog when the city filter is empty.
-      if (scoped.length === 0) scoped = businessesRaw;
+      const { businesses, city, hasMore } = await fetchCityApprovedBusinesses({
+        city: userCity,
+        coords,
+        take: UTFORSKA_BUSINESS_CAP,
+        pageSize: NEARBY_PAGE_SIZE,
+      });
+      exploreCityRef.current = city;
+      exploreApiSkipRef.current = businesses.length;
+      // Stop once we hit the hard cap — never grow past UTFORSKA_BUSINESS_CAP.
+      exploreApiHasMoreRef.current =
+        hasMore && businesses.length < UTFORSKA_BUSINESS_CAP;
 
+      let scoped = businesses as any[];
       const subcategoryId = exploreFiltersRef.current.subcategoryId;
       if (subcategoryId) {
         scoped = scoped.filter((business) =>
@@ -3370,15 +3368,17 @@ export default function HomeScreen() {
       exploreSourceRef.current = [];
       explorePoolRef.current = [];
       exploreCursorRef.current = 0;
+      exploreApiSkipRef.current = 0;
+      exploreApiHasMoreRef.current = false;
       setExploreCards([]);
     } finally {
       exploreLoadingRef.current = false;
       setIsLoadingExplore(false);
       setIsLoadingMoreExplore(false);
     }
-  }, [paintExploreFromSource, userCity]);
+  }, [coords, paintExploreFromSource, userCity]);
 
-  // Coords-only: re-distance the existing Utforska pool — don't refetch the catalog.
+  // Coords-only: re-distance the existing Utforska pool — don't refetch.
   useEffect(() => {
     if (!coords || !explorePoolBuiltOnceRef.current) return;
     const pool = explorePoolRef.current;
@@ -3406,32 +3406,89 @@ export default function HomeScreen() {
     if (exploreLoadingRef.current) return;
     if (showCommittedSearchResults || showCommittedSearchPrompt) return;
 
-    let pool = explorePoolRef.current;
-    if (pool.length === 0) return;
+    const appendFromPool = () => {
+      const pool = explorePoolRef.current;
+      const cursor = exploreCursorRef.current;
+      if (cursor >= pool.length) return false;
+      const next = pool.slice(cursor, cursor + EXPLORE_PAGE_SIZE);
+      if (next.length === 0) return false;
+      exploreCursorRef.current = cursor + next.length;
+      setExploreCards((prev) => {
+        // Hard cap visible Utforska cards so FlashList can't grow without bound.
+        const merged = [...prev, ...next];
+        return merged.length > UTFORSKA_BUSINESS_CAP
+          ? merged.slice(0, UTFORSKA_BUSINESS_CAP)
+          : merged;
+      });
+      return true;
+    };
 
-    let cursor = exploreCursorRef.current;
-    if (cursor >= pool.length) {
-      // Endless: reshuffle mixed decks; sorted decks wrap from the start.
-      if (exploreFilters.sort === 'mixed') {
-        pool = shuffleCards(pool);
-        explorePoolRef.current = pool;
-      }
-      cursor = 0;
+    if (appendFromPool()) {
+      return;
     }
 
-    const next = pool.slice(cursor, cursor + EXPLORE_PAGE_SIZE);
-    if (next.length === 0) return;
+    // Local pool exhausted — fetch the next city page if under the hard cap.
+    if (!exploreApiHasMoreRef.current) return;
+    if (exploreSourceRef.current.length >= UTFORSKA_BUSINESS_CAP) {
+      exploreApiHasMoreRef.current = false;
+      return;
+    }
 
     exploreLoadingRef.current = true;
     setIsLoadingMoreExplore(true);
-    exploreCursorRef.current = cursor + next.length;
-    setExploreCards((prev) => [...prev, ...next]);
-    // Release the gate on the next frame so scroll spam doesn't double-append.
-    requestAnimationFrame(() => {
-      exploreLoadingRef.current = false;
-      setIsLoadingMoreExplore(false);
-    });
-  }, [exploreFilters.sort, showCommittedSearchPrompt, showCommittedSearchResults]);
+    void (async () => {
+      try {
+        const page = await fetchApprovedBusinessPage({
+          city: exploreCityRef.current ?? userCity,
+          skip: exploreApiSkipRef.current,
+          take: NEARBY_PAGE_SIZE,
+        });
+        exploreApiSkipRef.current += page.length;
+        exploreApiHasMoreRef.current = page.length >= NEARBY_PAGE_SIZE;
+
+        let scoped = page as any[];
+        const subcategoryId = exploreFiltersRef.current.subcategoryId;
+        if (subcategoryId) {
+          scoped = scoped.filter((business) =>
+            businessHasSubcategoryId(business, subcategoryId)
+          );
+        }
+        let cards = cardsFromCatalogBusinesses(scoped);
+        if (coords) {
+          cards = applyHaversineDistances(cards, coords);
+        }
+        const room = UTFORSKA_BUSINESS_CAP - exploreSourceRef.current.length;
+        if (room <= 0) {
+          exploreApiHasMoreRef.current = false;
+          return;
+        }
+        const incoming = cards.slice(0, room);
+        exploreSourceRef.current = [...exploreSourceRef.current, ...incoming];
+        explorePoolRef.current = [...explorePoolRef.current, ...incoming];
+        // Keep the already-visible list; only append the new page.
+        setExploreCards((prev) => {
+          const merged = [...prev, ...incoming.slice(0, EXPLORE_PAGE_SIZE)];
+          exploreCursorRef.current = merged.length;
+          return merged.length > UTFORSKA_BUSINESS_CAP
+            ? merged.slice(0, UTFORSKA_BUSINESS_CAP)
+            : merged;
+        });
+        if (exploreSourceRef.current.length >= UTFORSKA_BUSINESS_CAP) {
+          exploreApiHasMoreRef.current = false;
+        }
+      } catch {
+        exploreApiHasMoreRef.current = false;
+      } finally {
+        exploreLoadingRef.current = false;
+        setIsLoadingMoreExplore(false);
+      }
+    })();
+  }, [
+    coords,
+    showCommittedSearchPrompt,
+    showCommittedSearchResults,
+    userCity,
+  ]);
 
   loadMoreExploreRef.current = loadMoreExplore;
 
@@ -4202,12 +4259,6 @@ export default function HomeScreen() {
     (options?: { fromSearchOverlay?: boolean; allowEmptyTips?: boolean }) => {
       const fromSearchOverlay = Boolean(options?.fromSearchOverlay);
       const allowEmptyTips = Boolean(options?.allowEmptyTips);
-
-      if (fromSearchOverlay && Platform.OS === 'web') {
-        void import('@/components/ui/maplibre-map.web').then((mod) => {
-          mod.prefetchBusinessMapAssets();
-        });
-      }
 
       const typed = fromSearchOverlay ? searchDraftRef.current : searchQuery;
       if (typed !== searchQuery) setSearchQuery(typed);

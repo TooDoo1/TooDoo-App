@@ -30,9 +30,7 @@ import { BusinessOpeningHoursPanel } from "@/components/ui/business-opening-hour
 import { schedulePrefetchImageUris } from "@/lib/image-prefetch";
 import { IMAGE_DISPLAY_WIDTH } from "@/lib/image-url";
 import { CompanyDetailTabBarSync } from "@/components/company-detail-tab-bar-sync";
-import { WebStackSwipeContainer } from "@/components/web-stack-edge-swipe-back";
 import { navigateBackFromDetail } from "@/lib/detail-navigation";
-import { performWebStackBack } from "@/lib/web-stack-navigation";
 import { formatBusinessAddress, isPlaceholderNavigationId } from "@/lib/home-offers";
 import { BrandColors, brandInkRgba, brandNavyRgba } from "@/lib/brand-colors";
 import { FAVORITE_HEART_COLOR } from "@/lib/tab-colors";
@@ -926,10 +924,6 @@ export default function CompanyDetailScreen() {
   const showShareButton = Boolean(showCompanyDetail && resolvedBusinessId);
   const shareButtonTop = insets.top + 8 + (showFavoriteButton ? 48 : 0);
   const handleDetailBack = useCallback(() => {
-    if (Platform.OS === 'web') {
-      performWebStackBack(router, { returnTo, isCompanyDetail: true });
-      return;
-    }
     if (router.canGoBack()) {
       router.back();
       return;
@@ -938,7 +932,6 @@ export default function CompanyDetailScreen() {
   }, [router, returnTo]);
 
   return (
-    <WebStackSwipeContainer>
     <View style={{ flex: 1, backgroundColor: theme.screenBg }}>
       <CompanyDetailTabBarSync />
       {showCompanyDetail ? (
@@ -1476,6 +1469,5 @@ export default function CompanyDetailScreen() {
       ) : null}
       </ScrollView>
     </View>
-    </WebStackSwipeContainer>
   );
 }

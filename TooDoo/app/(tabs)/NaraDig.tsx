@@ -1,7 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
-  Platform,
   Pressable,
   RefreshControl,
   Text,
@@ -12,7 +11,6 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
-import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
 import { ScreenBackButton } from '@/components/ui/screen-back-button';
 import { CategoryFilterBar } from '@/components/ui/category-filter-bar';
 import { ALL_CATEGORIES_ID } from '@/lib/category-filters';
@@ -21,8 +19,12 @@ import { PaginatedListFooter } from '@/components/ui/paginated-list-footer';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { uiTheme } from '@/lib/ui-theme';
-import { fetchApprovedBusinessesCatalog } from '@/lib/catalog-cache';
 import { normalizeImageUrl } from '@/lib/api';
+import { resolveEventFeedCity } from '@/lib/events-feed';
+import {
+  fetchCityApprovedBusinesses,
+  NARA_DIG_BUSINESS_CAP,
+} from '@/lib/nearby-businesses';
 import { SeeAllCardActions, SeeAllListCard } from '@/components/ui/see-all-list-card';
 import { getCategoryAccentColor } from '@/lib/category-colors';
 import { formatTodayOpeningHoursLabel } from '@/lib/business-opening-hours';
@@ -393,8 +395,14 @@ export default function NaraDigScreen() {
       }
 
       try {
-        // Catalog is stale-while-revalidate — usually already warm from home.
-        const businessesRaw = ((await fetchApprovedBusinessesCatalog()) as any[]).filter(
+        // City-paged /business only — never download the national catalog here.
+        const city = resolveEventFeedCity(undefined, coords);
+        const { businesses } = await fetchCityApprovedBusinesses({
+          city,
+          coords,
+          take: NARA_DIG_BUSINESS_CAP,
+        });
+        const businessesRaw = (businesses as any[]).filter(
           (b) => (b?.status ?? 'APPROVED').toUpperCase() === 'APPROVED'
         );
 
@@ -577,11 +585,6 @@ export default function NaraDigScreen() {
             accessibilityRole="button"
             accessibilityLabel="Visa på karta"
             onPress={() => {
-              if (Platform.OS === 'web') {
-                void import('@/components/ui/maplibre-map.web').then((mod) => {
-                  mod.prefetchBusinessMapAssets();
-                });
-              }
               router.push({
                 pathname: BUSINESS_MAP_PATH,
                 params: {
@@ -663,8 +666,7 @@ export default function NaraDigScreen() {
   );
 
   return (
-    <WebStackSwipeContainer>
-      <View style={{ flex: 1, backgroundColor: theme.screenBg }}>
+    <View style={{ flex: 1, backgroundColor: theme.screenBg }}>
         <StackScreenTabBarSync />
         <ScreenBackButton />
         <FlatList
@@ -700,7 +702,6 @@ export default function NaraDigScreen() {
             )
           }
         />
-      </View>
-    </WebStackSwipeContainer>
+    </View>
   );
 }

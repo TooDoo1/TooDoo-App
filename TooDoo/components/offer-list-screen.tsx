@@ -11,7 +11,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
-import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
 import { ScreenBackButton } from '@/components/ui/screen-back-button';
 import { CategoryFilterBar } from '@/components/ui/category-filter-bar';
 import { ALL_CATEGORIES_ID } from '@/lib/category-filters';
@@ -350,8 +349,7 @@ export function OfferListScreen({
   );
 
   return (
-    <WebStackSwipeContainer>
-      <View style={{ flex: 1, backgroundColor: theme.screenBg }}>
+    <View style={{ flex: 1, backgroundColor: theme.screenBg }}>
         <StackScreenTabBarSync />
         <ScreenBackButton />
         <FlatList
@@ -385,7 +383,6 @@ export function OfferListScreen({
             )
           }
         />
-      </View>
-    </WebStackSwipeContainer>
+    </View>
   );
 }

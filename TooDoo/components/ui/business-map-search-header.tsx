@@ -1,13 +1,12 @@
 import { useCallback } from 'react';
 import {
-  Platform,
   Pressable,
   StyleSheet,
   TextInput,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter, useSegments } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
 
@@ -17,7 +16,6 @@ import {
   type DetailReturnKey,
 } from '@/lib/detail-navigation';
 import { requestOpenHomeSearch } from '@/lib/home-search-handoff';
-import { performWebStackBack } from '@/lib/web-stack-navigation';
 
 const SEARCH_BAR_HEIGHT = 44;
 const SIDE_PAD = 12;
@@ -45,7 +43,6 @@ export function BusinessMapSearchHeader({
   onChangeText,
 }: BusinessMapSearchHeaderProps) {
   const router = useRouter();
-  const segments = useSegments();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ returnTo?: string | string[] }>();
   const returnPath = resolveMapReturnPath(params.returnTo);
@@ -75,22 +72,13 @@ export function BusinessMapSearchHeader({
         router.back();
         return;
       }
-      if (Platform.OS === 'web') {
-        const topSegment = segments[segments.length - 1];
-        performWebStackBack(router, {
-          isCompanyDetail: topSegment === 'company-detail',
-          topSegment,
-          returnTo: params.returnTo,
-        });
-        return;
-      }
       try {
         router.dismissTo(returnPath ?? '/');
       } catch {
         router.replace(returnPath ?? '/');
       }
     },
-    [params.returnTo, returnPath, router, segments, value]
+    [returnPath, router, value]
   );
 
   return (
@@ -211,12 +199,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
     borderWidth: 0,
-    ...Platform.select({
-      web: {
-        outlineStyle: 'none' as const,
-      },
-      default: {},
-    }),
   },
   clearButton: {
     marginLeft: 4,

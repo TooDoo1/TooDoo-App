@@ -1,6 +1,6 @@
 import { Platform, StyleSheet, Text, TextInput } from 'react-native';
 
-/** CSS / web family name (matches Google Fonts link in +html.tsx). */
+/** App font family name. */
 export const APP_FONT_FAMILY = 'Plus Jakarta Sans';
 
 let defaultsApplied = false;

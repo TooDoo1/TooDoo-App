@@ -18,7 +18,6 @@ import { BusinessMapPin } from '@/components/ui/business-map-pin';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { UserLocationArrow } from '@/components/ui/user-location-arrow';
 import { StackScreenTabBarSync } from '@/components/stack-screen-tab-bar-sync';
-import { WebStackSwipeContainer } from '@/components/web-stack-edge-swipe-back';
 import { useThemePreference } from '@/context/theme-preference-context';
 import {
   filterBusinessesByQuery,
@@ -643,8 +642,7 @@ export default function BusinessMapScreen() {
   );
 
   return (
-    <WebStackSwipeContainer>
-      <View style={[styles.root, { backgroundColor: shellBg }]}>
+    <View style={[styles.root, { backgroundColor: shellBg }]}>
         <StackScreenTabBarSync />
         <BusinessMapSearchHeader value={searchQuery} onChangeText={setSearchQuery} />
 
@@ -793,8 +791,7 @@ export default function BusinessMapScreen() {
             </Pressable>
           </View>
         ) : null}
-      </View>
-    </WebStackSwipeContainer>
+    </View>
   );
 }
 
