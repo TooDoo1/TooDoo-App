@@ -1,4 +1,4 @@
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -22,7 +22,6 @@ import {
 import {
   getFloatingTabBarScrollPadding,
 } from '@/components/floating-tab-bar';
-import { FastPressable } from '@/components/ui/fast-pressable';
 import Reanimated, {
   cancelAnimation,
   Easing as ReanimatedEasing,
@@ -152,6 +151,8 @@ import {
   getHomeScrollOffset,
   getHomeSearchCache,
   hasFreshHomeScreenSnapshot,
+  peekHomeEventsCache,
+  peekHomeScreenSnapshot,
   setHomeEndingSoonCache,
   setHomeEventsCache,
   setHomeHotOffersCache,
@@ -1237,13 +1238,15 @@ function HomeHeaderHeroFill({
     onActiveIndexChange?.(index);
   }, [index, onActiveIndexChange]);
 
+  const heroFocused = useIsFocused();
   useEffect(() => {
+    if (!heroFocused) return;
     if (slides.length <= 1 || (slides.length === 1 && slides[0] == null)) return;
     const id = setInterval(() => {
       setIndex((prev) => (prev + 1) % slides.length);
     }, HOME_HERO_ROTATE_MS);
     return () => clearInterval(id);
-  }, [slides.length, uriKey]);
+  }, [heroFocused, slides.length, uriKey]);
 
   return (
     <View
@@ -1349,7 +1352,8 @@ function SectionTitleRow({
 }
 
 export default function HomeScreen() {
-  const homeSnapshot = getHomeScreenSnapshot();
+  // Prefer fresh snapshot; fall back to stale peek so remounts aren't empty "Laddar…".
+  const homeSnapshot = getHomeScreenSnapshot() ?? peekHomeScreenSnapshot();
   const initialSearch = getHomeSearchCache();
   const [activeCategory, setActiveCategory] = useState<string>(ALL_CATEGORIES_ID);
   const [categoryFilters, setCategoryFilters] = useState<FilterCategory[]>(
@@ -1391,8 +1395,12 @@ export default function HomeScreen() {
   const [isExpandedTipLoading, setIsExpandedTipLoading] = useState(false);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [isSearchDropdownMounted, setIsSearchDropdownMounted] = useState(false);
-  const [eventCards, setEventCards] = useState<EventFeedItem[]>(getHomeEventsCache() ?? []);
-  const [isLoadingEvents, setIsLoadingEvents] = useState(!getHomeEventsCache());
+  const [eventCards, setEventCards] = useState<EventFeedItem[]>(
+    () => getHomeEventsCache() ?? peekHomeEventsCache() ?? []
+  );
+  const [isLoadingEvents, setIsLoadingEvents] = useState(
+    () => !(getHomeEventsCache() ?? peekHomeEventsCache())
+  );
   const [recentCompanies, setRecentCompanies] = useState<RecentCompanyCard[]>([]);
   const [exploreCards, setExploreCards] = useState<CardItem[]>([]);
   const [isLoadingExplore, setIsLoadingExplore] = useState(false);
@@ -1545,9 +1553,6 @@ export default function HomeScreen() {
   const homeScrollLastYSv = useSharedValue(Math.max(0, getHomeScrollOffset()));
   /** Discrete target for tab-bar scroll hide (avoids restarting withTiming every frame). */
   const tabBarScrollHiddenSv = useSharedValue(0);
-  const [isSearchStuck, setIsSearchStuck] = useState(
-    () => getHomeScrollOffset() >= HOME_GREETING_HEIGHT - 1
-  );
   const [searchPanelHeight, setSearchPanelHeight] = useState(120);
 
   const homeScrollPersistYSv = useSharedValue(-1);
@@ -1563,7 +1568,6 @@ export default function HomeScreen() {
     homeScrollYSv.value = y;
     homeScrollLastYSv.value = y;
     homeScrollPersistYSv.value = y;
-    setIsSearchStuck(y >= HOME_GREETING_HEIGHT - 1);
     if (y <= 0) {
       tabBarScrollHiddenSv.value = 0;
       scrollHideProgress.value = withTiming(0, { duration: 220 });
@@ -1598,11 +1602,11 @@ export default function HomeScreen() {
     }, 1800);
   }, []);
 
-  const syncHomeScrollJs = useCallback((y: number, stuck: boolean) => {
+  // Persist only — never setState here. Mid-scroll setState re-rendered the whole
+  // ~6k-line HomeScreen and made every tap wait on the JS thread.
+  const syncHomeScrollJs = useCallback((y: number) => {
     persistHomeScrollY(y);
-    setIsSearchStuck((prev) => (prev === stuck ? prev : stuck));
-    pauseFeaturedForScroll();
-  }, [pauseFeaturedForScroll, persistHomeScrollY]);
+  }, [persistHomeScrollY]);
 
   const syncStickyExploreFilter = useCallback((sticky: boolean) => {
     setShowStickyExploreFilter((prev) => (prev === sticky ? prev : sticky));
@@ -1651,18 +1655,18 @@ export default function HomeScreen() {
         runOnJS(persistHomeScrollY)(y);
       }
 
+      // Keep stuck flag on the UI thread only (greeting collapse uses homeScrollYSv).
       const stuckN = y >= HOME_GREETING_HEIGHT - 1 ? 1 : 0;
       if (stuckN !== homeScrollStuckSv.value) {
         homeScrollStuckSv.value = stuckN;
-        runOnJS(syncHomeScrollJs)(y, stuckN === 1);
       }
 
-      // Pin Utforska filter under kategori chips once it reaches the sticky header.
+      // Track sticky explore on UI thread; React sync waits until the scroll ends
+      // so we don't re-render HomeScreen mid-fling.
       const exploreStickN =
         y >= HOME_GREETING_HEIGHT + exploreFilterYSv.value - 2 ? 1 : 0;
       if (exploreStickN !== exploreStickyVisibleSv.value) {
         exploreStickyVisibleSv.value = exploreStickN;
-        runOnJS(syncStickyExploreFilter)(exploreStickN === 1);
       }
 
       const viewport = event.layoutMeasurement.height;
@@ -1684,11 +1688,15 @@ export default function HomeScreen() {
       homeScrollPersistYSv.value = y;
       const stuck = y >= HOME_GREETING_HEIGHT - 1;
       homeScrollStuckSv.value = stuck ? 1 : 0;
+      const exploreStick =
+        y >= HOME_GREETING_HEIGHT + exploreFilterYSv.value - 2 ? 1 : 0;
+      exploreStickyVisibleSv.value = exploreStick;
       if (y < 20 && tabBarScrollHiddenSv.value !== 0) {
         tabBarScrollHiddenSv.value = 0;
         scrollHideProgress.value = withTiming(0, { duration: 220 });
       }
-      runOnJS(syncHomeScrollJs)(y, stuck);
+      runOnJS(syncHomeScrollJs)(y);
+      runOnJS(syncStickyExploreFilter)(exploreStick === 1);
     },
     onMomentumEnd: (event) => {
       const y = Math.max(0, event.contentOffset.y);
@@ -1697,11 +1705,15 @@ export default function HomeScreen() {
       homeScrollPersistYSv.value = y;
       const stuck = y >= HOME_GREETING_HEIGHT - 1;
       homeScrollStuckSv.value = stuck ? 1 : 0;
+      const exploreStick =
+        y >= HOME_GREETING_HEIGHT + exploreFilterYSv.value - 2 ? 1 : 0;
+      exploreStickyVisibleSv.value = exploreStick;
       if (y < 20 && tabBarScrollHiddenSv.value !== 0) {
         tabBarScrollHiddenSv.value = 0;
         scrollHideProgress.value = withTiming(0, { duration: 220 });
       }
-      runOnJS(syncHomeScrollJs)(y, stuck);
+      runOnJS(syncHomeScrollJs)(y);
+      runOnJS(syncStickyExploreFilter)(exploreStick === 1);
     },
   });
 
@@ -3497,15 +3509,13 @@ export default function HomeScreen() {
       };
     }
 
-    // Utforska sits at the bottom of the feed: build its pool after first paint,
-    // but show a spinner immediately so it doesn't flash "Inga bolag…".
+    // Utforska sits at the bottom of the feed: start right after interactions so
+    // the first screen doesn't sit on "Laddar bolag…" longer than needed.
     setIsLoadingExplore(true);
     const task = InteractionManager.runAfterInteractions(() => {
-      timer = setTimeout(() => {
-        if (cancelled) return;
-        explorePoolBuiltOnceRef.current = true;
-        void rebuildExplorePool();
-      }, Platform.OS === 'android' ? 500 : 300);
+      if (cancelled) return;
+      explorePoolBuiltOnceRef.current = true;
+      void rebuildExplorePool();
     });
     return () => {
       cancelled = true;
@@ -5157,7 +5167,7 @@ export default function HomeScreen() {
       pointerEvents="box-none"
     >
       <View style={styles.homeHeroTopRow} pointerEvents="box-none">
-        <FastPressable
+        <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Plats: ${homeLocationLabel}. Tryck för att byta.`}
           onPress={openLocationMenu}
@@ -5193,7 +5203,7 @@ export default function HomeScreen() {
           <Reanimated.View style={locationChevronStyle}>
             <Ionicons name="chevron-down" size={12} color="rgba(255,255,255,0.92)" />
           </Reanimated.View>
-        </FastPressable>
+        </Pressable>
 
         <View style={styles.homeHeroBrand} pointerEvents="none">
           <View style={styles.homeHeroBrandMark}>
@@ -5202,7 +5212,7 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      <FastPressable
+      <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Upptäck ${homeKommunLabel}`}
         onPress={() =>
@@ -5220,7 +5230,7 @@ export default function HomeScreen() {
         </Text>
         {/* No numberOfLines — RN Web overflow:hidden on truncated Text clips descenders. */}
         <Text style={styles.homeHeroTitle}>{homeKommunLabel}</Text>
-      </FastPressable>
+      </Pressable>
 
       <LocationMenuModal
         mounted={locationMenuMounted}
@@ -5264,7 +5274,7 @@ export default function HomeScreen() {
             <View
               style={[filterSurfaceStyle, styles.searchBarRow, styles.homeHeaderSearchBar]}
             >
-              <FastPressable
+              <Pressable
                 accessibilityRole="search"
                 accessibilityLabel="Öppna sök"
                 onPress={() => openSearchDropdown()}
@@ -5290,7 +5300,7 @@ export default function HomeScreen() {
                 >
                   {searchQuery.trim() || 'Vad vill du göra?'}
                 </Text>
-              </FastPressable>
+              </Pressable>
               <InlineMicButton
                 variant="field"
                 listening={voiceListening}
@@ -5300,14 +5310,14 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          <FastPressable
+          <Pressable
             accessibilityRole="button"
             accessibilityLabel="Karta"
             onPress={openHomeMap}
             style={styles.homeHeaderMapButton}
           >
             <Ionicons name="map" size={22} color="#ffffff" />
-          </FastPressable>
+          </Pressable>
         </View>
         <View style={{ marginTop: 10, marginHorizontal: -HOME_PAGE_PAD }}>
           {renderCategoryFilterChips()}

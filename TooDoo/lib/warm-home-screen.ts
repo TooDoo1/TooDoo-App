@@ -16,6 +16,7 @@ import {
 	setHomeHotOffersCache,
 	setHomeNearbyBusinessesCache,
 	setHomeScreenSnapshot,
+	type HomeFilterCategory,
 } from '@/lib/home-list-cache';
 import { prefetchImageUris } from '@/lib/image-prefetch';
 import { IMAGE_DISPLAY_WIDTH, sizedImageUrl } from '@/lib/image-url';
@@ -26,7 +27,9 @@ export type SettledHomeAssets = {
 	hotOfferCards: OfferCardItem[];
 };
 
-const SETTLE_BUDGET_MS = 3500;
+/** Keep splash settle short — full image hydration continues after first paint. */
+const SETTLE_BUDGET_MS = 1200;
+const SPLASH_PREFETCH_LIMIT = 14;
 
 function cardImageUri(card: OfferCardItem, displayWidth: number) {
 	const raw =
@@ -70,8 +73,16 @@ export async function settleHomeScreenAssets(options: {
 	nearYouCards: OfferCardItem[];
 	hotOfferCards: OfferCardItem[];
 	events?: EventFeedItem[];
+	/** Cap how many images we wait on (splash should stay lean). */
+	prefetchLimit?: number;
 }): Promise<SettledHomeAssets> {
-	const { deals, nearYouCards, hotOfferCards, events = [] } = options;
+	const {
+		deals,
+		nearYouCards,
+		hotOfferCards,
+		events = [],
+		prefetchLimit = SPLASH_PREFETCH_LIMIT,
+	} = options;
 	const knownCards = [...deals, ...hotOfferCards, ...nearYouCards];
 
 	const [hydratedDeals, hydratedHot, hydratedNear] = await Promise.all([
@@ -82,12 +93,12 @@ export async function settleHomeScreenAssets(options: {
 
 	await prefetchImageUris(
 		[
-			...hydratedHot.slice(0, 6).map((card) => cardImageUri(card, IMAGE_DISPLAY_WIDTH.featured)),
-			...hydratedDeals.slice(0, 8).map((card) => cardImageUri(card, IMAGE_DISPLAY_WIDTH.card)),
-			...hydratedNear.slice(0, 6).map((card) => cardImageUri(card, IMAGE_DISPLAY_WIDTH.card)),
-			...events.slice(0, 6).map((event) => event.image),
+			...hydratedHot.slice(0, 4).map((card) => cardImageUri(card, IMAGE_DISPLAY_WIDTH.featured)),
+			...hydratedDeals.slice(0, 6).map((card) => cardImageUri(card, IMAGE_DISPLAY_WIDTH.card)),
+			...hydratedNear.slice(0, 4).map((card) => cardImageUri(card, IMAGE_DISPLAY_WIDTH.card)),
+			...events.slice(0, 4).map((event) => event.image),
 		],
-		28
+		prefetchLimit
 	);
 
 	return {
@@ -141,25 +152,58 @@ function cacheNearbyFromDeals(deals: OfferCardItem[]) {
 	);
 }
 
+function writePaintReadySnapshot(options: {
+	categoryFilters: HomeFilterCategory[];
+	deals: OfferCardItem[];
+	nearYouCards: OfferCardItem[];
+	hotOfferCards: OfferCardItem[];
+	events: EventFeedItem[];
+	cacheCity?: string | null;
+}) {
+	const { categoryFilters, deals, nearYouCards, hotOfferCards, events, cacheCity } = options;
+	setHomeScreenSnapshot({
+		categoryFilters,
+		deals,
+		nearYouCards,
+		hotOfferCards,
+	});
+	setHomeEventsCache(events, cacheCity);
+	setHomeHotOffersCache(hotOfferCards);
+	setHomeEndingSoonCache(nearYouCards);
+	cacheNearbyFromDeals(deals);
+}
+
 let homeWarmupStarted = false;
 
 /**
  * Fetch + settle Upptäck during splash without opening the GPS permission prompt.
  * Permission can be requested after the frontpage is visible.
+ *
+ * Important: call onSettled as soon as paint-ready cards are cached. Image settle
+ * continues in the background so the splash does not sit on a blank wait.
  */
 export function warmHomeScreenDuringStartup(options?: {
 	token?: string | null;
-	/** Called once warmup finished or failed, so the splash can lift without waiting for its cap. */
+	/** Called once paint-ready data is cached (or failed), so splash can lift early. */
 	onSettled?: () => void;
 }): void {
 	if (homeWarmupStarted) return;
 	homeWarmupStarted = true;
+
+	let released = false;
+	const releaseSplash = () => {
+		if (released) return;
+		released = true;
+		options?.onSettled?.();
+	};
 
 	void (async () => {
 		try {
 			if (hasFreshHomeScreenSnapshot()) {
 				const snapshot = getHomeScreenSnapshot();
 				const events = getHomeEventsCache() ?? [];
+				// Cached cards are enough to paint — lift splash before image settle.
+				releaseSplash();
 				if (snapshot) {
 					const settled = await settleHomeScreenAssetsWithinBudget({
 						deals: snapshot.deals as OfferCardItem[],
@@ -198,16 +242,16 @@ export function warmHomeScreenDuringStartup(options?: {
 						);
 			const cacheCity = data.resolvedCity ?? eventCity;
 
-			setHomeScreenSnapshot({
+			// Paint-ready snapshot first, then release splash — don't wait on images.
+			writePaintReadySnapshot({
 				categoryFilters: data.categoryFilters,
 				deals: data.deals,
 				nearYouCards: data.nearYouCards,
 				hotOfferCards: data.hotOfferCards,
+				events,
+				cacheCity,
 			});
-			setHomeEventsCache(events, cacheCity);
-			setHomeHotOffersCache(data.hotOfferCards);
-			setHomeEndingSoonCache(data.nearYouCards);
-			cacheNearbyFromDeals(data.deals);
+			releaseSplash();
 
 			const settled = await settleHomeScreenAssetsWithinBudget({
 				deals: data.deals,
@@ -227,7 +271,7 @@ export function warmHomeScreenDuringStartup(options?: {
 		} catch {
 			// Splash still has a max-duration safety valve.
 		} finally {
-			options?.onSettled?.();
+			releaseSplash();
 		}
 	})();
 }

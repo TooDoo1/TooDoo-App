@@ -1,6 +1,5 @@
-import { Text, View } from 'react-native';
+import { Text, View, Pressable } from 'react-native';
 
-import { FastPressable } from '@/components/ui/fast-pressable';
 import { SEE_ALL_PAGE_SIZE } from '@/lib/paginated-list';
 import { uiTheme } from '@/lib/ui-theme';
 
@@ -38,7 +37,7 @@ export function PaginatedListFooter({
         Visar {start}–{end} av {totalCount}
       </Text>
       <View className="flex-row items-center justify-between gap-3">
-        <FastPressable
+        <Pressable
           onPress={onPrevious}
           disabled={!canGoPrevious}
           className="flex-1 rounded-2xl px-4 py-3"
@@ -52,11 +51,11 @@ export function PaginatedListFooter({
           <Text className="text-center font-medium" style={{ color: theme.text }}>
             Föregående
           </Text>
-        </FastPressable>
+        </Pressable>
         <Text className="text-sm font-medium" style={{ color: theme.textMuted }}>
           {page + 1}/{totalPages}
         </Text>
-        <FastPressable
+        <Pressable
           onPress={onNext}
           disabled={!canGoNext}
           className="flex-1 rounded-2xl px-4 py-3"
@@ -70,7 +69,7 @@ export function PaginatedListFooter({
           <Text className="text-center font-medium" style={{ color: theme.text }}>
             Nästa
           </Text>
-        </FastPressable>
+        </Pressable>
       </View>
     </View>
   );

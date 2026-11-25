@@ -1,5 +1,13 @@
-import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -19,11 +27,13 @@ function LegalDocumentModal({
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
   const document = LEGAL_DOCUMENTS[documentKey];
   const body = document.body.trim();
   const isEmpty = body.length === 0;
+  const sheetMaxHeight = Math.max(280, windowHeight - insets.top - insets.bottom - 48);
 
   return (
     <Modal
@@ -46,6 +56,7 @@ function LegalDocumentModal({
             {
               backgroundColor: theme.cardBg,
               borderColor: theme.border,
+              maxHeight: sheetMaxHeight,
               marginTop: insets.top + 24,
               marginBottom: insets.bottom + 24,
             },
@@ -70,6 +81,8 @@ function LegalDocumentModal({
               isEmpty && styles.documentScrollContentEmpty,
             ]}
             showsVerticalScrollIndicator
+            bounces={false}
+            nestedScrollEnabled
           >
             {isEmpty ? (
               <View style={styles.emptyState}>
@@ -96,13 +109,21 @@ export function LegalConsentOverlay({ onAccept }: LegalConsentOverlayProps) {
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const [hasAccepted, setHasAccepted] = useState(false);
   const [openDocument, setOpenDocument] = useState<LegalDocumentKey | null>(null);
+
+  // Pixel max-height avoids Android % height collapse inside absoluteFill + margins.
+  const sheetMaxHeight = useMemo(
+    () => Math.max(360, windowHeight - insets.top - insets.bottom - 32),
+    [insets.bottom, insets.top, windowHeight]
+  );
 
   return (
     <View
       style={[StyleSheet.absoluteFill, styles.root, { backgroundColor: theme.screenBg }]}
       accessibilityViewIsModal
+      pointerEvents="box-none"
     >
       <View
         style={[
@@ -110,17 +131,19 @@ export function LegalConsentOverlay({ onAccept }: LegalConsentOverlayProps) {
           {
             backgroundColor: theme.cardBg,
             borderColor: theme.border,
-            marginTop: insets.top + 24,
-            marginBottom: insets.bottom + 16,
-            maxHeight: '100%',
+            marginTop: Math.max(insets.top, 12) + 12,
+            marginBottom: Math.max(insets.bottom, 12) + 8,
+            maxHeight: sheetMaxHeight,
           },
         ]}
       >
         <ScrollView
           bounces={false}
+          nestedScrollEnabled
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.sheetScrollContent}
           keyboardShouldPersistTaps="handled"
+          style={styles.sheetScroll}
         >
           <View style={styles.header}>
             <View style={[styles.iconWrap, { backgroundColor: theme.cardBgMuted }]}>
@@ -207,7 +230,7 @@ export function LegalConsentOverlay({ onAccept }: LegalConsentOverlayProps) {
               },
             ]}
           >
-            <Text style={[styles.acceptButtonText, { color: '#ffffff' }]}>Fortsätt</Text>
+            <Text style={styles.acceptButtonText}>Fortsätt</Text>
           </Pressable>
         </ScrollView>
       </View>
@@ -227,12 +250,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sheet: {
+    width: '100%',
+    alignSelf: 'center',
     borderRadius: 28,
     borderWidth: 1,
     overflow: 'hidden',
+    flexShrink: 1,
+  },
+  sheetScroll: {
+    flexGrow: 0,
   },
   sheetScrollContent: {
     paddingBottom: 24,
+    flexGrow: 1,
   },
   header: {
     alignItems: 'center',
@@ -301,12 +331,14 @@ const styles = StyleSheet.create({
   },
   acceptButton: {
     marginHorizontal: 24,
-    height: 54,
+    minHeight: 54,
     borderRadius: 27,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 16,
   },
   acceptButtonText: {
+    color: '#ffffff',
     fontSize: 17,
     fontWeight: '700',
   },
@@ -318,9 +350,10 @@ const styles = StyleSheet.create({
   documentSheet: {
     borderRadius: 24,
     overflow: 'hidden',
-    maxHeight: '88%',
     minHeight: 280,
     borderWidth: 1,
+    width: '100%',
+    alignSelf: 'center',
     flexShrink: 1,
   },
   documentHeader: {

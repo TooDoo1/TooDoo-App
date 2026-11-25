@@ -12,7 +12,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/auth-context';
-import { useFavorites } from '@/context/favorites-context';
+import { useFavoritesStore } from '@/context/favorites-context';
 import { apiUrl } from '@/lib/api';
 import {
   refreshEngagementNotifications,
@@ -73,12 +73,19 @@ async function fetchNotificationsEnabled(
 export function FavoriteOfferNotificationsProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { token, role, isAuthReady, authFetch } = useAuth();
-  const { favoriteBusinessIds } = useFavorites();
-  const favoriteIdsRef = useRef(favoriteBusinessIds);
+  // Store subscription — do not useFavorites() here or every heart toggle
+  // re-renders this provider and everything under AppShell.
+  const favoritesStore = useFavoritesStore();
+  const favoriteIdsRef = useRef(favoritesStore.getIds());
   const isFirstScanRef = useRef(true);
   const userIdRef = useRef<string | null>(null);
 
-  favoriteIdsRef.current = favoriteBusinessIds;
+  useEffect(() => {
+    favoriteIdsRef.current = favoritesStore.getIds();
+    return favoritesStore.subscribe(() => {
+      favoriteIdsRef.current = favoritesStore.getIds();
+    });
+  }, [favoritesStore]);
 
   const syncEngagement = useCallback(async () => {
     if (Platform.OS === 'web') return;
@@ -211,7 +218,7 @@ export function FavoriteOfferNotificationsProvider({ children }: { children: Rea
       clearInterval(interval);
       sub.remove();
     };
-  }, [isAuthReady, startupSettled, token, role, favoriteBusinessIds, scanFavoriteOffers]);
+  }, [isAuthReady, startupSettled, token, role, scanFavoriteOffers]);
 
   useEffect(() => {
     if (Platform.OS === 'web') return;

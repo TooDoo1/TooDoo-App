@@ -1,7 +1,6 @@
 import { type ComponentProps } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, Pressable } from 'react-native';
 
-import { FastPressable } from '@/components/ui/fast-pressable';
 import { Ionicons } from '@expo/vector-icons';
 
 import { HOME_PAGE_PAD } from '@/components/home/home-feed';
@@ -69,7 +68,7 @@ function CompactChip({
   const iconColor = selected ? activeColor : theme.textFaint;
 
   return (
-    <FastPressable
+    <Pressable
       accessibilityRole="button"
       accessibilityState={{ selected }}
       accessibilityLabel={label}
@@ -97,7 +96,7 @@ function CompactChip({
       >
         {label}
       </Text>
-    </FastPressable>
+    </Pressable>
   );
 }
 
@@ -178,7 +177,7 @@ export function ExploreFilterPanel({
           />
         ))}
         {activeCount > 0 ? (
-          <FastPressable
+          <Pressable
             accessibilityRole="button"
             accessibilityLabel="Rensa filter"
             onPress={() =>
@@ -192,7 +191,7 @@ export function ExploreFilterPanel({
             style={styles.clearBtn}
           >
             <Text style={[styles.clearText, { color: theme.primary }]}>Rensa</Text>
-          </FastPressable>
+          </Pressable>
         ) : null}
       </ScrollView>
 

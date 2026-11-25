@@ -1,6 +1,5 @@
-import { ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, View, Pressable } from 'react-native';
 
-import { FastPressable } from '@/components/ui/fast-pressable';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { CardMedia } from '@/components/ui/card-media';
@@ -42,7 +41,7 @@ export function EventsPortraitRow({
           const startDate = getFeedEventStartParts(event);
 
           return (
-            <FastPressable
+            <Pressable
               key={`${event.id}-${idx}`}
               onPress={() => onEventPress?.(event)}
               className="overflow-hidden rounded-2xl"
@@ -127,7 +126,7 @@ export function EventsPortraitRow({
                   </Text>
                 </LinearGradient>
               </View>
-            </FastPressable>
+            </Pressable>
           );
         })}
       </View>

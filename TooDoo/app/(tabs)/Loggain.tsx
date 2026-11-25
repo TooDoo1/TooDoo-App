@@ -288,11 +288,16 @@ export default function LoggainScreen() {
 				</Pressable>
 
 				<Pressable
+					accessibilityRole="button"
+					accessibilityLabel={isSubmittingLogin ? 'Loggar in' : 'Logga in'}
 					onPress={() => handleLogin(accountType)}
 					disabled={isSubmittingLogin}
 					style={({ pressed }) => [
 						styles.ctaSolid,
-						{ opacity: isSubmittingLogin || pressed ? 0.88 : 1 },
+						{
+							backgroundColor: theme.primary,
+							opacity: isSubmittingLogin || pressed ? 0.88 : 1,
+						},
 					]}
 				>
 					<Text style={styles.ctaSolidLabel}>
@@ -571,16 +576,17 @@ const styles = StyleSheet.create({
 	},
 	ctaSolid: {
 		marginTop: 18,
-		alignSelf: 'center',
-		borderRadius: 12,
-		backgroundColor: '#ff3b30',
+		alignSelf: 'stretch',
+		borderRadius: 14,
 		paddingHorizontal: 28,
-		paddingVertical: 12,
-		minWidth: 160,
+		paddingVertical: 14,
+		minHeight: 52,
+		alignItems: 'center',
+		justifyContent: 'center',
 	},
 	ctaSolidLabel: {
 		color: '#ffffff',
-		fontSize: 15,
+		fontSize: 16,
 		fontWeight: '700',
 		letterSpacing: -0.1,
 		textAlign: 'center',

@@ -17,8 +17,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  View,
-} from 'react-native';
+  View, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -32,7 +31,6 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { CardMedia } from '@/components/ui/card-media';
-import { FastPressable } from '@/components/ui/fast-pressable';
 import { CompanyActivityDots } from '@/components/ui/company-activity-dots';
 import { useAuth } from '@/context/auth-context';
 import { useIsFavorite, useToggleFavorite } from '@/context/favorites-context';
@@ -431,7 +429,7 @@ function CardFavoriteButton({
   const toggleFavorite = useToggleFavorite();
   if (!enabled) return null;
   return (
-    <FastPressable
+    <Pressable
       onPress={async (e: any) => {
         e?.stopPropagation?.();
         await toggleFavorite(businessId);
@@ -449,7 +447,7 @@ function CardFavoriteButton({
         color={active ? FAVORITE_HEART_COLOR : '#ffffff'}
         style={{ zIndex: 1 }}
       />
-    </FastPressable>
+    </Pressable>
   );
 }
 
@@ -495,7 +493,7 @@ export function HomeLaunchPad({
   return (
     <View style={styles.launchBar}>
       {tiles.map((tile) => (
-        <FastPressable
+        <Pressable
           key={tile.key}
           onPress={tile.onPress}
           accessibilityRole="button"
@@ -508,7 +506,7 @@ export function HomeLaunchPad({
           <Text numberOfLines={1} style={[styles.launchLabel, { color: theme.text }]}>
             {tile.label}
           </Text>
-        </FastPressable>
+        </Pressable>
       ))}
     </View>
   );
@@ -561,7 +559,7 @@ export function HomeSectionHeader({
           {title}
         </Text>
         {onSeeAllPress ? (
-          <FastPressable
+          <Pressable
             onPress={onSeeAllPress}
             style={styles.seeAll}
             accessibilityRole="button"
@@ -569,7 +567,7 @@ export function HomeSectionHeader({
           >
             <Text style={{ color: theme.link, fontSize: 14, fontWeight: '600' }}>{seeAllLabel}</Text>
             <Ionicons name="chevron-forward" size={15} color={theme.link} />
-          </FastPressable>
+          </Pressable>
         ) : null}
       </View>
       {subtitle ? (
@@ -613,7 +611,7 @@ const HomeListingCard = memo(function HomeListingCard({
   const cityLabel = cardCityLabel(card);
 
   return (
-    <FastPressable
+    <Pressable
       onPress={() => onPress?.(card)}
       style={[
         styles.listingCard,
@@ -694,7 +692,7 @@ const HomeListingCard = memo(function HomeListingCard({
           <CardPlaceMeta card={card} compact={!editorial || compact} />
         </View>
       </View>
-    </FastPressable>
+    </Pressable>
   );
 });
 
@@ -804,7 +802,7 @@ export function HomeDealTile({
   const fadeBase = theme.cardBg;
 
   return (
-    <FastPressable
+    <Pressable
       onPress={() => onPress?.(card)}
       style={[
         styles.dealTile,
@@ -950,7 +948,7 @@ export function HomeDealTile({
           </View>
         </>
       )}
-    </FastPressable>
+    </Pressable>
   );
 }
 
@@ -980,7 +978,7 @@ const FeaturedSlideBody = memo(function FeaturedSlideBody({
   const canFavorite = card.resultKind !== 'event' && isLoggedIn && role === 'USER';
 
   return (
-    <FastPressable
+    <Pressable
       onPress={() => onPress?.(card)}
       style={[
         styles.featuredSlide,
@@ -1025,7 +1023,7 @@ const FeaturedSlideBody = memo(function FeaturedSlideBody({
         </Text>
         <CardPlaceMeta card={card} />
       </View>
-    </FastPressable>
+    </Pressable>
   );
 }, (prev, next) => (
   prev.card.id === next.card.id &&
@@ -1669,7 +1667,7 @@ export function HomeRecentCompanies({
             const visitLabel = formatRecentVisitLabel(card.lastClickedAt);
             const meta = isNew ? 'Nytt' : visitLabel;
             return (
-              <FastPressable
+              <Pressable
                 key={`recent:${card.id}-${idx}`}
                 onPress={() => onCardPress?.(card)}
                 accessibilityRole="button"
@@ -1728,7 +1726,7 @@ export function HomeRecentCompanies({
                 >
                   {card.title}
                 </Text>
-              </FastPressable>
+              </Pressable>
             );
           })}
         </View>
@@ -1861,7 +1859,7 @@ export function HomeEventTickets({
           {items.map((event, idx) => {
             const startDate = getFeedEventStartParts(event);
             return (
-              <FastPressable
+              <Pressable
                 key={`${event.id}-${idx}`}
                 onPress={() => onEventPress?.(event)}
                 style={[
@@ -1895,7 +1893,7 @@ export function HomeEventTickets({
                     {event.subtitle}
                   </Text>
                 </View>
-              </FastPressable>
+              </Pressable>
             );
           })}
         </View>

@@ -43,7 +43,8 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 applyAppTextDefaults();
 
 /** Hard cap — Android used to sit on a blank WebView splash for the full 12s. */
-const MAX_SPLASH_DURATION_MS = Platform.OS === 'android' ? 4500 : 9000;
+/** Android: keep the hard cap short — warmHome releases earlier when data is ready. */
+const MAX_SPLASH_DURATION_MS = Platform.OS === 'android' ? 3200 : 7000;
 const WEB_SPLASH_SEEN_KEY = 'toodoo_splash_seen';
 
 function hasWebSplashBeenSeen() {
@@ -141,11 +142,12 @@ function AppShell() {
 		if (Platform.OS === 'android') {
 			// Don't compete with the home splash fetch — warm the map catalog after
 			// the splash budget so the first map tap isn't a cold start.
-			// Max timer only unlocks the UI shell; markDataReady comes from home paint /
-			// warmHomeScreenDuringStartup so we don't pretend data is ready early.
+			// Max timer unlocks the shell; also mark data ready so we never sit past
+			// the cap waiting on a slow network settle.
 			const maxTimer = setTimeout(() => {
 				setHasMaxElapsed(true);
 				setIntroComplete(true);
+				markDataReady();
 			}, MAX_SPLASH_DURATION_MS);
 			const warmTimer = setTimeout(() => {
 				warmBusinessMapDuringStartup();
@@ -209,15 +211,15 @@ function AppShell() {
 
 	const startupResolved = legalConsentStatus !== 'pending' && onboardingStatus !== 'pending';
 	const hideAppShell = legalConsentStatus !== 'accepted' || onboardingStatus !== 'skipped';
+	// Wait until the splash is fully unmounted so the consent sheet isn't
+	// clipped under the intro layer or measured against a half-exit layout.
 	const showLegalConsent =
-		legalConsentStatus === 'needed' &&
-		startupResolved &&
-		(isExiting || !isSplashMounted);
+		legalConsentStatus === 'needed' && startupResolved && !isSplashMounted;
 	const showOnboarding =
 		legalConsentStatus === 'accepted' &&
 		onboardingStatus === 'needed' &&
 		startupResolved &&
-		(isExiting || !isSplashMounted);
+		!isSplashMounted;
 	// Mount the tab bar under the splash so MaterialIcons load before reveal
 	// (otherwise Android often shows empty icon slots after a long splash).
 	const showTabBar = !hideAppShell;

@@ -1,9 +1,8 @@
-import { Platform } from 'react-native';
+import { Platform, Pressable } from 'react-native';
 import { useRouter, useSegments } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { FastPressable } from '@/components/ui/fast-pressable';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { performWebStackBack } from '@/lib/web-stack-navigation';
 import { uiTheme } from '@/lib/ui-theme';
@@ -16,7 +15,7 @@ export function ScreenBackButton() {
   const theme = uiTheme(mode);
 
   return (
-    <FastPressable
+    <Pressable
       accessibilityRole="button"
       accessibilityLabel="Tillbaka"
       onPress={() => {
@@ -44,6 +43,6 @@ export function ScreenBackButton() {
       }}
     >
       <Ionicons name="chevron-back" size={24} color={theme.text} />
-    </FastPressable>
+    </Pressable>
   );
 }

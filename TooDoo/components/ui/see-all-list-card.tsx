@@ -1,10 +1,9 @@
 import { memo, type ReactNode } from 'react';
-import { Text, View } from 'react-native';
+import { Text, View, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { ImageSourcePropType } from 'react-native';
 
 import { CardMedia } from '@/components/ui/card-media';
-import { FastPressable } from '@/components/ui/fast-pressable';
 import { IMAGE_DISPLAY_WIDTH } from '@/lib/image-url';
 import { uiTheme } from '@/lib/ui-theme';
 
@@ -41,7 +40,7 @@ export const SeeAllListCard = memo(function SeeAllListCard({
   accentColor,
 }: SeeAllListCardProps) {
   return (
-    <FastPressable
+    <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={title}
@@ -148,7 +147,7 @@ export const SeeAllListCard = memo(function SeeAllListCard({
           </Text>
         ) : null}
       </View>
-    </FastPressable>
+    </Pressable>
   );
 });
 
@@ -190,7 +189,7 @@ export function SeeAllIconButton({
   activeColor?: string;
 }) {
   return (
-    <FastPressable
+    <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={(e: any) => {
@@ -208,7 +207,7 @@ export function SeeAllIconButton({
       }}
     >
       <Ionicons name={icon} size={15} color={active ? activeColor : '#ffffff'} />
-    </FastPressable>
+    </Pressable>
   );
 }
 

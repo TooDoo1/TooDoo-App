@@ -2,9 +2,8 @@ import { type BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { CommonActions } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useMemo, useRef } from 'react';
-import { Platform, StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import { Platform, StyleSheet, Text, View, type ViewStyle, Pressable } from 'react-native';
 
-import { FastPressable } from '@/components/ui/fast-pressable';
 import Reanimated, {
   Easing as ReanimatedEasing,
   useAnimatedStyle,
@@ -153,7 +152,7 @@ export function FloatingTabBarContent({
 
         return (
           <View key={route.key} style={[styles.itemSlot, { width: itemWidth }]}>
-            <FastPressable
+            <Pressable
               accessibilityRole="tab"
               accessibilityState={{ selected: focused }}
               onPress={onPress}
@@ -175,7 +174,7 @@ export function FloatingTabBarContent({
                   {labelText}
                 </Text>
               </View>
-            </FastPressable>
+            </Pressable>
           </View>
         );
       })}

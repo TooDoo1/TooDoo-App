@@ -227,6 +227,13 @@ export function useToggleFavorite() {
   return store.toggleFavorite;
 }
 
+/** External store for favorites — read ids without re-rendering on every toggle. */
+export function useFavoritesStore() {
+  const store = useContext(FavoritesStoreContext);
+  if (!store) throw new Error('useFavoritesStore must be used inside FavoritesProvider');
+  return store;
+}
+
 export function useFavorites() {
   const ctx = useContext(FavoritesContext);
   if (!ctx) throw new Error('useFavorites must be used inside FavoritesProvider');

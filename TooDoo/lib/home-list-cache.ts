@@ -134,6 +134,11 @@ export function getHomeScreenSnapshot(): HomeScreenSnapshot | null {
   return isSnapshotFresh(homeScreenSnapshot) ? homeScreenSnapshot.data : null;
 }
 
+/** Stale-ok peek — paint Upptäck instantly while a background refresh runs. */
+export function peekHomeScreenSnapshot(): HomeScreenSnapshot | null {
+  return homeScreenSnapshot?.data ?? null;
+}
+
 /** Cards already on home — used to skip detail GETs on Rekommenderat / search. */
 export function getHomeKnownOfferCards(): OfferCardItem[] {
   const snapshot = homeScreenSnapshot?.data;

@@ -592,10 +592,15 @@ export default function MinaDealsScreen() {
 							Logga in så sparas dina claimade erbjudanden här.
 						</Text>
 						<Pressable
+							accessibilityRole="button"
+							accessibilityLabel="Logga in"
 							onPress={() => router.push('/(tabs)/Loggain')}
 							style={({ pressed }) => [
 								styles.ctaSolid,
-								{ opacity: pressed ? 0.88 : 1 },
+								{
+									backgroundColor: theme.primary,
+									opacity: pressed ? 0.88 : 1,
+								},
 							]}
 						>
 							<Text style={styles.ctaSolidLabel}>Logga in</Text>
@@ -705,16 +710,19 @@ const styles = StyleSheet.create({
 		maxWidth: 280,
 	},
 	ctaSolid: {
-		marginTop: 10,
-		alignSelf: 'center',
-		borderRadius: 12,
-		backgroundColor: '#ff3b30',
+		marginTop: 14,
+		alignSelf: 'stretch',
+		maxWidth: 280,
+		borderRadius: 14,
 		paddingHorizontal: 22,
-		paddingVertical: 12,
+		paddingVertical: 14,
+		minHeight: 52,
+		alignItems: 'center',
+		justifyContent: 'center',
 	},
 	ctaSolidLabel: {
 		color: '#ffffff',
-		fontSize: 15,
+		fontSize: 16,
 		fontWeight: '700',
 		letterSpacing: -0.1,
 		textAlign: 'center',
