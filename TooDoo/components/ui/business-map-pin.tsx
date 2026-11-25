@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react';
-import { Animated, Easing, StyleSheet, View } from 'react-native';
+import { Animated, Easing, Image, Platform, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import {
@@ -46,6 +46,10 @@ function MiniActivityIcon({
 /**
  * TooDoo company map pin — round avatar with a small activity badge
  * (event + offer) in the top-left corner.
+ *
+ * On Android Google Maps, marker children are snapshotted to bitmaps.
+ * Native-driver Animated opacity often freezes as a blank pin, so Android
+ * skips the fade and settles immediately after the image loads.
  */
 function BusinessMapPinComponent({
   color = '#9b5de5',
@@ -63,16 +67,38 @@ function BusinessMapPinComponent({
   const initial = (title?.trim().charAt(0) || '•').toUpperCase();
   const showBadge = hasEvent || hasOffer;
   const [imageFailed, setImageFailed] = useState(false);
+  const [androidPhotoReady, setAndroidPhotoReady] = useState(false);
   const photoOpacity = useRef(new Animated.Value(0)).current;
   const initialOpacity = useRef(new Animated.Value(1)).current;
+  const settledRef = useRef(false);
+
+  const markSettled = () => {
+    if (settledRef.current) return;
+    settledRef.current = true;
+    onImageSettled?.();
+  };
 
   useEffect(() => {
+    settledRef.current = false;
     setImageFailed(false);
+    setAndroidPhotoReady(false);
     photoOpacity.setValue(0);
     initialOpacity.setValue(1);
+
+    // Letter-only pins still need one layout pass before tracking can stop.
+    if (!imageUri) {
+      const frame = requestAnimationFrame(() => markSettled());
+      return () => cancelAnimationFrame(frame);
+    }
   }, [imageUri, photoOpacity, initialOpacity]);
 
   const revealPhoto = () => {
+    if (Platform.OS === 'android') {
+      setAndroidPhotoReady(true);
+      // Let the Image paint once, then stop tracksViewChanges.
+      requestAnimationFrame(() => markSettled());
+      return;
+    }
     Animated.parallel([
       Animated.timing(photoOpacity, {
         toValue: 1,
@@ -86,15 +112,17 @@ function BusinessMapPinComponent({
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
-    ]).start(() => onImageSettled?.());
+    ]).start(() => markSettled());
   };
 
   return (
     <View
       style={[styles.wrap, { width: size, height: size }]}
       pointerEvents="none"
+      collapsable={false}
     >
       <View
+        collapsable={false}
         style={[
           styles.circle,
           {
@@ -104,25 +132,53 @@ function BusinessMapPinComponent({
           },
         ]}
       >
-        <Animated.Text
-          style={[
-            styles.initial,
-            { color, fontSize: selected ? 15 : 13, opacity: initialOpacity },
-          ]}
-        >
-          {initial}
-        </Animated.Text>
+        {Platform.OS === 'android' ? (
+          <Text
+            style={[
+              styles.initial,
+              {
+                color,
+                fontSize: selected ? 15 : 13,
+                opacity: androidPhotoReady ? 0 : 1,
+              },
+            ]}
+          >
+            {initial}
+          </Text>
+        ) : (
+          <Animated.Text
+            style={[
+              styles.initial,
+              { color, fontSize: selected ? 15 : 13, opacity: initialOpacity },
+            ]}
+          >
+            {initial}
+          </Animated.Text>
+        )}
         {imageUri && !imageFailed ? (
-          <Animated.Image
-            key={imageUri}
-            source={{ uri: imageUri }}
-            onLoad={revealPhoto}
-            onError={() => {
-              setImageFailed(true);
-              onImageSettled?.();
-            }}
-            style={[styles.image, { opacity: photoOpacity }]}
-          />
+          Platform.OS === 'android' ? (
+            <Image
+              key={imageUri}
+              source={{ uri: imageUri }}
+              onLoad={revealPhoto}
+              onError={() => {
+                setImageFailed(true);
+                markSettled();
+              }}
+              style={[styles.image, { opacity: androidPhotoReady ? 1 : 0 }]}
+            />
+          ) : (
+            <Animated.Image
+              key={imageUri}
+              source={{ uri: imageUri }}
+              onLoad={revealPhoto}
+              onError={() => {
+                setImageFailed(true);
+                markSettled();
+              }}
+              style={[styles.image, { opacity: photoOpacity }]}
+            />
+          )
         ) : null}
         <View
           pointerEvents="none"

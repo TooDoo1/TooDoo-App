@@ -139,14 +139,21 @@ function AppShell() {
 		SplashScreen.hideAsync().catch(() => {});
 		warmHomeScreenDuringStartup({ onSettled: markDataReady });
 		if (Platform.OS === 'android') {
-			// No map warmup on Android: it pulls the full business catalog and competes
-			// with the home screen on slower devices. The map screen loads its own data.
+			// Don't compete with the home splash fetch — warm the map catalog after
+			// the splash budget so the first map tap isn't a cold start.
+			// Max timer only unlocks the UI shell; markDataReady comes from home paint /
+			// warmHomeScreenDuringStartup so we don't pretend data is ready early.
 			const maxTimer = setTimeout(() => {
 				setHasMaxElapsed(true);
 				setIntroComplete(true);
-				markDataReady();
 			}, MAX_SPLASH_DURATION_MS);
-			return () => clearTimeout(maxTimer);
+			const warmTimer = setTimeout(() => {
+				warmBusinessMapDuringStartup();
+			}, MAX_SPLASH_DURATION_MS + 400);
+			return () => {
+				clearTimeout(maxTimer);
+				clearTimeout(warmTimer);
+			};
 		}
 
 		warmBusinessMapDuringStartup();

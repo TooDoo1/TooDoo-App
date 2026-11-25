@@ -106,6 +106,8 @@ export async function setActiveCustomLocationId(
   if (id != null && !state.locations.some((item) => item.id === id)) {
     return state;
   }
+  // Already clear / already selected — skip AsyncStorage write + subscriber fan-out.
+  if (state.activeId === id) return state;
   const next = { ...state, activeId: id };
   await writeState(next);
   return next;

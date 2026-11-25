@@ -1,5 +1,5 @@
 import { useFocusEffect } from '@react-navigation/native';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -1407,6 +1407,7 @@ export default function HomeScreen() {
   const explorePoolRef = useRef<CardItem[]>([]);
   const exploreCursorRef = useRef(0);
   const exploreLoadingRef = useRef(false);
+  const explorePoolBuiltOnceRef = useRef(false);
   const loadMoreExploreRef = useRef<() => void>(() => {});
   const searchLoadingMoreRef = useRef(false);
   const loadMoreSearchRef = useRef<() => void>(() => {});
@@ -1470,6 +1471,9 @@ export default function HomeScreen() {
   const userCityRef = useRef<string | null>(null);
   /** Shared by the initial load and the coords refresh so only the newest result is painted. */
   const homeLoadGenRef = useRef(0);
+  /** Soft GPS refresh must wait until the first home paint, or it cancels "Laddar…". */
+  const homeHasPaintedRef = useRef(false);
+  const lastSoftFetchCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
   const searchBlurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const homeSearchBarRef = useRef<View>(null);
   const tipPreviewRequestRef = useRef(0);
@@ -1764,15 +1768,21 @@ export default function HomeScreen() {
     setDeals((prev) => sortDealsByDistance(applyHaversineDistances(prev, coords)));
 
     let cancelled = false;
-    void (async () => {
-      const enriched = await fillMissingDistancesFromAddresses(deals, coords, { maxGeocode: 24 });
-      if (!cancelled) {
-        setDeals(sortDealsByDistance(enriched));
-      }
-    })();
+    // Geocode fill is idle work — city swaps must not wait on it.
+    const task = InteractionManager.runAfterInteractions(() => {
+      void (async () => {
+        const enriched = await fillMissingDistancesFromAddresses(deals, coords, {
+          maxGeocode: 8,
+        });
+        if (!cancelled) {
+          setDeals(sortDealsByDistance(enriched));
+        }
+      })();
+    });
 
     return () => {
       cancelled = true;
+      task.cancel();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- recompute when place or list size changes
   }, [coords?.lat, coords?.lng, deals.length, refreshNonce]);
@@ -1942,9 +1952,13 @@ export default function HomeScreen() {
   useEffect(() => {
     let cancelled = false;
     const cached = peekCityImageUris(homeKommunLabel);
-    setCityHeroUris(cached ?? []);
-    setCityHeroIndex(0);
-    if (cached?.length) schedulePrefetchImageUris(cached);
+    // Keep the previous city's hero until the next one is ready — clearing to []
+    // flashed a blank hero and remounted the location blur on every swap.
+    if (cached?.length) {
+      setCityHeroUris(cached);
+      setCityHeroIndex(0);
+      schedulePrefetchImageUris(cached);
+    }
 
     void fetchCityImageUris(homeKommunLabel, 3).then((uris) => {
       if (cancelled) return;
@@ -2730,6 +2744,8 @@ export default function HomeScreen() {
           setEventCards(cachedEvents);
           setIsLoadingData(false);
           setIsLoadingEvents(false);
+          homeHasPaintedRef.current = true;
+          if (loadCoords) lastSoftFetchCoordsRef.current = loadCoords;
           // Release splash as soon as cached content is painted — don't wait on image settle.
           markDataReady();
 
@@ -2827,6 +2843,8 @@ export default function HomeScreen() {
         setIsLoadingData(false);
         setIsLoadingEvents(false);
         setIsRefreshing(false);
+        homeHasPaintedRef.current = true;
+        if (loadCoords) lastSoftFetchCoordsRef.current = loadCoords;
         markDataReady();
 
         setHomeScreenSnapshot({
@@ -2933,117 +2951,127 @@ export default function HomeScreen() {
 
   useEffect(() => {
     if (!coords) return;
+    // First paint belongs to loadHomeData. Soft-refreshing Helsingborg on mount
+    // was bumping homeLoadGenRef and cancelling the initial request mid-flight.
+    if (!homeHasPaintedRef.current) return;
+    if (sameCoords(lastSoftFetchCoordsRef.current, coords)) return;
+
     let cancelled = false;
-    const thisRequest = ++homeLoadGenRef.current;
-    const isStale = () => cancelled || thisRequest !== homeLoadGenRef.current;
     let afterInteractionsTask: { cancel: () => void } | null = null;
+    const debounceTimer = setTimeout(() => {
+      if (cancelled) return;
+      if (sameCoords(lastSoftFetchCoordsRef.current, coords)) return;
+      lastSoftFetchCoordsRef.current = coords;
+      const thisRequest = ++homeLoadGenRef.current;
+      const isStale = () => cancelled || thisRequest !== homeLoadGenRef.current;
 
-    void (async () => {
-      try {
-        const eventCity = resolveEventFeedCity(userCityRef.current, coords);
-        const data = await fetchHomeScreenData({
-          token,
-          coords,
-          city: eventCity,
-        });
-        if (isStale()) return;
-        setIsLoadingData(false);
-        markDataReady();
-
-        if (data.cityImageUris?.length) {
-          setCityHeroUris(data.cityImageUris);
-        }
-
-        // Paint immediately with distances — don't wait for image settle.
-        const dealsWithDistance = sortDealsByDistance(
-          applyHaversineDistances(data.deals, coords)
-        );
-        const nearWithDistance = applyHaversineDistances(data.nearYouCards, coords);
-        const hotWithDistance = applyHaversineDistances(data.hotOfferCards, coords);
-
-        setCategoryFilters(data.categoryFilters);
-        setDeals(dealsWithDistance);
-        setNearYouCards(nearWithDistance);
-        setHotOfferCards(hotWithDistance);
-        setHomeScreenSnapshot({
-          categoryFilters: data.categoryFilters,
-          deals: dealsWithDistance,
-          nearYouCards: nearWithDistance,
-          hotOfferCards: hotWithDistance,
-        });
-        setHomeHotOffersCache(hotWithDistance);
-        setHomeEndingSoonCache(nearWithDistance);
-
-        if (data.source === 'home' && Array.isArray(data.events)) {
-          setEventCards(data.events);
-          setHomeEventsCache(data.events, data.resolvedCity ?? eventCity);
-          setIsLoadingEvents(false);
-        } else {
-          void fetchEventFeed({ days: EVENT_FEED_DAYS, city: eventCity })
-            .then((events) => {
-              if (isStale()) return;
-              setEventCards(events);
-              setHomeEventsCache(events, eventCity);
-            })
-            .catch(() => {})
-            .finally(() => {
-              if (!isStale()) setIsLoadingEvents(false);
-            });
-        }
-
-        // Defer settle + geocode until after the back/transition animation so
-        // returning from a company detail doesn't hitch the home screen.
-        await new Promise<void>((resolve) => {
-          afterInteractionsTask = InteractionManager.runAfterInteractions(() => resolve());
-        });
-        afterInteractionsTask = null;
-        if (isStale()) return;
-
-        const settled = await settleHomeScreenAssetsWithinBudget({
-          deals: dealsWithDistance,
-          nearYouCards: nearWithDistance,
-          hotOfferCards: hotWithDistance,
-          events: data.events,
-        });
-        if (isStale()) return;
-
-        const paintedDeals = sortDealsByDistance(
-          applyHaversineDistances(settled.deals, coords)
-        );
-        const paintedNear = applyHaversineDistances(settled.nearYouCards, coords);
-        const paintedHot = applyHaversineDistances(settled.hotOfferCards, coords);
-
-        setDeals(paintedDeals);
-        setNearYouCards(paintedNear);
-        setHotOfferCards(paintedHot);
-        setHomeScreenSnapshot({
-          categoryFilters: data.categoryFilters,
-          deals: paintedDeals,
-          nearYouCards: paintedNear,
-          hotOfferCards: paintedHot,
-        });
-        setHomeHotOffersCache(paintedHot);
-        setHomeEndingSoonCache(paintedNear);
-
-        const enriched = await fillMissingDistancesFromAddresses(paintedDeals, coords, {
-          maxGeocode: 24,
-        });
-        if (isStale()) return;
-        setDeals(sortDealsByDistance(enriched));
-      } catch {
-        // Keep whatever the first load already painted.
-      } finally {
-        if (!isStale()) {
+      void (async () => {
+        try {
+          const eventCity = resolveEventFeedCity(userCityRef.current, coords);
+          const data = await fetchHomeScreenData({
+            token,
+            coords,
+            city: eventCity,
+          });
+          if (isStale()) return;
           setIsLoadingData(false);
-          setIsLoadingEvents(false);
-          setIsRefreshing(false);
           markDataReady();
+
+          if (data.cityImageUris?.length) {
+            setCityHeroUris(data.cityImageUris);
+          }
+
+          // Paint immediately with distances — don't wait for image settle.
+          const dealsWithDistance = sortDealsByDistance(
+            applyHaversineDistances(data.deals, coords)
+          );
+          const nearWithDistance = applyHaversineDistances(data.nearYouCards, coords);
+          const hotWithDistance = applyHaversineDistances(data.hotOfferCards, coords);
+
+          setCategoryFilters(data.categoryFilters);
+          setDeals(dealsWithDistance);
+          setNearYouCards(nearWithDistance);
+          setHotOfferCards(hotWithDistance);
+          setHomeScreenSnapshot({
+            categoryFilters: data.categoryFilters,
+            deals: dealsWithDistance,
+            nearYouCards: nearWithDistance,
+            hotOfferCards: hotWithDistance,
+          });
+          setHomeHotOffersCache(hotWithDistance);
+          setHomeEndingSoonCache(nearWithDistance);
+
+          if (data.source === 'home' && Array.isArray(data.events)) {
+            setEventCards(data.events);
+            setHomeEventsCache(data.events, data.resolvedCity ?? eventCity);
+            setIsLoadingEvents(false);
+          } else {
+            void fetchEventFeed({ days: EVENT_FEED_DAYS, city: eventCity })
+              .then((events) => {
+                if (isStale()) return;
+                setEventCards(events);
+                setHomeEventsCache(events, eventCity);
+              })
+              .catch(() => {})
+              .finally(() => {
+                if (!isStale()) setIsLoadingEvents(false);
+              });
+          }
+
+          // Defer settle + geocode until after transitions so back-nav stays smooth.
+          await new Promise<void>((resolve) => {
+            afterInteractionsTask = InteractionManager.runAfterInteractions(() => resolve());
+          });
+          afterInteractionsTask = null;
+          if (isStale()) return;
+
+          const settled = await settleHomeScreenAssetsWithinBudget({
+            deals: dealsWithDistance,
+            nearYouCards: nearWithDistance,
+            hotOfferCards: hotWithDistance,
+            events: data.events,
+          });
+          if (isStale()) return;
+
+          const paintedDeals = sortDealsByDistance(
+            applyHaversineDistances(settled.deals, coords)
+          );
+          const paintedNear = applyHaversineDistances(settled.nearYouCards, coords);
+          const paintedHot = applyHaversineDistances(settled.hotOfferCards, coords);
+
+          setDeals(paintedDeals);
+          setNearYouCards(paintedNear);
+          setHotOfferCards(paintedHot);
+          setHomeScreenSnapshot({
+            categoryFilters: data.categoryFilters,
+            deals: paintedDeals,
+            nearYouCards: paintedNear,
+            hotOfferCards: paintedHot,
+          });
+          setHomeHotOffersCache(paintedHot);
+          setHomeEndingSoonCache(paintedNear);
+
+          const enriched = await fillMissingDistancesFromAddresses(paintedDeals, coords, {
+            maxGeocode: 24,
+          });
+          if (isStale()) return;
+          setDeals(sortDealsByDistance(enriched));
+        } catch {
+          // Keep whatever the first load already painted.
+        } finally {
+          if (!isStale()) {
+            setIsLoadingData(false);
+            setIsLoadingEvents(false);
+            setIsRefreshing(false);
+            markDataReady();
+          }
         }
-      }
-    })();
+      })();
+    }, 800);
 
     return () => {
       cancelled = true;
+      clearTimeout(debounceTimer);
       afterInteractionsTask?.cancel();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3223,6 +3251,9 @@ export default function HomeScreen() {
     knownCardsRef.current = [...deals, ...hotOfferCards, ...nearYouCards];
   }, [deals, hotOfferCards, nearYouCards]);
 
+  const coordsRef = useRef(coords);
+  coordsRef.current = coords;
+
   const rebuildExplorePool = useCallback(async () => {
     setIsLoadingExplore(true);
     exploreLoadingRef.current = true;
@@ -3249,8 +3280,9 @@ export default function HomeScreen() {
       if (!exploreFilters.subcategoryId) {
         cards = filterCardsByActiveCategory(cards, exploreFilters.categoryId);
       }
-      if (coords) {
-        cards = applyHaversineDistances(cards, coords);
+      const liveCoords = coordsRef.current;
+      if (liveCoords) {
+        cards = applyHaversineDistances(cards, liveCoords);
       }
 
       if (exploreFilters.dealsOnly) {
@@ -3314,7 +3346,31 @@ export default function HomeScreen() {
       setIsLoadingExplore(false);
       setIsLoadingMoreExplore(false);
     }
-  }, [coords, exploreFilters, userCity]);
+  }, [exploreFilters, userCity]);
+
+  // Coords-only: re-distance the existing Utforska pool — don't refetch the catalog.
+  useEffect(() => {
+    if (!coords || !explorePoolBuiltOnceRef.current) return;
+    const pool = explorePoolRef.current;
+    if (pool.length === 0) return;
+    const nextPool = applyHaversineDistances(pool, coords);
+    if (exploreFilters.sort === 'near') {
+      nextPool.sort((a, b) => {
+        const da =
+          typeof a.distanceKm === 'number' && Number.isFinite(a.distanceKm)
+            ? a.distanceKm
+            : Number.POSITIVE_INFINITY;
+        const db =
+          typeof b.distanceKm === 'number' && Number.isFinite(b.distanceKm)
+            ? b.distanceKm
+            : Number.POSITIVE_INFINITY;
+        return da - db;
+      });
+    }
+    explorePoolRef.current = nextPool;
+    const cursor = Math.max(exploreCursorRef.current, EXPLORE_PAGE_SIZE);
+    setExploreCards(nextPool.slice(0, Math.min(cursor, nextPool.length)));
+  }, [coords?.lat, coords?.lng, exploreFilters.sort]);
 
   const loadMoreExplore = useCallback(() => {
     if (exploreLoadingRef.current) return;
@@ -3406,24 +3462,32 @@ export default function HomeScreen() {
 
   loadMoreSearchRef.current = loadMoreSearch;
 
-  const explorePoolBuiltOnceRef = useRef(false);
   useEffect(() => {
     if (isLoadingData) return;
     if (showCommittedSearchResults || showCommittedSearchPrompt) return;
-    if (explorePoolBuiltOnceRef.current) {
-      void rebuildExplorePool();
-      return;
-    }
-    // Utforska sits at the bottom of the feed: build its pool (full catalog filter +
-    // sort) only after the first paint has settled, so it doesn't delay startup.
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+
+    if (explorePoolBuiltOnceRef.current) {
+      // Debounce city/filter rebuilds so rapid dropdown picks don't thrash.
+      timer = setTimeout(() => {
+        if (!cancelled) void rebuildExplorePool();
+      }, 350);
+      return () => {
+        cancelled = true;
+        if (timer) clearTimeout(timer);
+      };
+    }
+
+    // Utforska sits at the bottom of the feed: build its pool after first paint,
+    // but show a spinner immediately so it doesn't flash "Inga bolag…".
+    setIsLoadingExplore(true);
     const task = InteractionManager.runAfterInteractions(() => {
       timer = setTimeout(() => {
         if (cancelled) return;
         explorePoolBuiltOnceRef.current = true;
         void rebuildExplorePool();
-      }, Platform.OS === 'android' ? 1500 : 400);
+      }, Platform.OS === 'android' ? 500 : 300);
     });
     return () => {
       cancelled = true;
@@ -4163,6 +4227,14 @@ export default function HomeScreen() {
 
   const openHomeMap = useCallback(() => {
     captureHomeScrollBeforeLeave();
+    // Start catalog load while the stack transition runs.
+    void import('@/lib/business-map-data')
+      .then(({ loadMapBusinesses }) =>
+        getEffectiveUserCoordsIfGranted()
+          .catch(() => null)
+          .then((c) => loadMapBusinesses(c ?? HELSINGBORG_COORDS))
+      )
+      .catch(() => {});
     openMapFromHome();
   }, [captureHomeScrollBeforeLeave, openMapFromHome]);
 
@@ -4467,23 +4539,26 @@ export default function HomeScreen() {
     (lan: string, city: string, lat: number, lng: number) => {
       const next: RegionSelection = { lan, city, lat, lng };
       const nextCoords = { lat, lng };
+      // Label + menu close stay synchronous so the chip updates immediately.
       setRegionSelectionState(next);
       userCityRef.current = city;
       setUserCity(city);
-      // Instant local update — re-rank what we already have before network returns.
-      setDeals((prev) =>
-        prev.length
-          ? sortDealsByDistance(applyHaversineDistances(prev, nextCoords))
-          : prev
-      );
-      setNearYouCards((prev) =>
-        prev.length ? applyHaversineDistances(prev, nextCoords) : prev
-      );
-      setHotOfferCards((prev) =>
-        prev.length ? applyHaversineDistances(prev, nextCoords) : prev
-      );
-      setCoords(nextCoords);
       closeLocationMenu();
+      // Defer list rewrites so the dropdown close animation isn't blocked.
+      startTransition(() => {
+        setDeals((prev) =>
+          prev.length
+            ? sortDealsByDistance(applyHaversineDistances(prev, nextCoords))
+            : prev
+        );
+        setNearYouCards((prev) =>
+          prev.length ? applyHaversineDistances(prev, nextCoords) : prev
+        );
+        setHotOfferCards((prev) =>
+          prev.length ? applyHaversineDistances(prev, nextCoords) : prev
+        );
+        setCoords(nextCoords);
+      });
       // Persist off the critical path so the UI feels instant.
       void setActiveCustomLocationId(null);
       void setRegionSelection(next);

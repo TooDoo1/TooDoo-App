@@ -5,7 +5,7 @@ import {
 	resolveEventFeedCity,
 	type EventFeedItem,
 } from '@/lib/events-feed';
-import { getEffectiveUserCoordsIfGranted } from '@/lib/geo';
+import { getEffectiveUserCoordsIfGranted, HELSINGBORG_COORDS } from '@/lib/geo';
 import { fetchHomeScreenData, type OfferCardItem } from '@/lib/home-offers';
 import {
 	getHomeEventsCache,
@@ -180,7 +180,10 @@ export function warmHomeScreenDuringStartup(options?: {
 			}
 
 			// Never prompt for location during splash — that freezes the homepage load.
-			const coords = await getEffectiveUserCoordsIfGranted().catch(() => null);
+			// Seed Helsingborg so the request key matches the home screen's first paint
+			// and the two can share one in-flight fetchHomeScreenData call.
+			const granted = await getEffectiveUserCoordsIfGranted().catch(() => null);
+			const coords = granted ?? HELSINGBORG_COORDS;
 			const eventCity = resolveEventFeedCity(undefined, coords);
 			const data = await fetchHomeScreenData({
 				token: options?.token ?? null,

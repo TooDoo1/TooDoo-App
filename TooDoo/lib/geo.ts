@@ -250,17 +250,37 @@ export async function fillMissingDistancesFromAddresses<T extends DistanceCard>(
   const maxGeocode = options?.maxGeocode ?? 24;
   const distanceById = new Map<string, number>();
 
+  // Only geocode cards that lack usable lat/lng — city swaps used to re-geocode
+  // every addressed card (serial) and freeze the JS thread.
   const geocodeCandidates = cards
-    .filter((card) => card.Adress && card.Adress !== 'Adress saknas')
+    .filter((card) => {
+      if (!card.Adress || card.Adress === 'Adress saknas') return false;
+      const lat = card.latitude;
+      const lng = card.longitude;
+      return !(
+        typeof lat === 'number' &&
+        typeof lng === 'number' &&
+        isPlausibleSwedenCoordinate(lat, lng)
+      );
+    })
     .slice(0, maxGeocode);
 
-  for (const card of geocodeCandidates) {
-    const geo = await geocodeAddressCached(card.Adress);
-    if (geo) {
-      distanceById.set(
-        card.id,
-        haversineKm(userCoords.lat, userCoords.lng, geo.lat, geo.lng)
-      );
+  const GEOCODE_BATCH = 4;
+  for (let i = 0; i < geocodeCandidates.length; i += GEOCODE_BATCH) {
+    const batch = geocodeCandidates.slice(i, i + GEOCODE_BATCH);
+    const results = await Promise.all(
+      batch.map(async (card) => {
+        const geo = await geocodeAddressCached(card.Adress);
+        return geo
+          ? ([
+              card.id,
+              haversineKm(userCoords.lat, userCoords.lng, geo.lat, geo.lng),
+            ] as const)
+          : null;
+      })
+    );
+    for (const row of results) {
+      if (row) distanceById.set(row[0], row[1]);
     }
   }
 

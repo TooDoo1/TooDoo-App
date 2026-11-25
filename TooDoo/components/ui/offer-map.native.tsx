@@ -13,6 +13,7 @@ import { UserLocationArrow } from './user-location-arrow';
 import type { OfferMapProps } from './offer-map.types';
 import { useThemePreference } from '@/context/theme-preference-context';
 import { getCategoryAccentColor } from '@/lib/category-colors';
+import { googleMapStyleForMode } from '@/lib/google-map-styles';
 import { mapShellBackground } from '@/lib/map-style';
 import {
   fetchTravelRoutes,
@@ -77,6 +78,7 @@ function OfferMapComponent({
   const chipBg = chipBackgroundColor ?? theme.cardBg;
   const chipFg = theme.isDark ? '#ffffff' : theme.text;
   const shellBg = mapShellBackground(mode);
+  const googleMapStyle = googleMapStyleForMode(mode);
   const pinColor = getCategoryAccentColor(categoryName);
   const hasCoords =
     Number.isFinite(latitude) &&
@@ -142,6 +144,7 @@ function OfferMapComponent({
         initialRegion={region}
         mapType="standard"
         userInterfaceStyle={mode === 'dark' ? 'dark' : 'light'}
+        customMapStyle={googleMapStyle}
         scrollEnabled
         zoomEnabled
         pitchEnabled={false}

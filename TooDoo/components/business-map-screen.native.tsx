@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -50,6 +50,7 @@ import {
   type Coords,
 } from '@/lib/geo';
 import { loadRegionSelection } from '@/lib/region-selection';
+import { googleMapStyleForMode } from '@/lib/google-map-styles';
 import { mapShellBackground } from '@/lib/map-style';
 import {
   fetchTravelRoutes,
@@ -75,7 +76,8 @@ function paramString(value: string | string[] | undefined): string {
 function sameCoords(a: Coords | null | undefined, b: Coords | null | undefined) {
   if (a === b) return true;
   if (!a || !b) return false;
-  return Math.abs(a.lat - b.lat) < 1e-7 && Math.abs(a.lng - b.lng) < 1e-7;
+  // ~100 m — ignore GPS jitter so focus refresh doesn't reload the catalog.
+  return Math.abs(a.lat - b.lat) < 0.0009 && Math.abs(a.lng - b.lng) < 0.0009;
 }
 
 /**
@@ -163,6 +165,54 @@ function RouteChip({
   );
 }
 
+/** Android Google Maps only snapshots custom views while tracksViewChanges is true. */
+const MapBusinessMarker = memo(function MapBusinessMarker({
+  company,
+  selected,
+  onPress,
+}: {
+  company: MapBusiness;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const [tracks, setTracks] = useState(true);
+  const color = getCategoryAccentForItem(company);
+
+  useEffect(() => {
+    setTracks(true);
+    const timer = setTimeout(() => setTracks(false), Platform.OS === 'android' ? 1400 : 700);
+    return () => clearTimeout(timer);
+  }, [company.id, company.imageUri, selected]);
+
+  const handleSettled = useCallback(() => {
+    setTimeout(() => setTracks(false), 64);
+  }, []);
+
+  return (
+    <Marker
+      coordinate={{
+        latitude: company.latitude,
+        longitude: company.longitude,
+      }}
+      title={company.name}
+      description={company.address || undefined}
+      anchor={{ x: 0.5, y: 0.5 }}
+      tracksViewChanges={tracks}
+      onPress={onPress}
+    >
+      <BusinessMapPin
+        color={color}
+        title={company.name}
+        imageUri={company.imageUri}
+        selected={selected}
+        hasEvent={Boolean(company.hasEvent)}
+        hasOffer={Boolean(company.hasOffer)}
+        onImageSettled={handleSettled}
+      />
+    </Marker>
+  );
+});
+
 export default function BusinessMapScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
@@ -174,11 +224,13 @@ export default function BusinessMapScreen() {
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
   const mapRef = useRef<MapView | null>(null);
-  const [pinsLoading, setPinsLoading] = useState(true);
-  const [userCoords, setUserCoords] = useState<Coords | null>(null);
   const [businesses, setBusinesses] = useState<MapBusiness[]>(() =>
     peekCachedMapBusinesses()
   );
+  const [pinsLoading, setPinsLoading] = useState(
+    () => peekCachedMapBusinesses().length === 0
+  );
+  const [userCoords, setUserCoords] = useState<Coords | null>(HELSINGBORG_COORDS);
   const incomingSelect = paramString(params.select);
   const [selectedId, setSelectedId] = useState<string | null>(() => incomingSelect || null);
   const [viewBounds, setViewBounds] = useState<MapViewBounds | null>(null);
@@ -197,8 +249,16 @@ export default function BusinessMapScreen() {
   const [routes, setRoutes] = useState<TravelRoutes | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
   const routeRequestRef = useRef(0);
+  const [trackUserPin, setTrackUserPin] = useState(true);
   const shellBg = mapShellBackground(mode);
+  const googleMapStyle = googleMapStyleForMode(mode);
   const bottomPad = Math.max(insets.bottom, 12) + 16;
+
+  useEffect(() => {
+    setTrackUserPin(true);
+    const timer = setTimeout(() => setTrackUserPin(false), 500);
+    return () => clearTimeout(timer);
+  }, [userCoords?.lat, userCoords?.lng]);
   const fromNaraDig = paramString(params.returnTo) === 'naradig';
   const regionDelta = fromNaraDig ? NEAR_YOU_DELTA : DEFAULT_DELTA;
   const loadedCoordsRef = useRef<Coords | null>(null);
@@ -243,12 +303,15 @@ export default function BusinessMapScreen() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const coords = await getEffectiveUserCoords().catch(() => null);
-      if (cancelled || !coords) {
-        if (!cancelled) setPinsLoading(false);
-        return;
-      }
-      await refreshForCoords(coords);
+      // Never block the first map paint on a GPS permission dialog.
+      const granted = await getEffectiveUserCoordsIfGranted().catch(() => null);
+      const seed = granted ?? HELSINGBORG_COORDS;
+      if (cancelled) return;
+      await refreshForCoords(seed);
+
+      if (granted || cancelled) return;
+      const prompted = await getEffectiveUserCoords().catch(() => null);
+      if (!cancelled && prompted) await refreshForCoords(prompted);
     })();
     return () => {
       cancelled = true;
@@ -587,10 +650,12 @@ export default function BusinessMapScreen() {
 
         <MapView
           ref={mapRef}
+          key={`map-${mode}`}
           style={[StyleSheet.absoluteFill, { backgroundColor: shellBg }]}
           initialRegion={initialRegion}
           mapType="standard"
           userInterfaceStyle={mode === 'dark' ? 'dark' : 'light'}
+          customMapStyle={googleMapStyle}
           showsUserLocation={false}
           showsMyLocationButton={Platform.OS === 'android'}
           mapPadding={{ top: insets.top + 56, right: 0, bottom: bottomPad, left: 0 }}
@@ -615,37 +680,19 @@ export default function BusinessMapScreen() {
                 longitude: userCoords.lng,
               }}
               anchor={{ x: 0.5, y: 0.5 }}
-              tracksViewChanges={false}
+              tracksViewChanges={trackUserPin}
             >
               <UserLocationArrow />
             </Marker>
           ) : null}
-          {visibleBusinesses.map((company) => {
-            const color = getCategoryAccentForItem(company);
-            return (
-              <Marker
-                key={company.id}
-                coordinate={{
-                  latitude: company.latitude,
-                  longitude: company.longitude,
-                }}
-                title={company.name}
-                description={company.address || undefined}
-                anchor={{ x: 0.5, y: 0.5 }}
-                tracksViewChanges={false}
-                onPress={() => setSelectedId(company.id)}
-              >
-                <BusinessMapPin
-                  color={color}
-                  title={company.name}
-                  imageUri={company.imageUri}
-                  selected={company.id === selectedId}
-                  hasEvent={Boolean(company.hasEvent)}
-                  hasOffer={Boolean(company.hasOffer)}
-                />
-              </Marker>
-            );
-          })}
+          {visibleBusinesses.map((company) => (
+            <MapBusinessMarker
+              key={company.id}
+              company={company}
+              selected={company.id === selectedId}
+              onPress={() => setSelectedId(company.id)}
+            />
+          ))}
         </MapView>
 
         {selected && userCoords && (routeLoading || routes?.driving || routes?.walking) ? (

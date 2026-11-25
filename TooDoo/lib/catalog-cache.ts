@@ -43,13 +43,9 @@ async function fetchApprovedBusinessPage(page: number): Promise<unknown[]> {
     skip > 0
       ? `/business?status=APPROVED&skip=${skip}`
       : '/business?status=APPROVED';
-  try {
-    const res = await fetchWithTimeout(apiUrl(path));
-    const json = await res.json().catch(() => []);
-    return parseBusinessesPayload(json);
-  } catch {
-    return [];
-  }
+  const res = await fetchWithTimeout(apiUrl(path));
+  const json = await res.json().catch(() => []);
+  return parseBusinessesPayload(json);
 }
 
 async function fetchAllApprovedBusinessPages(): Promise<unknown[]> {
@@ -69,13 +65,21 @@ async function fetchAllApprovedBusinessPages(): Promise<unknown[]> {
   let page = 0;
   while (page < APPROVED_MAX_PAGES) {
     const batchSize = Math.min(APPROVED_PAGE_BATCH, APPROVED_MAX_PAGES - page);
-    const batch = await Promise.all(
+    const results = await Promise.allSettled(
       Array.from({ length: batchSize }, (_, i) => fetchApprovedBusinessPage(page + i))
     );
+    // A failed first page used to look like "empty catalog" and freeze the home feed.
+    if (page === 0 && results[0]?.status === 'rejected') {
+      throw results[0].reason;
+    }
     let sawShortPage = false;
-    for (const data of batch) {
-      collect(data);
-      if (data.length < APPROVED_PAGE_SIZE) sawShortPage = true;
+    for (const result of results) {
+      if (result.status !== 'fulfilled') {
+        sawShortPage = true;
+        continue;
+      }
+      collect(result.value);
+      if (result.value.length < APPROVED_PAGE_SIZE) sawShortPage = true;
     }
     if (sawShortPage) break;
     page += batchSize;
