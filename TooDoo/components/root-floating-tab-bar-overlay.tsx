@@ -18,7 +18,7 @@ import {
 } from '@/components/floating-tab-bar';
 import { useTabBarMotion, useTabBarProps } from '@/context/tab-bar-motion-context';
 import { useThemePreference } from '@/context/theme-preference-context';
-import { DETAIL_SCREEN_MOTION_MS, getStackMotionMs } from '@/lib/detail-screen-motion';
+import { getStackMotionMs } from '@/lib/detail-screen-motion';
 
 const TAB_BAR_HIDE_ROUTES = new Set<string>();
 
@@ -80,7 +80,7 @@ function RootFloatingTabBarOverlayContent({
   const hideDistance = barHeight + 24;
 
   useEffect(() => {
-    const duration = Platform.OS === 'web' ? getStackMotionMs() : DETAIL_SCREEN_MOTION_MS;
+    const duration = getStackMotionMs();
     routeHideProgress.value = withTiming(shouldHideTabBar ? 1 : 0, {
       duration,
       easing: Easing.out(Easing.cubic),

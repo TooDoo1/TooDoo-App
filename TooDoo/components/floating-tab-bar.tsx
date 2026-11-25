@@ -5,7 +5,7 @@ import {
 import { useContext, useEffect, useLayoutEffect } from 'react';
 import { Platform } from 'react-native';
 
-import { useSetTabBarProps } from '@/context/tab-bar-motion-context';
+import { setTabBarPropsStore } from '@/context/tab-bar-motion-context';
 
 export const TAB_BAR_HEIGHT = 58;
 /** Soft top corners only — bar is flush to the screen bottom. */
@@ -47,7 +47,6 @@ export function getFloatingTabBarScrollPadding(
 }
 
 export function FloatingTabBar(props: BottomTabBarProps) {
-  const setTabBarProps = useSetTabBarProps();
   const setTabBarHeight = useContext(BottomTabBarHeightCallbackContext);
 
   useLayoutEffect(() => {
@@ -55,9 +54,9 @@ export function FloatingTabBar(props: BottomTabBarProps) {
   }, [setTabBarHeight]);
 
   useEffect(() => {
-    setTabBarProps(props);
-    return () => setTabBarProps(null);
-  }, [props, setTabBarProps]);
+    setTabBarPropsStore(props);
+    return () => setTabBarPropsStore(null);
+  }, [props]);
 
   return null;
 }

@@ -20,7 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { OfferMap } from "@/components/ui/offer-map";
 import { buildGoogleMapsDirectionsUrl, buildGoogleMapsSearchUrl } from "@/lib/osrm-route";
 import { useAuth } from "@/context/auth-context";
-import { useFavorites } from "@/context/favorites-context";
+import { useIsFavorite, useToggleFavorite } from "@/context/favorites-context";
 import { useRealtimeSubscription } from "@/hooks/use-realtime-subscription";
 import { normalizeImageUrl } from "@/lib/api";
 import { useThemePreference } from "@/context/theme-preference-context";
@@ -118,7 +118,7 @@ export default function CompanyDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { isLoggedIn, token, role, authFetch } = useAuth();
-  const { isFavorite, toggleFavorite } = useFavorites();
+  const toggleFavorite = useToggleFavorite();
   const { mode } = useThemePreference();
   const theme = uiTheme(mode);
   const [claimingOrderId, setClaimingOrderId] = useState<string | null>(null);
@@ -236,6 +236,13 @@ export default function CompanyDetailScreen() {
     if (isPlaceholderNavigationId(candidate)) return undefined;
     return candidate;
   }, [hydratedBusiness, claimBusinessIdText, businessIdFromIdParam]);
+  const companyIsFavorite = useIsFavorite(resolvedBusinessId ?? "");
+  const [mapReady, setMapReady] = useState(false);
+  useEffect(() => {
+    setMapReady(false);
+    const task = InteractionManager.runAfterInteractions(() => setMapReady(true));
+    return () => task.cancel();
+  }, [resolvedBusinessId]);
   const claimWobbleValue = useMemo(() => new Animated.Value(0), []);
   const claimWobbleRotate = claimWobbleValue.interpolate({
     inputRange: [-1, 1],
@@ -764,9 +771,10 @@ export default function CompanyDetailScreen() {
       return;
     }
 
+    setNowMs(Date.now());
     const timer = setInterval(() => {
       setNowMs(Date.now());
-    }, 1000);
+    }, 60_000);
 
     return () => clearInterval(timer);
   }, [showOffersSection, isFocused]);
@@ -916,7 +924,6 @@ export default function CompanyDetailScreen() {
   const showCompanyDetail = Boolean(title || id || claimBusinessId || claimOrderId);
   const showFavoriteButton = Boolean(showCompanyDetail && resolvedBusinessId && isLoggedIn && role === "USER");
   const showShareButton = Boolean(showCompanyDetail && resolvedBusinessId);
-  const companyIsFavorite = resolvedBusinessId ? isFavorite(resolvedBusinessId) : false;
   const shareButtonTop = insets.top + 8 + (showFavoriteButton ? 48 : 0);
   const handleDetailBack = useCallback(() => {
     if (Platform.OS === 'web') {
@@ -1440,6 +1447,7 @@ export default function CompanyDetailScreen() {
         <View className="mt-6 mx-6 mb-2">
           <Text className="mb-2 text-xl font-medium ml-4" style={{ color: theme.text }}>Hitta hit:</Text>
           <View className="overflow-hidden rounded-2xl border" style={{ borderColor: theme.border }}>
+            {mapReady ? (
             <OfferMap
               mapKey={mapResetKey}
               latitude={mapCoordinate?.latitude ?? fallbackCoordinate?.latitude ?? Number.NaN}
@@ -1460,6 +1468,9 @@ export default function CompanyDetailScreen() {
               originLongitude={mapOriginCoords?.longitude}
               chipBackgroundColor={theme.cardBg}
             />
+            ) : (
+              <View style={{ width: "100%", aspectRatio: 1, backgroundColor: theme.cardBgMuted }} />
+            )}
           </View>
         </View>
       ) : null}

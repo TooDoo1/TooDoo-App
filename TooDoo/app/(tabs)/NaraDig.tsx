@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Platform,
@@ -339,8 +339,12 @@ export default function NaraDigScreen() {
     []
   );
 
+  const lastFocusCoordsAtRef = useRef(0);
   useFocusEffect(
     useCallback(() => {
+      const now = Date.now();
+      if (now - lastFocusCoordsAtRef.current < 90_000) return;
+      lastFocusCoordsAtRef.current = now;
       void refreshEffectiveCoords();
     }, [refreshEffectiveCoords])
   );

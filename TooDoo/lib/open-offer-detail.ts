@@ -50,20 +50,9 @@ export function openOfferDetail(
   const focusedOrderId = card.orderIds?.[0] ? String(card.orderIds[0]) : undefined;
   const businessId = isPlaceholderNavigationId(card.id) ? undefined : card.id;
 
-  void loadCompanyDetail({
-    businessId,
-    claimOrderId: focusedOrderId,
-  });
-
-  if (remoteImageUri) {
-    schedulePrefetchImageUris(
-      [sizedImageUrl(remoteImageUri, IMAGE_DISPLAY_WIDTH.hero) ?? remoteImageUri],
-      1
-    );
-  }
-
   // Only first-paint fields travel as route params; address, phone, website and
-  // coordinates come from loadCompanyDetail (already started above).
+  // coordinates come from loadCompanyDetail (started after the push so the
+  // transition is not blocked by the network).
   router.push({
     pathname: COMPANY_DETAIL_PATH,
     params: compactParams({
@@ -83,5 +72,18 @@ export function openOfferDetail(
             longitude: card.longitude != null ? String(card.longitude) : undefined,
           }),
     }),
+  });
+
+  queueMicrotask(() => {
+    void loadCompanyDetail({
+      businessId,
+      claimOrderId: focusedOrderId,
+    });
+    if (remoteImageUri) {
+      schedulePrefetchImageUris(
+        [sizedImageUrl(remoteImageUri, IMAGE_DISPLAY_WIDTH.hero) ?? remoteImageUri],
+        1
+      );
+    }
   });
 }

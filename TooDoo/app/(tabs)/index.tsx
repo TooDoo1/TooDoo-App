@@ -1367,6 +1367,7 @@ export default function HomeScreen() {
   const [isLoadingData, setIsLoadingData] = useState(!homeSnapshot);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [exploreRefreshNonce, setExploreRefreshNonce] = useState(0);
   const [searchQuery, setSearchQuery] = useState(initialSearch.query);
   const [searchResults, setSearchResults] = useState<CardItem[]>(initialSearch.results as CardItem[]);
   const [searchHasMore, setSearchHasMore] = useState(
@@ -1405,6 +1406,8 @@ export default function HomeScreen() {
   >([]);
   const [showStickyExploreFilter, setShowStickyExploreFilter] = useState(false);
   const explorePoolRef = useRef<CardItem[]>([]);
+  /** City-scoped cards before category/sort filters — chip taps filter this, no refetch. */
+  const exploreSourceRef = useRef<CardItem[]>([]);
   const exploreCursorRef = useRef(0);
   const exploreLoadingRef = useRef(false);
   const explorePoolBuiltOnceRef = useRef(false);
@@ -1522,11 +1525,20 @@ export default function HomeScreen() {
     invalidateCatalogCache();
     setIsRefreshing(true);
     setRefreshNonce((prev) => prev + 1);
+    setExploreRefreshNonce((prev) => prev + 1);
   }, []);
 
+  const homeFocusedRef = useRef(true);
+  const realtimeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useRealtimeSubscription(
     () => {
-      setRefreshNonce((prev) => prev + 1);
+      if (!homeFocusedRef.current) return;
+      if (realtimeRefreshTimerRef.current) clearTimeout(realtimeRefreshTimerRef.current);
+      realtimeRefreshTimerRef.current = setTimeout(() => {
+        realtimeRefreshTimerRef.current = null;
+        if (!homeFocusedRef.current) return;
+        setRefreshNonce((prev) => prev + 1);
+      }, 500);
     },
     { enabled: Boolean(token) }
   );
@@ -1737,21 +1749,21 @@ export default function HomeScreen() {
       const restoreTimer =
         Platform.OS === 'web' ? setTimeout(() => restoreHomeScroll(), 220) : null;
 
+      homeFocusedRef.current = true;
       return () => {
+        homeFocusedRef.current = false;
         clearInterval(tick);
         if (restoreTimer) clearTimeout(restoreTimer);
         task.cancel();
         tabBarScrollHiddenSv.value = 0;
         scrollHideProgress.value = withTiming(0, { duration: 220 });
-        const y = Math.max(0, homeScrollYSv.value);
-        scrollOffsetRef.current = y;
-        setHomeScrollOffset(y);
-        if (searchQueryRef.current.trim()) {
-          setHomeSearchCache(
-            searchQueryRef.current,
-            searchResultsRef.current as OfferCardItem[]
-          );
-        }
+        const y = Math.max(0, scrollOffsetRef.current);
+        const query = searchQueryRef.current.trim();
+        const cachedResults = searchResultsRef.current as OfferCardItem[];
+        queueMicrotask(() => {
+          setHomeScrollOffset(y);
+          if (query) setHomeSearchCache(query, cachedResults);
+        });
       };
     }, [
       homeScrollYSv,
@@ -1768,13 +1780,14 @@ export default function HomeScreen() {
     setDeals((prev) => sortDealsByDistance(applyHaversineDistances(prev, coords)));
 
     let cancelled = false;
-    // Geocode fill is idle work — city swaps must not wait on it.
+    // Geocode fill is idle work. Skip it while a screen transition is in progress.
     const task = InteractionManager.runAfterInteractions(() => {
+      if (cancelled || !homeFocusedRef.current) return;
       void (async () => {
         const enriched = await fillMissingDistancesFromAddresses(deals, coords, {
           maxGeocode: 8,
         });
-        if (!cancelled) {
+        if (!cancelled && homeFocusedRef.current) {
           setDeals(sortDealsByDistance(enriched));
         }
       })();
@@ -3254,6 +3267,71 @@ export default function HomeScreen() {
   const coordsRef = useRef(coords);
   coordsRef.current = coords;
 
+  const exploreFiltersRef = useRef(exploreFilters);
+  exploreFiltersRef.current = exploreFilters;
+
+  const paintExploreFromSource = useCallback(() => {
+    const filters = exploreFiltersRef.current;
+    let cards = exploreSourceRef.current;
+    if (!filters.subcategoryId) {
+      cards = filterCardsByActiveCategory(cards, filters.categoryId);
+    }
+    const liveCoords = coordsRef.current;
+    if (liveCoords) {
+      cards = applyHaversineDistances(cards, liveCoords);
+    }
+    if (filters.dealsOnly) {
+      cards = cards.filter((card) => Boolean(card.deal));
+    }
+    if (filters.openNow) {
+      cards = cards.filter((card) => {
+        const hours = normalizeBusinessOpeningHours(card.openingHours);
+        return isBusinessOpenNow(hours) === true;
+      });
+    }
+    if (filters.maxDistanceKm != null) {
+      const maxKm = filters.maxDistanceKm;
+      cards = cards.filter(
+        (card) =>
+          typeof card.distanceKm === 'number' &&
+          Number.isFinite(card.distanceKm) &&
+          card.distanceKm <= maxKm
+      );
+    }
+    cards = uniqueCardsById(cards);
+    let pool: CardItem[];
+    switch (filters.sort) {
+      case 'near':
+        pool = [...cards].sort((a, b) => {
+          const da =
+            typeof a.distanceKm === 'number' && Number.isFinite(a.distanceKm)
+              ? a.distanceKm
+              : Number.POSITIVE_INFINITY;
+          const db =
+            typeof b.distanceKm === 'number' && Number.isFinite(b.distanceKm)
+              ? b.distanceKm
+              : Number.POSITIVE_INFINITY;
+          return da - db;
+        });
+        break;
+      case 'name':
+        pool = [...cards].sort((a, b) =>
+          a.title.localeCompare(b.title, 'sv', { sensitivity: 'base' })
+        );
+        break;
+      case 'deals':
+        pool = [...cards].sort((a, b) => Number(b.deal) - Number(a.deal));
+        break;
+      case 'mixed':
+      default:
+        pool = shuffleCards(cards);
+        break;
+    }
+    explorePoolRef.current = pool;
+    exploreCursorRef.current = Math.min(EXPLORE_PAGE_SIZE, pool.length);
+    setExploreCards(pool.slice(0, exploreCursorRef.current));
+  }, []);
+
   const rebuildExplorePool = useCallback(async () => {
     setIsLoadingExplore(true);
     exploreLoadingRef.current = true;
@@ -3270,74 +3348,17 @@ export default function HomeScreen() {
       // Fall back to the full catalog when the city filter is empty.
       if (scoped.length === 0) scoped = businessesRaw;
 
-      if (exploreFilters.subcategoryId) {
+      const subcategoryId = exploreFiltersRef.current.subcategoryId;
+      if (subcategoryId) {
         scoped = scoped.filter((business) =>
-          businessHasSubcategoryId(business, exploreFilters.subcategoryId!)
+          businessHasSubcategoryId(business, subcategoryId)
         );
       }
 
-      let cards = cardsFromCatalogBusinesses(scoped);
-      if (!exploreFilters.subcategoryId) {
-        cards = filterCardsByActiveCategory(cards, exploreFilters.categoryId);
-      }
-      const liveCoords = coordsRef.current;
-      if (liveCoords) {
-        cards = applyHaversineDistances(cards, liveCoords);
-      }
-
-      if (exploreFilters.dealsOnly) {
-        cards = cards.filter((card) => Boolean(card.deal));
-      }
-      if (exploreFilters.openNow) {
-        cards = cards.filter((card) => {
-          const hours = normalizeBusinessOpeningHours(card.openingHours);
-          return isBusinessOpenNow(hours) === true;
-        });
-      }
-      if (exploreFilters.maxDistanceKm != null) {
-        const maxKm = exploreFilters.maxDistanceKm;
-        cards = cards.filter(
-          (card) =>
-            typeof card.distanceKm === 'number' &&
-            Number.isFinite(card.distanceKm) &&
-            card.distanceKm <= maxKm
-        );
-      }
-
-      cards = uniqueCardsById(cards);
-      let pool: CardItem[];
-      switch (exploreFilters.sort) {
-        case 'near':
-          pool = [...cards].sort((a, b) => {
-            const da =
-              typeof a.distanceKm === 'number' && Number.isFinite(a.distanceKm)
-                ? a.distanceKm
-                : Number.POSITIVE_INFINITY;
-            const db =
-              typeof b.distanceKm === 'number' && Number.isFinite(b.distanceKm)
-                ? b.distanceKm
-                : Number.POSITIVE_INFINITY;
-            return da - db;
-          });
-          break;
-        case 'name':
-          pool = [...cards].sort((a, b) =>
-            a.title.localeCompare(b.title, 'sv', { sensitivity: 'base' })
-          );
-          break;
-        case 'deals':
-          pool = [...cards].sort((a, b) => Number(b.deal) - Number(a.deal));
-          break;
-        case 'mixed':
-        default:
-          pool = shuffleCards(cards);
-          break;
-      }
-
-      explorePoolRef.current = pool;
-      exploreCursorRef.current = Math.min(EXPLORE_PAGE_SIZE, pool.length);
-      setExploreCards(pool.slice(0, exploreCursorRef.current));
+      exploreSourceRef.current = cardsFromCatalogBusinesses(scoped);
+      paintExploreFromSource();
     } catch {
+      exploreSourceRef.current = [];
       explorePoolRef.current = [];
       exploreCursorRef.current = 0;
       setExploreCards([]);
@@ -3346,7 +3367,7 @@ export default function HomeScreen() {
       setIsLoadingExplore(false);
       setIsLoadingMoreExplore(false);
     }
-  }, [exploreFilters, userCity]);
+  }, [paintExploreFromSource, userCity]);
 
   // Coords-only: re-distance the existing Utforska pool — don't refetch the catalog.
   useEffect(() => {
@@ -3469,7 +3490,7 @@ export default function HomeScreen() {
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     if (explorePoolBuiltOnceRef.current) {
-      // Debounce city/filter rebuilds so rapid dropdown picks don't thrash.
+      // City or pull-to-refresh: refetch. Category chips are painted locally.
       timer = setTimeout(() => {
         if (!cancelled) void rebuildExplorePool();
       }, 350);
@@ -3495,13 +3516,26 @@ export default function HomeScreen() {
       if (timer) clearTimeout(timer);
     };
   }, [
-    exploreFilters,
+    exploreRefreshNonce,
     isLoadingData,
     rebuildExplorePool,
-    refreshNonce,
     showCommittedSearchPrompt,
     showCommittedSearchResults,
   ]);
+
+  const exploreSubcategoryRef = useRef(exploreFilters.subcategoryId);
+  useEffect(() => {
+    if (!explorePoolBuiltOnceRef.current) return;
+    if (exploreSubcategoryRef.current !== exploreFilters.subcategoryId) {
+      exploreSubcategoryRef.current = exploreFilters.subcategoryId;
+      void rebuildExplorePool();
+      return;
+    }
+    if (exploreSourceRef.current.length === 0) return;
+    startTransition(() => {
+      paintExploreFromSource();
+    });
+  }, [exploreFilters, paintExploreFromSource, rebuildExplorePool]);
 
   // Utforska follows the top kategori chips — no separate category row.
   useEffect(() => {
@@ -4093,20 +4127,26 @@ export default function HomeScreen() {
   ]);
 
   const captureHomeScrollBeforeLeave = useCallback(() => {
-    const y = Math.max(0, homeScrollYSv.value || scrollOffsetRef.current);
-    scrollOffsetRef.current = y;
+    // Do not read a Reanimated shared value here. That call blocks the JS
+    // thread until the UI thread answers, which is what makes a tap feel frozen.
+    const y = Math.max(0, scrollOffsetRef.current);
     setHomeScrollOffset(y);
-  }, [homeScrollYSv]);
+  }, []);
+
+  const searchOverlayMountedRef = useRef(false);
+  searchOverlayMountedRef.current = isSearchOverlayMounted;
 
   const handleCardPress = useCallback(
     (card: CardItem) => {
-      closeSearchOverlay();
-      captureHomeScrollBeforeLeave();
-      setHomeSearchCache(
-        searchQueryRef.current.trim(),
-        searchResultsRef.current as OfferCardItem[]
-      );
       openOfferDetail(router, card, 'index');
+      queueMicrotask(() => {
+        if (searchOverlayMountedRef.current) closeSearchOverlay();
+        captureHomeScrollBeforeLeave();
+        const query = searchQueryRef.current.trim();
+        if (query) {
+          setHomeSearchCache(query, searchResultsRef.current as OfferCardItem[]);
+        }
+      });
     },
     [captureHomeScrollBeforeLeave, closeSearchOverlay, router]
   );
@@ -5816,7 +5856,7 @@ export default function HomeScreen() {
           getItemType={(item) => item.kind}
           onScroll={onHomeScroll}
           scrollEventThrottle={16}
-          drawDistance={Platform.OS === 'android' ? 600 : 480}
+          drawDistance={Platform.OS === 'android' ? 320 : 480}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}

@@ -5,7 +5,7 @@ import {
   useContext,
   useMemo,
   useRef,
-  useState,
+  useSyncExternalStore,
   type ReactNode,
 } from 'react';
 import { useSharedValue, type SharedValue } from 'react-native-reanimated';
@@ -19,25 +19,39 @@ type TabBarMotionContextValue = {
   releaseStackHide: () => void;
 };
 
-type SetTabBarProps = (props: BottomTabBarProps | null) => void;
+type Listener = () => void;
 
 /**
- * Tab bar navigation props live in their own contexts: they change on every tab
- * press, and screens that only need the motion shared values must not re-render.
+ * Tab bar navigation props change on every tab press. Keeping them in React
+ * state on the provider that wraps the stack re-rendered the whole app.
+ * Screens subscribe only if they call useTabBarProps().
  */
+let tabBarPropsSnapshot: BottomTabBarProps | null = null;
+const tabBarPropsListeners = new Set<Listener>();
+
+function subscribeTabBarProps(listener: Listener) {
+  tabBarPropsListeners.add(listener);
+  return () => {
+    tabBarPropsListeners.delete(listener);
+  };
+}
+
+function getTabBarPropsSnapshot() {
+  return tabBarPropsSnapshot;
+}
+
+export function setTabBarPropsStore(props: BottomTabBarProps | null) {
+  if (tabBarPropsSnapshot === props) return;
+  tabBarPropsSnapshot = props;
+  tabBarPropsListeners.forEach((listener) => listener());
+}
+
 const TabBarMotionContext = createContext<TabBarMotionContextValue | null>(null);
-const TabBarPropsContext = createContext<BottomTabBarProps | null>(null);
-const SetTabBarPropsContext = createContext<SetTabBarProps | null>(null);
 
 export function TabBarMotionProvider({ children }: { children: ReactNode }) {
   const stackHideProgress = useSharedValue(0);
   const scrollHideProgress = useSharedValue(0);
   const stackHideCountRef = useRef(0);
-  const [tabBarProps, setTabBarPropsState] = useState<BottomTabBarProps | null>(null);
-
-  const setTabBarProps = useCallback((props: BottomTabBarProps | null) => {
-    setTabBarPropsState(props);
-  }, []);
 
   const acquireStackHide = useCallback(() => {
     stackHideCountRef.current += 1;
@@ -61,13 +75,7 @@ export function TabBarMotionProvider({ children }: { children: ReactNode }) {
     [stackHideProgress, scrollHideProgress, acquireStackHide, releaseStackHide]
   );
 
-  return (
-    <TabBarMotionContext.Provider value={value}>
-      <SetTabBarPropsContext.Provider value={setTabBarProps}>
-        <TabBarPropsContext.Provider value={tabBarProps}>{children}</TabBarPropsContext.Provider>
-      </SetTabBarPropsContext.Provider>
-    </TabBarMotionContext.Provider>
-  );
+  return <TabBarMotionContext.Provider value={value}>{children}</TabBarMotionContext.Provider>;
 }
 
 export function useTabBarMotion() {
@@ -79,13 +87,9 @@ export function useTabBarMotion() {
 }
 
 export function useTabBarProps() {
-  return useContext(TabBarPropsContext);
+  return useSyncExternalStore(subscribeTabBarProps, getTabBarPropsSnapshot, getTabBarPropsSnapshot);
 }
 
 export function useSetTabBarProps() {
-  const setter = useContext(SetTabBarPropsContext);
-  if (!setter) {
-    throw new Error('useSetTabBarProps must be used within TabBarMotionProvider');
-  }
-  return setter;
+  return setTabBarPropsStore;
 }
