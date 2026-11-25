@@ -26,13 +26,13 @@ import {
 export const MAP_DEFAULT_CENTER = { lat: 56.0465, lng: 12.715 } as const;
 
 /**
- * Far-out budget — kept high so overlapping companies can collapse into
- * count clusters instead of being dropped from the map.
+ * Far-out budget — keep this low on Android so custom pins stay snappy.
+ * Closest / spatially spread picks still fill the viewport; zoom in for more.
  */
-export const MAP_MAX_PINS = 56;
+export const MAP_MAX_PINS = 14;
 
-/** When the view is street-level, show every on-screen company up to this. */
-export const MAP_MAX_PINS_ZOOMED = 96;
+/** When the view is street-level, show more of what's on screen. */
+export const MAP_MAX_PINS_ZOOMED = 24;
 
 function pinBudgetForBounds(bounds: MapViewBounds | null, base = MAP_MAX_PINS): number {
   if (!bounds) return base;
@@ -42,9 +42,9 @@ function pinBudgetForBounds(bounds: MapViewBounds | null, base = MAP_MAX_PINS): 
     Math.abs(bounds.east - bounds.west) * 111.32 * Math.cos((midLat * Math.PI) / 180);
   const spanKm = Math.max(latKm, lngKm);
   if (spanKm <= 1.4) return MAP_MAX_PINS_ZOOMED;
-  if (spanKm <= 3) return 80;
-  if (spanKm <= 6) return 68;
-  if (spanKm <= 12) return 60;
+  if (spanKm <= 3) return 20;
+  if (spanKm <= 6) return 17;
+  if (spanKm <= 12) return 15;
   return base;
 }
 
