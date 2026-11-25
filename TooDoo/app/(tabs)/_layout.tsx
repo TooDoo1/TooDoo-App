@@ -41,13 +41,12 @@ export default function TabLayout() {
       <Tabs
       // Web: detach inactive tabs so auth screens (Registrering etc.) don't keep
       // Upptäck in the accessibility / hit-test tree underneath. Native: keep them
-      // attached (frozen via freezeOnBlur) so switching back to Upptäck is instant.
+      // attached so switching back to Upptäck is instant. freezeOnBlur is intentionally
+      // off: on Android it is a known cause of tabs that stop responding after a switch.
       detachInactiveScreens={Platform.OS === 'web'}
       tabBar={(props) => <FloatingTabBar {...props} />}
       screenOptions={{
-        ...(Platform.OS === 'web'
-          ? { sceneStyle: { flex: 1 }, unmountOnBlur: true }
-          : { freezeOnBlur: true }),
+        ...(Platform.OS === 'web' ? { sceneStyle: { flex: 1 }, unmountOnBlur: true } : {}),
         tabBarInactiveTintColor: Colors[effectiveScheme].tabIconDefault,
         tabBarLabelPosition: 'below-icon',
         tabBarStyle: {

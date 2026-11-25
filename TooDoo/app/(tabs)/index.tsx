@@ -22,6 +22,7 @@ import {
 import {
   getFloatingTabBarScrollPadding,
 } from '@/components/floating-tab-bar';
+import { FastPressable } from '@/components/ui/fast-pressable';
 import Reanimated, {
   cancelAnimation,
   Easing as ReanimatedEasing,
@@ -108,11 +109,8 @@ import {
   type RegionSelection,
 } from '@/lib/region-selection';
 import { staticCoordsForCity } from '@/lib/sweden-city-coords';
-import {
-  SWEDEN_REGIONS,
-  findLanByName,
-  geocodeQueryForCity,
-} from '@/lib/sweden-regions';
+import { geocodeQueryForCity } from '@/lib/sweden-regions';
+import { LocationMenuModal } from '@/components/home/location-menu-modal';
 import {
   EVENT_FEED_DAYS,
   HOME_EVENT_TICKET_COUNT,
@@ -1437,7 +1435,6 @@ export default function HomeScreen() {
   const [regionSelection, setRegionSelectionState] = useState<RegionSelection | null>(null);
   const [locationMenuOpen, setLocationMenuOpen] = useState(false);
   const [locationMenuMounted, setLocationMenuMounted] = useState(false);
-  const [locationMenuLan, setLocationMenuLan] = useState<string | null>(null);
   const locationMenuProgress = useSharedValue(0);
   const [locationPicking, setLocationPicking] = useState(false);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(HELSINGBORG_COORDS);
@@ -4520,7 +4517,6 @@ export default function HomeScreen() {
 
   const finishCloseLocationMenu = useCallback(() => {
     setLocationMenuMounted(false);
-    setLocationMenuLan(null);
   }, []);
 
   const closeLocationMenu = useCallback(() => {
@@ -4540,7 +4536,6 @@ export default function HomeScreen() {
   const openLocationMenu = useCallback(() => {
     cancelAnimation(locationMenuProgress);
     locationMenuProgress.value = 0;
-    setLocationMenuLan(regionSelection?.lan ?? null);
     setLocationMenuMounted(true);
     setLocationMenuOpen(true);
     requestAnimationFrame(() => {
@@ -4549,7 +4544,7 @@ export default function HomeScreen() {
         easing: ReanimatedEasing.bezier(0.22, 1, 0.36, 1),
       });
     });
-  }, [locationMenuProgress, regionSelection?.lan]);
+  }, [locationMenuProgress]);
 
   const locationMenuBackdropStyle = useAnimatedStyle(() => ({
     opacity: locationMenuProgress.value,
@@ -4647,38 +4642,12 @@ export default function HomeScreen() {
     [applyRegionCity, locationPicking]
   );
 
-  const locationMenuCities = useMemo(() => {
-    if (!locationMenuLan) return [];
-    return findLanByName(locationMenuLan)?.cities ?? [];
-  }, [locationMenuLan]);
-
-  // Prefetch coords for the rare picker city without bundled coordinates.
-  useEffect(() => {
-    if (!locationMenuMounted || !locationMenuLan) return;
-    const cities = (findLanByName(locationMenuLan)?.cities ?? []).filter(
-      (city) => !staticCoordsForCity(locationMenuLan, city)
-    );
-    if (cities.length === 0) return;
-
-    let cancelled = false;
-    const queue = [...cities];
-    const workers = Math.min(3, queue.length);
-
-    const runWorker = async () => {
-      while (!cancelled && queue.length > 0) {
-        const city = queue.shift();
-        if (!city) return;
-        const query = geocodeQueryForCity(locationMenuLan, city);
-        if (peekGeocodeCache(query)) continue;
-        await geocodeAddressCached(query);
-      }
-    };
-
-    void Promise.all(Array.from({ length: workers }, () => runWorker()));
-    return () => {
-      cancelled = true;
-    };
-  }, [locationMenuLan, locationMenuMounted]);
+  const handleSelectLocationCity = useCallback(
+    (lan: string, city: string) => {
+      void selectRegionCity(lan, city);
+    },
+    [selectRegionCity]
+  );
 
   const spotlightCardsById = useMemo(() => {
     const map = new Map<string, CardItem[]>();
@@ -5188,7 +5157,7 @@ export default function HomeScreen() {
       pointerEvents="box-none"
     >
       <View style={styles.homeHeroTopRow} pointerEvents="box-none">
-        <Pressable
+        <FastPressable
           accessibilityRole="button"
           accessibilityLabel={`Plats: ${homeLocationLabel}. Tryck för att byta.`}
           onPress={openLocationMenu}
@@ -5224,7 +5193,7 @@ export default function HomeScreen() {
           <Reanimated.View style={locationChevronStyle}>
             <Ionicons name="chevron-down" size={12} color="rgba(255,255,255,0.92)" />
           </Reanimated.View>
-        </Pressable>
+        </FastPressable>
 
         <View style={styles.homeHeroBrand} pointerEvents="none">
           <View style={styles.homeHeroBrandMark}>
@@ -5233,7 +5202,7 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      <Pressable
+      <FastPressable
         accessibilityRole="button"
         accessibilityLabel={`Upptäck ${homeKommunLabel}`}
         onPress={() =>
@@ -5251,135 +5220,19 @@ export default function HomeScreen() {
         </Text>
         {/* No numberOfLines — RN Web overflow:hidden on truncated Text clips descenders. */}
         <Text style={styles.homeHeroTitle}>{homeKommunLabel}</Text>
-      </Pressable>
+      </FastPressable>
 
-      <Modal
-        visible={locationMenuMounted}
-        transparent
-        animationType="none"
-        onRequestClose={closeLocationMenu}
-      >
-        <View style={styles.locationMenuRoot} pointerEvents="box-none">
-          <Reanimated.View
-            style={[styles.locationMenuBackdrop, locationMenuBackdropStyle]}
-          >
-            <Pressable
-              style={StyleSheet.absoluteFillObject}
-              onPress={closeLocationMenu}
-              accessibilityRole="button"
-              accessibilityLabel="Stäng platsmeny"
-            />
-          </Reanimated.View>
-          <Reanimated.View
-            style={[
-              styles.locationMenuDropdown,
-              {
-                paddingTop: homeHeaderInset + 8,
-                backgroundColor: theme.isDark ? '#152847' : '#d4e4f5',
-                borderBottomColor: theme.isDark
-                  ? 'rgba(255,255,255,0.14)'
-                  : 'rgba(19,23,32,0.12)',
-              },
-              locationMenuDropdownStyle,
-            ]}
-          >
-            <View style={styles.locationMenuHeaderRow}>
-              {locationMenuLan ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Tillbaka till län"
-                  onPress={() => setLocationMenuLan(null)}
-                  hitSlop={8}
-                  style={styles.locationMenuBack}
-                >
-                  <Ionicons name="chevron-back" size={18} color={theme.text} />
-                </Pressable>
-              ) : null}
-              <Text style={[styles.locationMenuTitle, { color: theme.text }]}>
-                {locationMenuLan ? 'Välj stad' : 'Välj län'}
-              </Text>
-              {locationPicking ? (
-                <Text style={{ color: theme.textMuted, fontSize: 12 }}>Hämtar...</Text>
-              ) : null}
-            </View>
-            <ScrollView
-              style={styles.locationMenuList}
-              contentContainerStyle={{ paddingBottom: 12 }}
-              keyboardShouldPersistTaps="handled"
-              nestedScrollEnabled
-            >
-              {locationMenuLan
-                ? locationMenuCities.map((city) => {
-                    const selected =
-                      regionSelection?.lan === locationMenuLan &&
-                      regionSelection?.city === city;
-                    return (
-                      <Pressable
-                        key={city}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected }}
-                        disabled={locationPicking}
-                        onPress={() => void selectRegionCity(locationMenuLan, city)}
-                        style={styles.locationMenuRow}
-                      >
-                        <Ionicons
-                          name="location-outline"
-                          size={18}
-                          color={selected ? theme.primary : theme.textMuted}
-                        />
-                        <Text
-                          numberOfLines={1}
-                          style={[
-                            styles.locationMenuRowLabel,
-                            {
-                              color: selected ? theme.text : theme.textMuted,
-                              fontWeight: selected ? '700' : '500',
-                            },
-                          ]}
-                        >
-                          {city}
-                        </Text>
-                        {selected ? (
-                          <Ionicons name="checkmark" size={18} color={theme.primary} />
-                        ) : null}
-                      </Pressable>
-                    );
-                  })
-                : SWEDEN_REGIONS.map((lan) => {
-                    const selected = regionSelection?.lan === lan.name;
-                    return (
-                      <Pressable
-                        key={lan.name}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected }}
-                        onPress={() => setLocationMenuLan(lan.name)}
-                        style={styles.locationMenuRow}
-                      >
-                        <Ionicons
-                          name="map-outline"
-                          size={18}
-                          color={selected ? theme.primary : theme.textMuted}
-                        />
-                        <Text
-                          numberOfLines={1}
-                          style={[
-                            styles.locationMenuRowLabel,
-                            {
-                              color: selected ? theme.text : theme.textMuted,
-                              fontWeight: selected ? '700' : '500',
-                            },
-                          ]}
-                        >
-                          {lan.name}
-                        </Text>
-                        <Ionicons name="chevron-forward" size={16} color={theme.textFaint} />
-                      </Pressable>
-                    );
-                  })}
-            </ScrollView>
-          </Reanimated.View>
-        </View>
-      </Modal>
+      <LocationMenuModal
+        mounted={locationMenuMounted}
+        headerInset={homeHeaderInset}
+        backdropStyle={locationMenuBackdropStyle}
+        dropdownStyle={locationMenuDropdownStyle}
+        selectedLan={regionSelection?.lan ?? null}
+        selectedCity={regionSelection?.city ?? null}
+        picking={locationPicking}
+        onClose={closeLocationMenu}
+        onSelectCity={handleSelectLocationCity}
+      />
     </View>
   );
 
@@ -5411,7 +5264,7 @@ export default function HomeScreen() {
             <View
               style={[filterSurfaceStyle, styles.searchBarRow, styles.homeHeaderSearchBar]}
             >
-              <Pressable
+              <FastPressable
                 accessibilityRole="search"
                 accessibilityLabel="Öppna sök"
                 onPress={() => openSearchDropdown()}
@@ -5437,7 +5290,7 @@ export default function HomeScreen() {
                 >
                   {searchQuery.trim() || 'Vad vill du göra?'}
                 </Text>
-              </Pressable>
+              </FastPressable>
               <InlineMicButton
                 variant="field"
                 listening={voiceListening}
@@ -5447,14 +5300,14 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          <Pressable
+          <FastPressable
             accessibilityRole="button"
             accessibilityLabel="Karta"
             onPress={openHomeMap}
             style={styles.homeHeaderMapButton}
           >
             <Ionicons name="map" size={22} color="#ffffff" />
-          </Pressable>
+          </FastPressable>
         </View>
         <View style={{ marginTop: 10, marginHorizontal: -HOME_PAGE_PAD }}>
           {renderCategoryFilterChips()}
@@ -5967,59 +5820,6 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
     lineHeight: 18,
     includeFontPadding: false,
-  },
-  locationMenuRoot: {
-    flex: 1,
-  },
-  locationMenuBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(10, 15, 28, 0.35)',
-  },
-  locationMenuDropdown: {
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: HOME_PAGE_PAD,
-    maxHeight: '58%',
-    overflow: 'hidden',
-    // @ts-expect-error web transform-origin for scaleY dropdown feel
-    transformOrigin: 'top center',
-  },
-  locationMenuHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
-    minHeight: 28,
-  },
-  locationMenuBack: {
-    width: 28,
-    height: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: -6,
-  },
-  locationMenuTitle: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: '700',
-    letterSpacing: -0.2,
-  },
-  locationMenuList: {
-    flexGrow: 0,
-  },
-  locationMenuRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 2,
-  },
-  locationMenuRowLabel: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 16,
-    letterSpacing: -0.2,
   },
   searchBarAnchor: {
     position: 'relative',

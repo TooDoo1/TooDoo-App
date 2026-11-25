@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
+
+import { FastPressable } from '@/components/ui/fast-pressable';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useThemePreference } from '@/context/theme-preference-context';
@@ -56,7 +58,7 @@ export function CategoryFilterBar({
                 ? theme.primary
                 : getCategoryAccentColor(cat.label);
             return (
-              <Pressable
+              <FastPressable
                 key={cat.id}
                 accessibilityRole="button"
                 accessibilityState={{ selected: isSelected }}
@@ -97,7 +99,7 @@ export function CategoryFilterBar({
                 >
                   {cat.label}
                 </Text>
-              </Pressable>
+              </FastPressable>
             );
           })}
         </View>

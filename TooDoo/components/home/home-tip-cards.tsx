@@ -1,7 +1,6 @@
 import {
   Image,
   Platform,
-  Pressable,
   StyleSheet,
   Text,
   View,
@@ -9,6 +8,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { HOME_PAGE_PAD, HOME_RADIUS } from '@/components/home/home-feed';
+import { FastPressable } from '@/components/ui/fast-pressable';
 
 /** Static discovery hero height in the home header (fits Upptäck + kommun title). */
 export const HOME_TIP_STRIP_HEIGHT = 224;
@@ -43,7 +43,7 @@ export function HomeTipCards({
 }) {
   return (
     <View style={styles.bleed}>
-      <Pressable
+      <FastPressable
         onPress={() => onTipPress?.(HERO_TIP)}
         accessibilityRole="button"
         accessibilityLabel={`${HERO_TIP.eyebrow} ${HERO_TIP.title}`}
@@ -68,7 +68,7 @@ export function HomeTipCards({
             {HERO_TIP.title}
           </Text>
         </View>
-      </Pressable>
+      </FastPressable>
     </View>
   );
 }

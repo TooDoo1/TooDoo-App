@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { ReanimatedScreenProvider } from 'react-native-screens/reanimated';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useFonts } from 'expo-font';
@@ -68,12 +67,13 @@ export const unstable_settings = {
 	anchor: '(tabs)',
 };
 
+/**
+ * The experimental ReanimatedScreenProvider turned every native-stack screen into a
+ * Reanimated screen. We don't use screen-level shared/animated transitions, so it
+ * only added per-screen JS/UI work. Plain native-stack screens are lighter.
+ */
 function NativeStackMotionProvider({ children }: { children: ReactNode }) {
-	if (Platform.OS === 'web') {
-		return children;
-	}
-
-	return <ReanimatedScreenProvider>{children}</ReanimatedScreenProvider>;
+	return children;
 }
 
 function AppShell() {
