@@ -1424,6 +1424,7 @@ export default function HomeScreen() {
   const exploreSourceRef = useRef<CardItem[]>([]);
   const exploreCursorRef = useRef(0);
   const exploreLoadingRef = useRef(false);
+  const exploreGenRef = useRef(0);
   const explorePoolBuiltOnceRef = useRef(false);
   /** Next skip for city-paged GET /business — never loads the national catalog. */
   const exploreApiSkipRef = useRef(0);
@@ -1453,9 +1454,10 @@ export default function HomeScreen() {
     activeId: null,
   });
   const [regionSelection, setRegionSelectionState] = useState<RegionSelection | null>(null);
-  const [locationMenuOpen, setLocationMenuOpen] = useState(false);
   const [locationMenuMounted, setLocationMenuMounted] = useState(false);
   const locationMenuProgress = useSharedValue(0);
+  const pendingRegionCommitRef = useRef<RegionSelection | null>(null);
+  const locationMenuCloseCallbackRef = useRef<(() => void) | null>(null);
   const [locationPicking, setLocationPicking] = useState(false);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(HELSINGBORG_COORDS);
   const insets = useSafeAreaInsets();
@@ -1789,23 +1791,36 @@ export default function HomeScreen() {
     ])
   );
 
+  const distanceFillGenRef = useRef(0);
   useEffect(() => {
     if (!coords || deals.length === 0) return;
 
+    const coordsAtStart = coords;
+    const fillGen = ++distanceFillGenRef.current;
     // Instant re-rank from lat/lng so meter badges update as soon as GPS/place changes.
-    setDeals((prev) => sortDealsByDistance(applyHaversineDistances(prev, coords)));
+    setDeals((prev) =>
+      sortDealsByDistance(applyHaversineDistances(prev, coordsAtStart))
+    );
 
     let cancelled = false;
     // Geocode fill is idle work. Skip it while a screen transition is in progress.
     const task = InteractionManager.runAfterInteractions(() => {
       if (cancelled || !homeFocusedRef.current) return;
       void (async () => {
-        const enriched = await fillMissingDistancesFromAddresses(deals, coords, {
-          maxGeocode: 8,
-        });
-        if (!cancelled && homeFocusedRef.current) {
-          setDeals(sortDealsByDistance(enriched));
+        const snapshot = deals;
+        const enriched = await fillMissingDistancesFromAddresses(
+          snapshot,
+          coordsAtStart,
+          { maxGeocode: 8 }
+        );
+        if (
+          cancelled ||
+          !homeFocusedRef.current ||
+          fillGen !== distanceFillGenRef.current
+        ) {
+          return;
         }
+        setDeals(sortDealsByDistance(enriched));
       })();
     });
 
@@ -1994,9 +2009,10 @@ export default function HomeScreen() {
     void fetchCityImageUris(homeKommunLabel, 3)
       .then((uris) => {
         if (cancelled) return;
-        setCityHeroUris(Array.isArray(uris) ? uris.filter(Boolean) : []);
+        const nextUris = Array.isArray(uris) ? uris.filter(Boolean) : [];
+        setCityHeroUris(nextUris);
         setCityHeroIndex(0);
-        if (uris.length) schedulePrefetchImageUris(uris);
+        if (nextUris.length) schedulePrefetchImageUris(nextUris);
       })
       .catch(() => {
         // Keep previous hero on failure — never clear to a crashing empty state mid-swap.
@@ -3358,6 +3374,7 @@ export default function HomeScreen() {
   }, []);
 
   const rebuildExplorePool = useCallback(async () => {
+    const gen = ++exploreGenRef.current;
     setIsLoadingExplore(true);
     exploreLoadingRef.current = true;
     try {
@@ -3367,6 +3384,7 @@ export default function HomeScreen() {
         take: UTFORSKA_BUSINESS_CAP,
         pageSize: NEARBY_PAGE_SIZE,
       });
+      if (gen !== exploreGenRef.current) return;
       const businesses = Array.isArray(result?.businesses) ? result.businesses : [];
       const city = result?.city;
       const hasMore = Boolean(result?.hasMore);
@@ -3387,12 +3405,15 @@ export default function HomeScreen() {
       exploreSourceRef.current = cardsFromCatalogBusinesses(scoped);
       paintExploreFromSource();
     } catch {
+      if (gen !== exploreGenRef.current) return;
       // Keep previous Utforska cards if the city refetch fails mid-swap.
       exploreApiHasMoreRef.current = false;
     } finally {
-      exploreLoadingRef.current = false;
-      setIsLoadingExplore(false);
-      setIsLoadingMoreExplore(false);
+      if (gen === exploreGenRef.current) {
+        exploreLoadingRef.current = false;
+        setIsLoadingExplore(false);
+        setIsLoadingMoreExplore(false);
+      }
     }
   }, [coords, paintExploreFromSource, userCity]);
 
@@ -3814,8 +3835,11 @@ export default function HomeScreen() {
       const cards = (fromCategory.length >= 2 ? fromCategory : fromKeywords).slice(0, 10);
       if (cards.length < 2) continue;
 
+      const sectionId = cat?.id ?? entry.fallbackId;
+      if (sections.some((section) => section.id === sectionId)) continue;
+
       sections.push({
-        id: cat?.id ?? entry.fallbackId,
+        id: sectionId,
         label: cat?.label ?? entry.fallbackLabel,
         cards,
       });
@@ -4610,27 +4634,42 @@ export default function HomeScreen() {
 
   const finishCloseLocationMenu = useCallback(() => {
     setLocationMenuMounted(false);
+    const afterClose = locationMenuCloseCallbackRef.current;
+    locationMenuCloseCallbackRef.current = null;
+    if (!afterClose) return;
+    // Let the Modal native view finish unmounting before rebuilding home.
+    InteractionManager.runAfterInteractions(() => {
+      afterClose();
+    });
   }, []);
 
-  const closeLocationMenu = useCallback(() => {
-    setLocationMenuOpen(false);
-    locationMenuProgress.value = withTiming(
-      0,
-      {
-        duration: 160,
-        easing: ReanimatedEasing.bezier(0.4, 0, 0.2, 1),
-      },
-      (finished) => {
-        if (finished) runOnJS(finishCloseLocationMenu)();
+  const closeLocationMenu = useCallback(
+    (afterClose?: () => void) => {
+      if (afterClose) {
+        locationMenuCloseCallbackRef.current = afterClose;
       }
-    );
-  }, [finishCloseLocationMenu, locationMenuProgress]);
+      locationMenuProgress.value = withTiming(
+        0,
+        {
+          duration: 160,
+          easing: ReanimatedEasing.bezier(0.4, 0, 0.2, 1),
+        },
+        (finished) => {
+          // Always tear down — a cancelled close still needs to unmount + commit.
+          runOnJS(finishCloseLocationMenu)();
+          void finished;
+        }
+      );
+    },
+    [finishCloseLocationMenu, locationMenuProgress]
+  );
 
   const openLocationMenu = useCallback(() => {
     cancelAnimation(locationMenuProgress);
     locationMenuProgress.value = 0;
+    locationMenuCloseCallbackRef.current = null;
+    pendingRegionCommitRef.current = null;
     setLocationMenuMounted(true);
-    setLocationMenuOpen(true);
     requestAnimationFrame(() => {
       locationMenuProgress.value = withTiming(1, {
         duration: 220,
@@ -4649,9 +4688,6 @@ export default function HomeScreen() {
       {
         translateY: interpolate(locationMenuProgress.value, [0, 1], [-28, 0]),
       },
-      {
-        scaleY: interpolate(locationMenuProgress.value, [0, 1], [0.92, 1]),
-      },
     ],
   }));
 
@@ -4663,48 +4699,61 @@ export default function HomeScreen() {
     ],
   }));
 
+  const commitRegionCity = useCallback((next: RegionSelection) => {
+    if (!isPlausibleSwedenCoordinate(next.lat, next.lng)) return;
+    const nextCoords = { lat: next.lat, lng: next.lng };
+    // Commit city + coords together after the menu has unmounted so the
+    // Modal teardown doesn't race a full home-screen rebuild on Android.
+    setRegionSelectionState(next);
+    userCityRef.current = next.city;
+    setUserCity(next.city);
+    setCityHeroIndex(0);
+    setCoords(nextCoords);
+    startTransition(() => {
+      try {
+        setDeals((prev) =>
+          Array.isArray(prev) && prev.length
+            ? sortDealsByDistance(applyHaversineDistances(prev, nextCoords))
+            : prev
+        );
+        setNearYouCards((prev) =>
+          Array.isArray(prev) && prev.length
+            ? applyHaversineDistances(prev, nextCoords)
+            : prev
+        );
+        setHotOfferCards((prev) =>
+          Array.isArray(prev) && prev.length
+            ? applyHaversineDistances(prev, nextCoords)
+            : prev
+        );
+      } catch {
+        // Keep previous carousels if distance rewrite fails.
+      }
+    });
+    void (async () => {
+      try {
+        await setRegionSelection(next);
+        await setActiveCustomLocationId(null);
+      } catch {
+        // Persistence failure shouldn't take down the picker.
+      }
+    })();
+  }, []);
+
   const applyRegionCity = useCallback(
     (lan: string, city: string, lat: number, lng: number) => {
       if (!isPlausibleSwedenCoordinate(lat, lng)) return;
       const next: RegionSelection = { lan, city, lat, lng };
-      const nextCoords = { lat, lng };
-      // Keep city + coords in sync immediately so soft-refresh / explore / events
-      // never race with a mismatched Helsingborg leftover coordinate.
-      setRegionSelectionState(next);
-      userCityRef.current = city;
-      setUserCity(city);
-      setCityHeroIndex(0);
-      setCoords(nextCoords);
-      closeLocationMenu();
-      // Defer list rewrites so the dropdown close animation isn't blocked.
-      startTransition(() => {
-        try {
-          setDeals((prev) =>
-            Array.isArray(prev) && prev.length
-              ? sortDealsByDistance(applyHaversineDistances(prev, nextCoords))
-              : prev
-          );
-          setNearYouCards((prev) =>
-            Array.isArray(prev) && prev.length
-              ? applyHaversineDistances(prev, nextCoords)
-              : prev
-          );
-          setHotOfferCards((prev) =>
-            Array.isArray(prev) && prev.length
-              ? applyHaversineDistances(prev, nextCoords)
-              : prev
-          );
-        } catch {
-          // Keep previous carousels if distance rewrite fails.
-        }
+      pendingRegionCommitRef.current = next;
+      // Close first; commit city only after the Modal has unmounted so Android
+      // doesn't rebuild the home tree while tearing down the picker.
+      closeLocationMenu(() => {
+        const pending = pendingRegionCommitRef.current;
+        pendingRegionCommitRef.current = null;
+        if (pending) commitRegionCity(pending);
       });
-      // Persist off the critical path so the UI feels instant.
-      void setActiveCustomLocationId(null);
-      void setRegionSelection(next);
-      // Soft home refresh for the new coords runs via the coords effect —
-      // no full catalog invalidate / pull-to-refresh spinner.
     },
-    [closeLocationMenu]
+    [closeLocationMenu, commitRegionCity]
   );
 
   const selectRegionCity = useCallback(
@@ -5326,17 +5375,6 @@ export default function HomeScreen() {
         <Text style={styles.homeHeroTitle}>{homeKommunLabel}</Text>
       </Pressable>
 
-      <LocationMenuModal
-        mounted={locationMenuMounted}
-        headerInset={homeHeaderInset}
-        backdropStyle={locationMenuBackdropStyle}
-        dropdownStyle={locationMenuDropdownStyle}
-        selectedLan={regionSelection?.lan ?? null}
-        selectedCity={regionSelection?.city ?? null}
-        picking={locationPicking}
-        onClose={closeLocationMenu}
-        onSelectCity={handleSelectLocationCity}
-      />
     </View>
   );
 
@@ -5814,6 +5852,9 @@ export default function HomeScreen() {
           onScroll={onHomeScroll}
           scrollEventThrottle={16}
           drawDistance={Platform.OS === 'android' ? 320 : 480}
+          // City swaps rewrite many rows above the viewport; keep MVCP off to
+          // avoid FlashList native crashes while section keys churn.
+          maintainVisibleContentPosition={{ disabled: true }}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
@@ -5826,6 +5867,17 @@ export default function HomeScreen() {
         />
       </Reanimated.View>
       {renderSearchOverlay()}
+      <LocationMenuModal
+        mounted={locationMenuMounted}
+        headerInset={homeHeaderInset}
+        backdropStyle={locationMenuBackdropStyle}
+        dropdownStyle={locationMenuDropdownStyle}
+        selectedLan={regionSelection?.lan ?? null}
+        selectedCity={regionSelection?.city ?? null}
+        picking={locationPicking}
+        onClose={() => closeLocationMenu()}
+        onSelectCity={handleSelectLocationCity}
+      />
     </View>
   );
 }

@@ -195,7 +195,14 @@ function LocationMenuContent({
 
 function LocationMenuModalComponent({ mounted, onClose, ...rest }: LocationMenuModalProps) {
   return (
-    <Modal visible={mounted} transparent animationType="none" onRequestClose={onClose}>
+    <Modal
+      visible={mounted}
+      transparent
+      animationType="none"
+      statusBarTranslucent
+      navigationBarTranslucent
+      onRequestClose={onClose}
+    >
       {mounted ? <LocationMenuContent onClose={onClose} {...rest} /> : null}
     </Modal>
   );

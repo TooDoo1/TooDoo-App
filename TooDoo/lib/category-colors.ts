@@ -129,8 +129,8 @@ export function getCategoryLabelsForItem(item: CategoryLike): string[] {
   const labels: string[] = [];
   const seen = new Set<string>();
 
-  const push = (raw?: string) => {
-    const name = (raw ?? '').trim();
+  const push = (raw?: unknown) => {
+    const name = typeof raw === 'string' ? raw.trim() : '';
     if (!name) return;
     const key = name.toLocaleLowerCase('sv-SE');
     if (seen.has(key)) return;

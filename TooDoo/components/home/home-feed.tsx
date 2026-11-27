@@ -331,7 +331,9 @@ function cardPriceLabel(card: HomeFeedCard): string | null {
 function cardCategoryTagLabel(card: HomeFeedCard): string | null {
   if (card.resultKind === 'event') return 'Evenemang';
   const labels = getCategoryLabelsForItem(card);
-  return labels[0] ?? card.categoryName?.trim() ?? null;
+  const categoryName =
+    typeof card.categoryName === 'string' ? card.categoryName.trim() : '';
+  return labels[0] ?? (categoryName || null);
 }
 
 /** Place meta under the title: hours, then price · distance · subcategory. */
@@ -1785,7 +1787,6 @@ export function HomePosterCarousel({
       <ScrollView
         ref={rail.scrollRef as RefObject<ScrollView>}
         horizontal
-        removeClippedSubviews={Platform.OS === 'android'}
         nestedScrollEnabled
         directionalLockEnabled={Platform.OS === 'ios'}
         decelerationRate={Platform.OS === 'android' ? 0.992 : 'normal'}
@@ -1848,7 +1849,6 @@ export function HomeEventTickets({
         horizontal
         nestedScrollEnabled
         directionalLockEnabled={Platform.OS === 'ios'}
-        removeClippedSubviews
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: HOME_PAGE_PAD }}
         contentOffset={rail.contentOffset}
