@@ -33,9 +33,13 @@ import { getStackScreenOptionsWithoutSwipeBack, getSwipeableStackScreenOptions }
 import { uiTheme } from '@/lib/ui-theme';
 import { warmBusinessMapDuringStartup } from '@/lib/warm-business-map';
 import { warmHomeScreenDuringStartup } from '@/lib/warm-home-screen';
+import { installDebugCrashHooks } from '@/lib/debug-session-log';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 applyAppTextDefaults();
+// #region agent log
+installDebugCrashHooks();
+// #endregion
 
 /** Hard cap — Android used to sit on a blank WebView splash for the full 12s. */
 /** Android: keep the hard cap short — warmHome releases earlier when data is ready. */

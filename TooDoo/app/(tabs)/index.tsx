@@ -116,6 +116,7 @@ import {
 import { staticCoordsForCity } from '@/lib/sweden-city-coords';
 import { geocodeQueryForCity } from '@/lib/sweden-regions';
 import { LocationMenuModal } from '@/components/home/location-menu-modal';
+import { dbgLog } from '@/lib/debug-session-log';
 import {
   EVENT_FEED_DAYS,
   HOME_EVENT_TICKET_COUNT,
@@ -209,6 +210,10 @@ import {
   persistLocalRecentSearches,
   prependLocalRecentSearch,
 } from '@/lib/search-history';
+
+// Stable ref — inline `{ disabled: true }` recreated every render and made
+// FlashList's layout effect call setState in a loop (Maximum update depth).
+const HOME_FLASH_LIST_MVCP = { disabled: true } as const;
 
 // Reanimated's createAnimatedComponent erases FlashList generics — widen for JSX.
 const ReanimatedFlashList = Reanimated.createAnimatedComponent(FlashList) as React.ComponentType<
@@ -1999,6 +2004,14 @@ export default function HomeScreen() {
     let cancelled = false;
     setCityHeroIndex(0);
     const cached = peekCityImageUris(homeKommunLabel);
+    // #region agent log
+    dbgLog(
+      'index.tsx:heroCityEffect',
+      'hero city changed',
+      { city: homeKommunLabel, cached: cached?.length ?? 0 },
+      'D'
+    );
+    // #endregion
     // Keep the previous city's hero until the next one is ready — clearing to []
     // flashed a blank hero and remounted the location blur on every swap.
     if (cached?.length) {
@@ -2010,11 +2023,27 @@ export default function HomeScreen() {
       .then((uris) => {
         if (cancelled) return;
         const nextUris = Array.isArray(uris) ? uris.filter(Boolean) : [];
+        // #region agent log
+        dbgLog(
+          'index.tsx:heroCityEffect:fetched',
+          'hero uris fetched',
+          { city: homeKommunLabel, count: nextUris.length },
+          'D'
+        );
+        // #endregion
         setCityHeroUris(nextUris);
         setCityHeroIndex(0);
         if (nextUris.length) schedulePrefetchImageUris(nextUris);
       })
-      .catch(() => {
+      .catch((error) => {
+        // #region agent log
+        dbgLog(
+          'index.tsx:heroCityEffect:error',
+          'hero fetch failed',
+          { city: homeKommunLabel, err: error instanceof Error ? error.message : String(error) },
+          'D'
+        );
+        // #endregion
         // Keep previous hero on failure — never clear to a crashing empty state mid-swap.
       });
 
@@ -3017,6 +3046,14 @@ export default function HomeScreen() {
       void (async () => {
         try {
           const eventCity = resolveEventFeedCity(userCityRef.current, coords);
+          // #region agent log
+          dbgLog(
+            'index.tsx:softRefresh:start',
+            'soft refresh fetch start',
+            { eventCity, lat: coords.lat, lng: coords.lng, gen: thisRequest },
+            'B'
+          );
+          // #endregion
           const data = await fetchHomeScreenData({
             token,
             coords,
@@ -3036,6 +3073,22 @@ export default function HomeScreen() {
           const nextNear = Array.isArray(data.nearYouCards) ? data.nearYouCards : [];
           const nextHot = Array.isArray(data.hotOfferCards) ? data.hotOfferCards : [];
           const nextFilters = Array.isArray(data.categoryFilters) ? data.categoryFilters : [];
+          // #region agent log
+          dbgLog(
+            'index.tsx:softRefresh:paint',
+            'soft refresh painting',
+            {
+              source: data.source,
+              deals: nextDeals.length,
+              near: nextNear.length,
+              hot: nextHot.length,
+              filters: nextFilters.length,
+              events: Array.isArray(data.events) ? data.events.length : -1,
+              cityImages: Array.isArray(data.cityImageUris) ? data.cityImageUris.length : -1,
+            },
+            'B'
+          );
+          // #endregion
           const dealsWithDistance = sortDealsByDistance(
             applyHaversineDistances(nextDeals, coords)
           );
@@ -3110,7 +3163,21 @@ export default function HomeScreen() {
           });
           if (isStale()) return;
           setDeals(sortDealsByDistance(enriched));
-        } catch {
+        } catch (error) {
+          // #region agent log
+          dbgLog(
+            'index.tsx:softRefresh:catch',
+            'soft refresh threw',
+            {
+              err: error instanceof Error ? error.message : String(error),
+              stack:
+                error instanceof Error && typeof error.stack === 'string'
+                  ? error.stack.slice(0, 500)
+                  : undefined,
+            },
+            'B'
+          );
+          // #endregion
           // Keep whatever the first load already painted — never crash the city swap.
         } finally {
           if (!isStale()) {
@@ -4227,6 +4294,38 @@ export default function HomeScreen() {
     weekendStripCards.length,
   ]);
 
+  // #region agent log
+  useEffect(() => {
+    const keys = homeFeedRows.map((row) => row.key);
+    const dupes = keys.filter((key, index) => keys.indexOf(key) !== index);
+    dbgLog(
+      'index.tsx:homeFeedRows',
+      'feed rows updated',
+      {
+        count: homeFeedRows.length,
+        kinds: homeFeedRows.map((row) => row.kind).slice(0, 24),
+        dupes: dupes.slice(0, 8),
+        city: userCityRef.current,
+      },
+      'C'
+    );
+  }, [homeFeedRows]);
+  // #endregion
+
+  const homeFlashListContentStyle = useMemo(
+    () => ({
+      // Spacer matches full expanded header so greeting collapse stays in sync with scroll.
+      paddingTop: homeHeroBandHeight + searchPanelHeight,
+      paddingBottom: scrollBottomPadding,
+      paddingHorizontal: HOME_PAGE_PAD,
+      backgroundColor: homeScreenBg,
+      ...(Platform.OS === 'web'
+        ? ({ width: '100%' as const, alignSelf: 'stretch' as const } as const)
+        : null),
+    }),
+    [homeHeroBandHeight, homeScreenBg, scrollBottomPadding, searchPanelHeight]
+  );
+
   // Sticky Utforska needs a Y before the explore row mounts (virtualized).
   useEffect(() => {
     if (showCommittedSearchResults || showCommittedSearchPrompt) return;
@@ -4633,12 +4732,28 @@ export default function HomeScreen() {
   const visiblePopularSearches = popularSearches.slice(0, 10);
 
   const finishCloseLocationMenu = useCallback(() => {
+    // #region agent log
+    dbgLog(
+      'index.tsx:finishCloseLocationMenu',
+      'menu close finished',
+      { hasAfterClose: Boolean(locationMenuCloseCallbackRef.current) },
+      'A'
+    );
+    // #endregion
     setLocationMenuMounted(false);
     const afterClose = locationMenuCloseCallbackRef.current;
     locationMenuCloseCallbackRef.current = null;
     if (!afterClose) return;
     // Let the Modal native view finish unmounting before rebuilding home.
     InteractionManager.runAfterInteractions(() => {
+      // #region agent log
+      dbgLog(
+        'index.tsx:finishCloseLocationMenu:afterInteractions',
+        'running afterClose commit',
+        {},
+        'A'
+      );
+      // #endregion
       afterClose();
     });
   }, []);
@@ -4702,6 +4817,19 @@ export default function HomeScreen() {
   const commitRegionCity = useCallback((next: RegionSelection) => {
     if (!isPlausibleSwedenCoordinate(next.lat, next.lng)) return;
     const nextCoords = { lat: next.lat, lng: next.lng };
+    // #region agent log
+    dbgLog(
+      'index.tsx:commitRegionCity',
+      'committing region city',
+      {
+        city: next.city,
+        lan: next.lan,
+        lat: next.lat,
+        lng: next.lng,
+      },
+      'A'
+    );
+    // #endregion
     // Commit city + coords together after the menu has unmounted so the
     // Modal teardown doesn't race a full home-screen rebuild on Android.
     setRegionSelectionState(next);
@@ -4744,6 +4872,14 @@ export default function HomeScreen() {
     (lan: string, city: string, lat: number, lng: number) => {
       if (!isPlausibleSwedenCoordinate(lat, lng)) return;
       const next: RegionSelection = { lan, city, lat, lng };
+      // #region agent log
+      dbgLog(
+        'index.tsx:applyRegionCity',
+        'city selected — closing menu before commit',
+        { lan, city, lat, lng },
+        'A'
+      );
+      // #endregion
       pendingRegionCommitRef.current = next;
       // Close first; commit city only after the Modal has unmounted so Android
       // doesn't rebuild the home tree while tearing down the picker.
@@ -5794,8 +5930,10 @@ export default function HomeScreen() {
           <View
             style={{ zIndex: 1, backgroundColor: homeScreenBg }}
             onLayout={(e) => {
-              const h = e.nativeEvent.layout.height;
-              if (h > 40) setSearchPanelHeight(h);
+              const h = Math.round(e.nativeEvent.layout.height);
+              if (h <= 40) return;
+              // Avoid layout↔padding feedback loops into FlashList.
+              setSearchPanelHeight((prev) => (prev === h ? prev : h));
             }}
           >
             {renderHomeSearchHeader()}
@@ -5838,23 +5976,17 @@ export default function HomeScreen() {
           data={homeFeedRows}
           nativeID="home-scroll"
           style={[styles.scroll, { backgroundColor: homeHeaderMeshBase, flex: 1 }]}
-          contentContainerStyle={{
-            // Spacer matches full expanded header so greeting collapse stays in sync with scroll.
-            paddingTop: homeHeroBandHeight + searchPanelHeight,
-            paddingBottom: scrollBottomPadding,
-            paddingHorizontal: HOME_PAGE_PAD,
-            backgroundColor: homeScreenBg,
-            ...(Platform.OS === 'web' ? { width: '100%' as const, alignSelf: 'stretch' as const } : null),
-          }}
+          contentContainerStyle={homeFlashListContentStyle}
           renderItem={renderHomeFeedRow}
           keyExtractor={(item) => item.key}
           getItemType={(item) => item.kind}
           onScroll={onHomeScroll}
           scrollEventThrottle={16}
           drawDistance={Platform.OS === 'android' ? 320 : 480}
-          // City swaps rewrite many rows above the viewport; keep MVCP off to
-          // avoid FlashList native crashes while section keys churn.
-          maintainVisibleContentPosition={{ disabled: true }}
+          // City swaps rewrite many rows above the viewport; keep MVCP off.
+          // MUST be a stable object — a fresh `{ disabled: true }` each render
+          // caused Maximum update depth exceeded inside FlashList layout.
+          maintainVisibleContentPosition={HOME_FLASH_LIST_MVCP}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
