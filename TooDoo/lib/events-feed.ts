@@ -159,10 +159,11 @@ export function resolveEventFeedCity(
 ): string | undefined {
   const trimmed = city?.trim();
   if (trimmed) return trimmed;
+  // ~5–6 km — wide enough for GPS + picker points around Helsingborg.
   if (
     coords &&
-    Math.abs(coords.lat - HELSINGBORG_COORDS.lat) < 0.02 &&
-    Math.abs(coords.lng - HELSINGBORG_COORDS.lng) < 0.02
+    Math.abs(coords.lat - HELSINGBORG_COORDS.lat) < 0.05 &&
+    Math.abs(coords.lng - HELSINGBORG_COORDS.lng) < 0.05
   ) {
     return 'Helsingborg';
   }

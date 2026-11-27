@@ -5,7 +5,8 @@ import * as Location from 'expo-location';
 export type Coords = { lat: number; lng: number };
 
 /** Default place when GPS isn't shared and no custom Plats is selected. */
-export const HELSINGBORG_COORDS: Coords = { lat: 56.0465, lng: 12.715 };
+/** City-center coords (match bundled picker / static city table — not the old inland point). */
+export const HELSINGBORG_COORDS: Coords = { lat: 56.04673, lng: 12.69437 };
 
 /** Rough bounds for southern Sweden — rejects null island and obvious bad data. */
 export function isPlausibleSwedenCoordinate(lat: number, lng: number) {
@@ -223,6 +224,14 @@ export function applyHaversineDistances<T extends DistanceCard>(
   cards: T[],
   userCoords: Coords
 ): T[] {
+  if (!Array.isArray(cards) || cards.length === 0) return Array.isArray(cards) ? cards : [];
+  if (
+    !userCoords ||
+    !Number.isFinite(userCoords.lat) ||
+    !Number.isFinite(userCoords.lng)
+  ) {
+    return cards;
+  }
   return cards.map((card) => {
     const lat = card.latitude;
     const lng = card.longitude;

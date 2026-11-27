@@ -12,24 +12,29 @@ import { fetchCategoriesCatalog } from '@/lib/catalog-cache';
 import {
   fetchCityApprovedBusinesses,
   fetchMapPins,
+  fetchNearbyBusinessCards,
   MAP_BUSINESS_CANDIDATE_CAP,
+  NEARBY_RADIUS_M,
 } from '@/lib/nearby-businesses';
 import { resolveEventFeedCity } from '@/lib/events-feed';
 import { rememberCategories } from '@/lib/category-colors';
 import {
+  getHomeEventsCacheCity,
   getHomeNearbyBusinessesCache,
   peekHomeNearbyBusinessesCache,
   setHomeNearbyBusinessesCache,
   type NearbyBusinessCard,
 } from '@/lib/home-list-cache';
+import { loadRegionSelection } from '@/lib/region-selection';
+import { nearestCityNameFromCoords } from '@/lib/sweden-city-coords';
 import {
   getOrderBusinessId,
   isActiveOffer,
   parseOrdersList,
 } from '@/lib/offers';
 
-/** Default map center — Helsingborg city (slightly inland so the coast isn’t the middle). */
-export const MAP_DEFAULT_CENTER = { lat: 56.0465, lng: 12.715 } as const;
+/** Default map center — Helsingborg city center. */
+export const MAP_DEFAULT_CENTER = { lat: 56.04673, lng: 12.69437 } as const;
 
 /**
  * Far-out budget — keep this low on Android so custom pins stay snappy.
@@ -579,6 +584,69 @@ export function hasMapPinCoords(business: MapBusiness) {
   );
 }
 
+async function resolveCityForMap(
+  coords: Coords | null,
+  explicit?: string | null
+): Promise<string | undefined> {
+  const trimmed = explicit?.trim();
+  if (trimmed) return trimmed;
+
+  try {
+    const region = await loadRegionSelection();
+    if (region?.city?.trim()) return region.city.trim();
+  } catch {
+    // ignore storage failures
+  }
+
+  const fromFeed = resolveEventFeedCity(undefined, coords);
+  if (fromFeed) return fromFeed;
+
+  const cached = getHomeEventsCacheCity()?.trim();
+  if (cached) return cached;
+
+  if (coords) {
+    const nearest = nearestCityNameFromCoords(coords, 30);
+    if (nearest) return nearest;
+  }
+
+  return undefined;
+}
+
+function mapPinCardsToBusinesses(
+  pins: Array<{
+    id: string;
+    name: string;
+    latitude: number;
+    longitude: number;
+    imageUrl?: string;
+    hasOffer?: boolean;
+    hasEvent?: boolean;
+    city?: string;
+    distanceKm?: number;
+  }>,
+  coords: Coords | null,
+  fallbackCity?: string
+): MapBusiness[] {
+  return sortMapBusinesses(
+    pins.map((pin) => ({
+      id: pin.id,
+      name: pin.name,
+      imageUri: normalizeImageUrl(pin.imageUrl) ?? undefined,
+      address: pin.city ?? fallbackCity ?? '',
+      latitude: pin.latitude,
+      longitude: pin.longitude,
+      distanceKm:
+        typeof pin.distanceKm === 'number' && Number.isFinite(pin.distanceKm)
+          ? pin.distanceKm
+          : coords != null
+            ? haversineKm(coords.lat, coords.lng, pin.latitude, pin.longitude)
+            : undefined,
+      hasOffer: Boolean(pin.hasOffer),
+      hasEvent: Boolean(pin.hasEvent),
+    }))
+  );
+}
+
 export async function loadMapBusinesses(
   coords: Coords | null,
   onUpdate?: (businesses: MapBusiness[]) => void,
@@ -594,8 +662,7 @@ export async function loadMapBusinesses(
   };
 
   try {
-    const city =
-      options?.city?.trim() || resolveEventFeedCity(options?.city, coords) || undefined;
+    const city = await resolveCityForMap(coords, options?.city);
 
     // Prefer pin-only endpoint — no fat /business, no /orders activity fan-out.
     if (city) {
@@ -605,21 +672,50 @@ export async function loadMapBusinesses(
           take: MAP_BUSINESS_CANDIDATE_CAP,
         });
         if (pins.length > 0) {
-          const mapped: MapBusiness[] = pins.map((pin) => ({
-            id: pin.id,
-            name: pin.name,
-            imageUri: normalizeImageUrl(pin.imageUrl) ?? undefined,
-            address: city,
-            latitude: pin.latitude,
-            longitude: pin.longitude,
-            distanceKm:
-              coords != null
-                ? haversineKm(coords.lat, coords.lng, pin.latitude, pin.longitude)
-                : undefined,
-            hasOffer: Boolean(pin.hasOffer),
-            hasEvent: Boolean(pin.hasEvent),
-          }));
-          const current = sortMapBusinesses(mapped);
+          const current = mapPinCardsToBusinesses(pins, coords, city);
+          onUpdate?.(current);
+          const pinCards = current.filter(hasMapPinCoords).map(toNearbyCard);
+          if (pinCards.length > 0) {
+            setHomeNearbyBusinessesCache(pinCards);
+          }
+          return current;
+        }
+      } catch {
+        // Fall through to nearby / city-cards /business.
+      }
+    }
+
+    // Coords without a usable city (or empty pin list) — nearby still finds local companies.
+    if (coords) {
+      try {
+        const nearby = await fetchNearbyBusinessCards({
+          coords,
+          take: MAP_BUSINESS_CANDIDATE_CAP,
+          radiusM: Math.max(NEARBY_RADIUS_M, 12_000),
+        });
+        const withPins = nearby.filter(
+          (card) =>
+            typeof card.latitude === 'number' &&
+            Number.isFinite(card.latitude) &&
+            typeof card.longitude === 'number' &&
+            Number.isFinite(card.longitude)
+        );
+        if (withPins.length > 0) {
+          const current = mapPinCardsToBusinesses(
+            withPins.map((card) => ({
+              id: card.id,
+              name: card.name,
+              latitude: card.latitude as number,
+              longitude: card.longitude as number,
+              imageUrl: card.imageUrl,
+              hasOffer: card.hasOffer,
+              hasEvent: card.hasEvent,
+              city: card.city,
+              distanceKm: card.distanceKm,
+            })),
+            coords,
+            city
+          );
           onUpdate?.(current);
           const pinCards = current.filter(hasMapPinCoords).map(toNearbyCard);
           if (pinCards.length > 0) {
@@ -637,6 +733,7 @@ export async function loadMapBusinesses(
         city,
         coords,
         take: MAP_BUSINESS_CANDIDATE_CAP,
+        preferNearby: Boolean(coords),
       }),
       fetchCategoriesCatalog().catch(() => [] as unknown[]),
     ]);

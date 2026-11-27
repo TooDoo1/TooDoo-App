@@ -81,24 +81,37 @@ function parseBusinessesPayload(json: unknown): unknown[] {
   return [];
 }
 
+function asFiniteNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : undefined;
+  }
+  return undefined;
+}
+
 export function parseCityCards(json: unknown): CityCard[] {
   const out: CityCard[] = [];
   parseBusinessesPayload(json).forEach((row, index) => {
     const item = row as Record<string, unknown>;
     const id = item?.id ?? item?._id;
     if (id == null) return;
+    const location =
+      item.location && typeof item.location === 'object'
+        ? (item.location as Record<string, unknown>)
+        : null;
     const lat =
-      typeof item.latitude === 'number'
-        ? item.latitude
-        : typeof item.lat === 'number'
-          ? item.lat
-          : undefined;
+      asFiniteNumber(item.latitude) ??
+      asFiniteNumber(item.lat) ??
+      asFiniteNumber(location?.latitude) ??
+      asFiniteNumber(location?.lat);
     const lng =
-      typeof item.longitude === 'number'
-        ? item.longitude
-        : typeof item.lng === 'number'
-          ? item.lng
-          : undefined;
+      asFiniteNumber(item.longitude) ??
+      asFiniteNumber(item.lng) ??
+      asFiniteNumber(item.lon) ??
+      asFiniteNumber(location?.longitude) ??
+      asFiniteNumber(location?.lng) ??
+      asFiniteNumber(location?.lon);
     const categoryFromNested =
       item.category &&
       typeof item.category === 'object' &&

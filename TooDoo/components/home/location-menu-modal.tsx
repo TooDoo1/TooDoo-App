@@ -218,8 +218,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: HOME_PAGE_PAD,
     maxHeight: '58%',
     overflow: 'hidden',
-    // web transform-origin for scaleY dropdown feel
-    transformOrigin: 'top center',
   },
   headerRow: {
     flexDirection: 'row',

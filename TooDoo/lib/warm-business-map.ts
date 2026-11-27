@@ -1,5 +1,6 @@
 import { loadMapBusinesses } from '@/lib/business-map-data';
 import { getEffectiveUserCoordsIfGranted } from '@/lib/geo';
+import { loadRegionSelection } from '@/lib/region-selection';
 
 let warmupStarted = false;
 
@@ -12,8 +13,12 @@ export function warmBusinessMapDuringStartup(): void {
 	if (warmupStarted) return;
 	warmupStarted = true;
 
-	void getEffectiveUserCoordsIfGranted()
-		.catch(() => null)
-		.then((coords) => loadMapBusinesses(coords))
+	void Promise.all([
+		getEffectiveUserCoordsIfGranted().catch(() => null),
+		loadRegionSelection().catch(() => null),
+	])
+		.then(([coords, region]) =>
+			loadMapBusinesses(coords, undefined, { city: region?.city })
+		)
 		.catch(() => {});
 }

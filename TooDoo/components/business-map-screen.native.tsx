@@ -48,7 +48,10 @@ import {
   HELSINGBORG_COORDS,
   type Coords,
 } from '@/lib/geo';
-import { loadRegionSelection } from '@/lib/region-selection';
+import {
+  loadRegionSelection,
+  subscribeRegionSelection,
+} from '@/lib/region-selection';
 import { googleMapStyleForMode } from '@/lib/google-map-styles';
 import { mapShellBackground } from '@/lib/map-style';
 import {
@@ -265,9 +268,9 @@ export default function BusinessMapScreen() {
   const businessesRef = useRef(businesses);
   businessesRef.current = businesses;
 
-  const refreshForCoords = useCallback(async (next: Coords | null) => {
+  const refreshForCoords = useCallback(async (next: Coords | null, force = false) => {
     if (!next) return;
-    if (sameCoords(loadedCoordsRef.current, next)) {
+    if (!force && sameCoords(loadedCoordsRef.current, next)) {
       setUserCoords((prev) => (sameCoords(prev, next) ? prev : next));
       return;
     }
@@ -285,11 +288,16 @@ export default function BusinessMapScreen() {
     );
     const gen = ++loadGenRef.current;
     try {
-      const mapped = await loadMapBusinesses(next, (partial) => {
-        if (loadGenRef.current !== gen) return;
-        setBusinesses(partial);
-        setPinsLoading(false);
-      });
+      const region = await loadRegionSelection().catch(() => null);
+      const mapped = await loadMapBusinesses(
+        next,
+        (partial) => {
+          if (loadGenRef.current !== gen) return;
+          setBusinesses(partial);
+          setPinsLoading(false);
+        },
+        { city: region?.city }
+      );
       if (loadGenRef.current !== gen) return;
       setBusinesses(mapped);
     } catch {
@@ -306,7 +314,8 @@ export default function BusinessMapScreen() {
       const granted = await getEffectiveUserCoordsIfGranted().catch(() => null);
       const seed = granted ?? HELSINGBORG_COORDS;
       if (cancelled) return;
-      await refreshForCoords(seed);
+      // Force so a stale empty warmup (no city) doesn't skip the real city pin load.
+      await refreshForCoords(seed, true);
 
       if (granted || cancelled) return;
       const prompted = await getEffectiveUserCoords().catch(() => null);
@@ -324,7 +333,7 @@ export default function BusinessMapScreen() {
           if (state.activeId) {
             const active = state.locations.find((item) => item.id === state.activeId);
             if (active) {
-              await refreshForCoords({ lat: active.lat, lng: active.lng });
+              await refreshForCoords({ lat: active.lat, lng: active.lng }, true);
               return;
             }
           }
@@ -332,8 +341,17 @@ export default function BusinessMapScreen() {
             (await getUserCoordsIfGranted().catch(() => null)) ??
             (await getUserCoords().catch(() => null)) ??
             HELSINGBORG_COORDS;
-          await refreshForCoords(gps);
+          await refreshForCoords(gps, true);
         })();
+      }),
+    [refreshForCoords]
+  );
+
+  useEffect(
+    () =>
+      subscribeRegionSelection((selection) => {
+        if (!selection) return;
+        void refreshForCoords({ lat: selection.lat, lng: selection.lng }, true);
       }),
     [refreshForCoords]
   );

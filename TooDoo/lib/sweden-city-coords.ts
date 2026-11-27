@@ -303,3 +303,37 @@ export function staticCoordsForCity(lan: string, city: string): CityCoords | nul
   const key = `${lan.trim().toLocaleLowerCase('sv-SE')}|${city.trim().toLocaleLowerCase('sv-SE')}`;
   return SWEDEN_CITY_COORDS[key] ?? null;
 }
+
+/**
+ * Nearest bundled city name within maxKm (default ~25 km).
+ * Used when the map has coords but no explicit region/city string.
+ */
+export function nearestCityNameFromCoords(
+  coords: CityCoords,
+  maxKm = 25
+): string | null {
+  let bestName: string | null = null;
+  let bestKm = Number.POSITIVE_INFINITY;
+  for (const [key, point] of Object.entries(SWEDEN_CITY_COORDS)) {
+    const dLat = (coords.lat - point.lat) * 111.32;
+    const midLat = ((coords.lat + point.lat) / 2) * (Math.PI / 180);
+    const dLng = (coords.lng - point.lng) * 111.32 * Math.cos(midLat);
+    const km = Math.hypot(dLat, dLng);
+    if (km < bestKm) {
+      bestKm = km;
+      // key is "län|city"
+      const city = key.split('|')[1];
+      bestName = city
+        ? city
+            .split(' ')
+            .map((part) =>
+              part
+                ? part.charAt(0).toLocaleUpperCase('sv-SE') + part.slice(1)
+                : part
+            )
+            .join(' ')
+        : null;
+    }
+  }
+  return bestKm <= maxKm ? bestName : null;
+}

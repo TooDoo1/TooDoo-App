@@ -552,6 +552,7 @@ function sameCoords(
 }
 
 function sortDealsByDistance(deals: CardItem[]): CardItem[] {
+  if (!Array.isArray(deals) || deals.length === 0) return Array.isArray(deals) ? deals : [];
   return [...deals].sort((a, b) => {
     const da = typeof a.distanceKm === 'number' ? a.distanceKm : Number.POSITIVE_INFINITY;
     const db = typeof b.distanceKm === 'number' ? b.distanceKm : Number.POSITIVE_INFINITY;
@@ -1229,26 +1230,28 @@ function HomeHeaderHeroFill({
 }) {
   const [index, setIndex] = useState(0);
   const uris = useMemo(
-    () => imageUris.filter(Boolean).slice(0, 3),
+    () => imageUris.filter((uri): uri is string => typeof uri === 'string' && uri.length > 0).slice(0, 3),
     [imageUris]
   );
   const uriKey = uris.join('|');
   const slides = uris.length > 0 ? uris : ([null] as (string | null)[]);
+  const safeIndex = slides.length > 0 ? index % slides.length : 0;
 
   useEffect(() => {
     setIndex(0);
   }, [uriKey]);
 
   useEffect(() => {
-    onActiveIndexChange?.(index);
-  }, [index, onActiveIndexChange]);
+    // Avoid notifying parent with a stale out-of-range index during city swaps.
+    onActiveIndexChange?.(safeIndex);
+  }, [safeIndex, onActiveIndexChange, uriKey]);
 
   const heroFocused = useIsFocused();
   useEffect(() => {
     if (!heroFocused) return;
     if (slides.length <= 1 || (slides.length === 1 && slides[0] == null)) return;
     const id = setInterval(() => {
-      setIndex((prev) => (prev + 1) % slides.length);
+      setIndex((prev) => (prev + 1) % Math.max(slides.length, 1));
     }, HOME_HERO_ROTATE_MS);
     return () => clearInterval(id);
   }, [heroFocused, slides.length, uriKey]);
@@ -1260,7 +1263,7 @@ function HomeHeaderHeroFill({
       style={[StyleSheet.absoluteFillObject, { overflow: 'hidden', backgroundColor: fadeTo }]}
     >
       {slides.map((uri, i) => {
-        const active = i === index % slides.length;
+        const active = i === safeIndex;
         if (Platform.OS === 'web') {
           if (!uri) {
             return (
@@ -1967,31 +1970,37 @@ export default function HomeScreen() {
   );
   const [cityHeroIndex, setCityHeroIndex] = useState(0);
   const onCityHeroIndexChange = useCallback((next: number) => {
-    setCityHeroIndex(next);
+    setCityHeroIndex((prev) => (prev === next ? prev : Math.max(0, next)));
   }, []);
   /** Remount the location blur whenever the hero photo under it changes. */
+  const safeCityHeroIndex =
+    cityHeroUris.length > 0 ? cityHeroIndex % cityHeroUris.length : 0;
   const locationBlurKey =
-    cityHeroUris[cityHeroIndex] ??
+    cityHeroUris[safeCityHeroIndex] ??
     cityHeroUris[0] ??
     `city:${homeKommunLabel}`;
 
   useEffect(() => {
     let cancelled = false;
+    setCityHeroIndex(0);
     const cached = peekCityImageUris(homeKommunLabel);
     // Keep the previous city's hero until the next one is ready — clearing to []
     // flashed a blank hero and remounted the location blur on every swap.
     if (cached?.length) {
       setCityHeroUris(cached);
-      setCityHeroIndex(0);
       schedulePrefetchImageUris(cached);
     }
 
-    void fetchCityImageUris(homeKommunLabel, 3).then((uris) => {
-      if (cancelled) return;
-      setCityHeroUris(uris);
-      setCityHeroIndex(0);
-      if (uris.length) schedulePrefetchImageUris(uris);
-    });
+    void fetchCityImageUris(homeKommunLabel, 3)
+      .then((uris) => {
+        if (cancelled) return;
+        setCityHeroUris(Array.isArray(uris) ? uris.filter(Boolean) : []);
+        setCityHeroIndex(0);
+        if (uris.length) schedulePrefetchImageUris(uris);
+      })
+      .catch(() => {
+        // Keep previous hero on failure — never clear to a crashing empty state mid-swap.
+      });
 
     return () => {
       cancelled = true;
@@ -2838,22 +2847,27 @@ export default function HomeScreen() {
 
         if (isStale(thisRequest)) return;
 
-        if (data.cityImageUris?.length) {
-          setCityHeroUris(data.cityImageUris);
+        if (Array.isArray(data.cityImageUris) && data.cityImageUris.length) {
+          setCityHeroUris(data.cityImageUris.filter(Boolean));
+          setCityHeroIndex(0);
         }
 
+        const nextDeals = Array.isArray(data.deals) ? data.deals : [];
+        const nextNear = Array.isArray(data.nearYouCards) ? data.nearYouCards : [];
+        const nextHot = Array.isArray(data.hotOfferCards) ? data.hotOfferCards : [];
+        const nextFilters = Array.isArray(data.categoryFilters) ? data.categoryFilters : [];
         const dealsList = loadCoords
-          ? sortDealsByDistance(applyHaversineDistances(data.deals, loadCoords))
-          : data.deals;
+          ? sortDealsByDistance(applyHaversineDistances(nextDeals, loadCoords))
+          : nextDeals;
         const nearYouFromApi = loadCoords
-          ? applyHaversineDistances(data.nearYouCards, loadCoords)
-          : data.nearYouCards;
+          ? applyHaversineDistances(nextNear, loadCoords)
+          : nextNear;
         const hotFromApi = loadCoords
-          ? applyHaversineDistances(data.hotOfferCards, loadCoords)
-          : data.hotOfferCards;
+          ? applyHaversineDistances(nextHot, loadCoords)
+          : nextHot;
 
         // Paint content immediately — don't wait for image settle to clear Laddar / splash.
-        setCategoryFilters(data.categoryFilters);
+        setCategoryFilters(nextFilters);
         setDeals(dealsList);
         setNearYouCards(nearYouFromApi);
         setHotOfferCards(hotFromApi);
@@ -2867,7 +2881,7 @@ export default function HomeScreen() {
         markDataReady();
 
         setHomeScreenSnapshot({
-          categoryFilters: data.categoryFilters,
+          categoryFilters: nextFilters,
           deals: dealsList,
           nearYouCards: nearYouFromApi,
           hotOfferCards: hotFromApi,
@@ -2996,23 +3010,28 @@ export default function HomeScreen() {
           setIsLoadingData(false);
           markDataReady();
 
-          if (data.cityImageUris?.length) {
-            setCityHeroUris(data.cityImageUris);
+          if (Array.isArray(data.cityImageUris) && data.cityImageUris.length) {
+            setCityHeroUris(data.cityImageUris.filter(Boolean));
+            setCityHeroIndex(0);
           }
 
           // Paint immediately with distances — don't wait for image settle.
+          const nextDeals = Array.isArray(data.deals) ? data.deals : [];
+          const nextNear = Array.isArray(data.nearYouCards) ? data.nearYouCards : [];
+          const nextHot = Array.isArray(data.hotOfferCards) ? data.hotOfferCards : [];
+          const nextFilters = Array.isArray(data.categoryFilters) ? data.categoryFilters : [];
           const dealsWithDistance = sortDealsByDistance(
-            applyHaversineDistances(data.deals, coords)
+            applyHaversineDistances(nextDeals, coords)
           );
-          const nearWithDistance = applyHaversineDistances(data.nearYouCards, coords);
-          const hotWithDistance = applyHaversineDistances(data.hotOfferCards, coords);
+          const nearWithDistance = applyHaversineDistances(nextNear, coords);
+          const hotWithDistance = applyHaversineDistances(nextHot, coords);
 
-          setCategoryFilters(data.categoryFilters);
+          setCategoryFilters(nextFilters);
           setDeals(dealsWithDistance);
           setNearYouCards(nearWithDistance);
           setHotOfferCards(hotWithDistance);
           setHomeScreenSnapshot({
-            categoryFilters: data.categoryFilters,
+            categoryFilters: nextFilters,
             deals: dealsWithDistance,
             nearYouCards: nearWithDistance,
             hotOfferCards: hotWithDistance,
@@ -3062,7 +3081,7 @@ export default function HomeScreen() {
           setNearYouCards(paintedNear);
           setHotOfferCards(paintedHot);
           setHomeScreenSnapshot({
-            categoryFilters: data.categoryFilters,
+            categoryFilters: nextFilters,
             deals: paintedDeals,
             nearYouCards: paintedNear,
             hotOfferCards: paintedHot,
@@ -3076,7 +3095,7 @@ export default function HomeScreen() {
           if (isStale()) return;
           setDeals(sortDealsByDistance(enriched));
         } catch {
-          // Keep whatever the first load already painted.
+          // Keep whatever the first load already painted — never crash the city swap.
         } finally {
           if (!isStale()) {
             setIsLoadingData(false);
@@ -3342,12 +3361,15 @@ export default function HomeScreen() {
     setIsLoadingExplore(true);
     exploreLoadingRef.current = true;
     try {
-      const { businesses, city, hasMore } = await fetchCityApprovedBusinesses({
+      const result = await fetchCityApprovedBusinesses({
         city: userCity,
         coords,
         take: UTFORSKA_BUSINESS_CAP,
         pageSize: NEARBY_PAGE_SIZE,
       });
+      const businesses = Array.isArray(result?.businesses) ? result.businesses : [];
+      const city = result?.city;
+      const hasMore = Boolean(result?.hasMore);
       exploreCityRef.current = city;
       exploreApiSkipRef.current = businesses.length;
       // Stop once we hit the hard cap — never grow past UTFORSKA_BUSINESS_CAP.
@@ -3365,12 +3387,8 @@ export default function HomeScreen() {
       exploreSourceRef.current = cardsFromCatalogBusinesses(scoped);
       paintExploreFromSource();
     } catch {
-      exploreSourceRef.current = [];
-      explorePoolRef.current = [];
-      exploreCursorRef.current = 0;
-      exploreApiSkipRef.current = 0;
+      // Keep previous Utforska cards if the city refetch fails mid-swap.
       exploreApiHasMoreRef.current = false;
-      setExploreCards([]);
     } finally {
       exploreLoadingRef.current = false;
       setIsLoadingExplore(false);
@@ -3558,10 +3576,15 @@ export default function HomeScreen() {
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     if (explorePoolBuiltOnceRef.current) {
-      // City or pull-to-refresh: refetch. Category chips are painted locally.
+      // City or pull-to-refresh: refetch after home soft-refresh settles a bit
+      // so we don't pile city-cards + /home work onto the same JS frame.
       timer = setTimeout(() => {
-        if (!cancelled) void rebuildExplorePool();
-      }, 350);
+        if (!cancelled) {
+          void rebuildExplorePool().catch(() => {
+            // Keep previous Utforska pool if the city refetch fails.
+          });
+        }
+      }, 700);
       return () => {
         cancelled = true;
         if (timer) clearTimeout(timer);
@@ -3815,8 +3838,8 @@ export default function HomeScreen() {
     const city =
       userCity?.trim() ||
       (coords &&
-      Math.abs(coords.lat - HELSINGBORG_COORDS.lat) < 0.02 &&
-      Math.abs(coords.lng - HELSINGBORG_COORDS.lng) < 0.02
+      Math.abs(coords.lat - HELSINGBORG_COORDS.lat) < 0.05 &&
+      Math.abs(coords.lng - HELSINGBORG_COORDS.lng) < 0.05
         ? 'Helsingborg'
         : undefined);
 
@@ -4330,13 +4353,20 @@ export default function HomeScreen() {
     // Start catalog load while the stack transition runs.
     void import('@/lib/business-map-data')
       .then(({ loadMapBusinesses }) =>
-        getEffectiveUserCoordsIfGranted()
-          .catch(() => null)
-          .then((c) => loadMapBusinesses(c ?? HELSINGBORG_COORDS))
+        Promise.all([
+          getEffectiveUserCoordsIfGranted().catch(() => null),
+          import('@/lib/region-selection').then((m) =>
+            m.loadRegionSelection().catch(() => null)
+          ),
+        ]).then(([c, region]) =>
+          loadMapBusinesses(c ?? coords ?? HELSINGBORG_COORDS, undefined, {
+            city: region?.city ?? userCity,
+          })
+        )
       )
       .catch(() => {});
     openMapFromHome();
-  }, [captureHomeScrollBeforeLeave, openMapFromHome]);
+  }, [captureHomeScrollBeforeLeave, coords, openMapFromHome, userCity]);
 
   const searchDropdownExpanded = showSearchTipsDropdown || isSearchDropdownMounted;
   const searchDropdownDividerColor = theme.isDark
@@ -4635,27 +4665,38 @@ export default function HomeScreen() {
 
   const applyRegionCity = useCallback(
     (lan: string, city: string, lat: number, lng: number) => {
+      if (!isPlausibleSwedenCoordinate(lat, lng)) return;
       const next: RegionSelection = { lan, city, lat, lng };
       const nextCoords = { lat, lng };
-      // Label + menu close stay synchronous so the chip updates immediately.
+      // Keep city + coords in sync immediately so soft-refresh / explore / events
+      // never race with a mismatched Helsingborg leftover coordinate.
       setRegionSelectionState(next);
       userCityRef.current = city;
       setUserCity(city);
+      setCityHeroIndex(0);
+      setCoords(nextCoords);
       closeLocationMenu();
       // Defer list rewrites so the dropdown close animation isn't blocked.
       startTransition(() => {
-        setDeals((prev) =>
-          prev.length
-            ? sortDealsByDistance(applyHaversineDistances(prev, nextCoords))
-            : prev
-        );
-        setNearYouCards((prev) =>
-          prev.length ? applyHaversineDistances(prev, nextCoords) : prev
-        );
-        setHotOfferCards((prev) =>
-          prev.length ? applyHaversineDistances(prev, nextCoords) : prev
-        );
-        setCoords(nextCoords);
+        try {
+          setDeals((prev) =>
+            Array.isArray(prev) && prev.length
+              ? sortDealsByDistance(applyHaversineDistances(prev, nextCoords))
+              : prev
+          );
+          setNearYouCards((prev) =>
+            Array.isArray(prev) && prev.length
+              ? applyHaversineDistances(prev, nextCoords)
+              : prev
+          );
+          setHotOfferCards((prev) =>
+            Array.isArray(prev) && prev.length
+              ? applyHaversineDistances(prev, nextCoords)
+              : prev
+          );
+        } catch {
+          // Keep previous carousels if distance rewrite fails.
+        }
       });
       // Persist off the critical path so the UI feels instant.
       void setActiveCustomLocationId(null);

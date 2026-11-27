@@ -56,6 +56,35 @@ async function writeEntry(cacheKey: string, etag: string, body: string) {
   }
 }
 
+function mergeHeaders(
+  initHeaders?: HeadersInit,
+  extra?: Record<string, string>
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (initHeaders && typeof Headers !== 'undefined' && initHeaders instanceof Headers) {
+    initHeaders.forEach((value, key) => {
+      out[key] = value;
+    });
+  } else if (Array.isArray(initHeaders)) {
+    for (const [key, value] of initHeaders) {
+      out[key] = value;
+    }
+  } else if (initHeaders && typeof initHeaders === 'object') {
+    Object.assign(out, initHeaders as Record<string, string>);
+  }
+  if (extra) Object.assign(out, extra);
+  return out;
+}
+
+function parseBody<T>(text: string): T | null {
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Conditional GET for unsigned endpoints that send ETag
  * (notably GET /home and GET /business/city-cards).
@@ -68,32 +97,33 @@ export async function fetchJsonWithEtag<T = unknown>(options: {
   /** Only send If-None-Match when true (unsigned GETs). */
   useEtag: boolean;
 }): Promise<{ status: number; json: T | null; fromCache: boolean }> {
-  const headers = new Headers(options.init?.headers ?? {});
   let cached: EtagEntry | null = null;
+  const conditional: Record<string, string> = {};
 
   if (options.useEtag) {
     cached = await readEntry(options.cacheKey);
     if (cached?.etag) {
-      headers.set('If-None-Match', cached.etag);
+      conditional['If-None-Match'] = cached.etag;
     }
   }
 
-  const res = await fetchWithTimeout(options.url, {
-    ...options.init,
-    headers,
-  });
+  const doFetch = (extraHeaders?: Record<string, string>) =>
+    fetchWithTimeout(options.url, {
+      ...options.init,
+      headers: mergeHeaders(options.init?.headers, extraHeaders),
+    });
 
-  if (res.status === 304 && cached?.body != null) {
-    try {
-      return {
-        status: 304,
-        json: JSON.parse(cached.body) as T,
-        fromCache: true,
-      };
-    } catch {
-      // Corrupt cache — fall through by re-fetching without precondition? For now fail.
-      return { status: 304, json: null, fromCache: true };
+  let res = await doFetch(Object.keys(conditional).length ? conditional : undefined);
+
+  if (res.status === 304) {
+    if (cached?.body) {
+      const json = parseBody<T>(cached.body);
+      if (json != null) {
+        return { status: 304, json, fromCache: true };
+      }
     }
+    // Missing/corrupt local body — fetch a fresh 200 without precondition.
+    res = await doFetch();
   }
 
   if (!res.ok) {
@@ -101,12 +131,7 @@ export async function fetchJsonWithEtag<T = unknown>(options: {
   }
 
   const text = await res.text();
-  let json: T | null = null;
-  try {
-    json = text ? (JSON.parse(text) as T) : null;
-  } catch {
-    json = null;
-  }
+  const json = parseBody<T>(text);
 
   if (options.useEtag) {
     const etag = readEtagHeader(res);

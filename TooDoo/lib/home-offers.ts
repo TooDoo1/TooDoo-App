@@ -853,134 +853,168 @@ function mapHomeBusinessEventToFeed(raw: any): EventFeedItem | null {
   };
 }
 
+function emptyHomeScreenData(resolvedCity?: string): HomeScreenData {
+  return {
+    categoryFilters: [],
+    deals: [],
+    nearYouCards: [],
+    hotOfferCards: [],
+    events: [],
+    cityImageUris: [],
+    resolvedCity,
+    source: 'home',
+  };
+}
+
 function mapHomePayloadToScreenData(
   json: any,
   coords?: { lat: number; lng: number } | null,
   options?: { endingSoonLimit?: number }
 ): HomeScreenData {
-  const nowMs = Date.now();
-  const endingSoonLimit = options?.endingSoonLimit ?? 50;
-  const resolvedCity =
-    typeof json?.location?.city === 'string' && json.location.city.trim()
-      ? String(json.location.city).trim()
-      : typeof json?.location?.cityKey === 'string'
-        ? String(json.location.cityKey).trim()
-        : undefined;
+  try {
+    if (!json || typeof json !== 'object') {
+      return emptyHomeScreenData();
+    }
 
-  const categoriesRaw = Array.isArray(json?.categories) ? json.categories : [];
-  const categoryNameById = new Map<string, string>();
-  const categoryFilters: HomeFilterCategory[] = categoriesRaw
-    .map((category: any, index: number) => {
-      const id = String(category?.id ?? category?._id ?? `category-${index}`);
-      const name = typeof category?.name === 'string' ? category.name.trim() : '';
-      if (id && name) categoryNameById.set(id, name);
-      return name ? { id, label: name } : null;
-    })
-    .filter((item: HomeFilterCategory | null): item is HomeFilterCategory => Boolean(item));
+    const nowMs = Date.now();
+    const endingSoonLimit = options?.endingSoonLimit ?? 50;
+    const resolvedCity =
+      typeof json?.location?.city === 'string' && json.location.city.trim()
+        ? String(json.location.city).trim()
+        : typeof json?.location?.cityKey === 'string'
+          ? String(json.location.cityKey).trim()
+          : undefined;
 
-  const businessItems = Array.isArray(json?.businesses?.items)
-    ? (json.businesses.items as ApiBusiness[])
-    : Array.isArray(json?.businesses)
-      ? (json.businesses as ApiBusiness[])
-      : [];
-  const approvedBusinesses = businessItems.filter(
-    (business) => (business.status ?? 'APPROVED').toUpperCase() === 'APPROVED'
-  );
+    const categoriesRaw = Array.isArray(json?.categories) ? json.categories : [];
+    const categoryNameById = new Map<string, string>();
+    const categoryFilters: HomeFilterCategory[] = categoriesRaw
+      .map((category: any, index: number) => {
+        const id = String(category?.id ?? category?._id ?? `category-${index}`);
+        const name = typeof category?.name === 'string' ? category.name.trim() : '';
+        if (id && name) categoryNameById.set(id, name);
+        return name ? { id, label: name } : null;
+      })
+      .filter((item: HomeFilterCategory | null): item is HomeFilterCategory => Boolean(item));
 
-  const ordersRaw = parseOrdersPayload(json?.orders);
-  const ordersFromBusinessList = approvedBusinesses.flatMap(parseOrdersFromBusinessRecord);
-  const allOrdersRaw = mergeOrdersById(ordersRaw, ordersFromBusinessList);
+    const businessItems = Array.isArray(json?.businesses?.items)
+      ? (json.businesses.items as ApiBusiness[])
+      : Array.isArray(json?.businesses)
+        ? (json.businesses as ApiBusiness[])
+        : [];
+    const approvedBusinesses = businessItems.filter(
+      (business) => (business.status ?? 'APPROVED').toUpperCase() === 'APPROVED'
+    );
 
-  const ordersByBusinessId = new Map<string, any[]>();
-  allOrdersRaw.forEach((order) => {
-    const businessId =
-      typeof order.businessId === 'string'
-        ? order.businessId
-        : order.businessId?.id ?? order.businessId?._id;
-    if (!businessId) return;
-    const key = String(businessId);
-    if (!ordersByBusinessId.has(key)) ordersByBusinessId.set(key, []);
-    ordersByBusinessId.get(key)?.push(order);
-  });
+    const ordersRaw = parseOrdersPayload(json?.orders);
+    const ordersFromBusinessList = approvedBusinesses.flatMap(parseOrdersFromBusinessRecord);
+    const allOrdersRaw = mergeOrdersById(ordersRaw, ordersFromBusinessList);
 
-  const cards = buildBusinessCards(approvedBusinesses, ordersByBusinessId, {
-    categoryNameById,
-  });
-  const deals = sortHomeDeals(cards, coords);
+    const ordersByBusinessId = new Map<string, any[]>();
+    allOrdersRaw.forEach((order) => {
+      const businessId =
+        typeof order.businessId === 'string'
+          ? order.businessId
+          : order.businessId?.id ?? order.businessId?._id;
+      if (!businessId) return;
+      const key = String(businessId);
+      if (!ordersByBusinessId.has(key)) ordersByBusinessId.set(key, []);
+      ordersByBusinessId.get(key)?.push(order);
+    });
 
-  const catalogCardsFlat = buildCatalogOfferCardsFlat(
-    allOrdersRaw.filter((order) => isActiveOffer(order, nowMs)),
-    approvedBusinesses
-  );
-  const businessOfferCards = buildOfferCardsFromBusinessCards(cards);
-  const nearYouCards = resolveCarouselCards(
-    catalogCardsFlat,
-    businessOfferCards,
-    'endingSoon',
-    endingSoonLimit
-  );
+    const cards = buildBusinessCards(approvedBusinesses, ordersByBusinessId, {
+      categoryNameById,
+    });
+    const deals = sortHomeDeals(cards, coords);
 
-  const popularBusinesses = parsePopularBusinesses(json?.popular ?? {});
-  let hotOfferCards: OfferCardItem[] = [];
-  if (popularBusinesses.length > 0) {
-    const enrichedPopular = enrichPopularBusinessesFromCatalog(
-      popularBusinesses,
+    const catalogCardsFlat = buildCatalogOfferCardsFlat(
+      allOrdersRaw.filter((order) => isActiveOffer(order, nowMs)),
       approvedBusinesses
     );
-    hotOfferCards = buildBusinessCards(enrichedPopular, ordersByBusinessId, {
-      categoryNameById,
-    }).slice(0, 10);
-  }
-  if (hotOfferCards.length === 0) {
-    hotOfferCards = deals.slice(0, 10);
-  }
+    const businessOfferCards = buildOfferCardsFromBusinessCards(cards);
+    const nearYouCards = resolveCarouselCards(
+      catalogCardsFlat,
+      businessOfferCards,
+      'endingSoon',
+      endingSoonLimit
+    );
 
-  const publicEvents = Array.isArray(json?.events?.public) ? json.events.public : [];
-  const businessEvents = Array.isArray(json?.events?.business) ? json.events.business : [];
-  const events: EventFeedItem[] = [
-    ...publicEvents
-      .map((raw: any) => {
-        const mapped = mapApiMunicipioEvent(raw);
-        if (!mapped) return null;
-        return {
-          id: `municipio:${mapped.id}`,
-          source: 'municipio' as const,
-          title: mapped.title,
-          subtitle: mapped.locationLabel ?? 'Evenemang',
-          startsAt: mapped.startsAt,
-          endsAt: mapped.endsAt,
-          image: mapped.image,
-          latitude: mapped.latitude,
-          longitude: mapped.longitude,
-          categoryId: mapped.categoryId,
-          categoryName: mapped.categoryName,
-          municipioEvent: mapped,
-        } satisfies EventFeedItem;
-      })
-      .filter((item: EventFeedItem | null): item is EventFeedItem => Boolean(item)),
-    ...businessEvents
-      .map(mapHomeBusinessEventToFeed)
-      .filter((item: EventFeedItem | null): item is EventFeedItem => Boolean(item)),
-  ];
+    const popularBusinesses = parsePopularBusinesses(json?.popular ?? {});
+    let hotOfferCards: OfferCardItem[] = [];
+    if (popularBusinesses.length > 0) {
+      const enrichedPopular = enrichPopularBusinessesFromCatalog(
+        popularBusinesses,
+        approvedBusinesses
+      );
+      hotOfferCards = buildBusinessCards(enrichedPopular, ordersByBusinessId, {
+        categoryNameById,
+      }).slice(0, 10);
+    }
+    if (hotOfferCards.length === 0) {
+      hotOfferCards = deals.slice(0, 10);
+    }
 
-  const cityImageRows = Array.isArray(json?.cityImages)
-    ? (json.cityImages as CityImage[])
-    : [];
-  const cityImageUris = cityImageUrisFromRows(cityImageRows, 3);
-  if (resolvedCity && cityImageUris.length > 0) {
-    primeCityImageUris(resolvedCity, cityImageUris);
+    const publicEvents = Array.isArray(json?.events?.public) ? json.events.public : [];
+    const businessEvents = Array.isArray(json?.events?.business) ? json.events.business : [];
+    const events: EventFeedItem[] = [
+      ...publicEvents
+        .map((raw: any) => {
+          try {
+            const mapped = mapApiMunicipioEvent(raw);
+            if (!mapped) return null;
+            return {
+              id: `municipio:${mapped.id}`,
+              source: 'municipio' as const,
+              title: mapped.title,
+              subtitle: mapped.locationLabel ?? 'Evenemang',
+              startsAt: mapped.startsAt,
+              endsAt: mapped.endsAt,
+              image: mapped.image,
+              latitude: mapped.latitude,
+              longitude: mapped.longitude,
+              categoryId: mapped.categoryId,
+              categoryName: mapped.categoryName,
+              municipioEvent: mapped,
+            } satisfies EventFeedItem;
+          } catch {
+            return null;
+          }
+        })
+        .filter((item: EventFeedItem | null): item is EventFeedItem => Boolean(item)),
+      ...businessEvents
+        .map((raw: any) => {
+          try {
+            return mapHomeBusinessEventToFeed(raw);
+          } catch {
+            return null;
+          }
+        })
+        .filter((item: EventFeedItem | null): item is EventFeedItem => Boolean(item)),
+    ];
+
+    const cityImageRows = Array.isArray(json?.cityImages)
+      ? (json.cityImages as CityImage[])
+      : [];
+    const cityImageUris = cityImageUrisFromRows(cityImageRows, 3);
+    if (resolvedCity && cityImageUris.length > 0) {
+      primeCityImageUris(resolvedCity, cityImageUris);
+    }
+
+    return {
+      categoryFilters,
+      deals: Array.isArray(deals) ? deals : [],
+      nearYouCards: Array.isArray(nearYouCards) ? nearYouCards : [],
+      hotOfferCards: Array.isArray(hotOfferCards) ? hotOfferCards : [],
+      events,
+      cityImageUris,
+      resolvedCity,
+      source: 'home',
+    };
+  } catch {
+    // Never let a city-swap payload take down the home screen.
+    return emptyHomeScreenData(
+      typeof json?.location?.city === 'string' ? json.location.city : undefined
+    );
   }
-
-  return {
-    categoryFilters,
-    deals,
-    nearYouCards,
-    hotOfferCards,
-    events,
-    cityImageUris,
-    resolvedCity,
-    source: 'home',
-  };
 }
 
 export type FetchCityHomeOptions = {
