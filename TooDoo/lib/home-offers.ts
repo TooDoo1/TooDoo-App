@@ -1,22 +1,22 @@
 import type { ImageSourcePropType } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { apiUrl, fetchWithTimeout, normalizeImageUrl } from '@/lib/api';
-import { businessImageCacheKey, extractOrderImageUrl } from '@/lib/business-image';
-import {
-  fetchApprovedBusinessesCatalog,
-  fetchCategoriesCatalog,
-  peekApprovedBusinessesCatalog,
-} from '@/lib/catalog-cache';
+import { extractOrderImageUrl } from '@/lib/business-image';
+import { fetchCategoriesCatalog } from '@/lib/catalog-cache';
 import { getCategoryAccentForItem } from '@/lib/category-colors';
 import {
   cityImageUrisFromRows,
   primeCityImageUris,
   type CityImage,
 } from '@/lib/city-images';
-import type { EventFeedItem } from '@/lib/events-feed';
+import { fetchJsonWithEtag } from '@/lib/etag-cache';
+import { resolveEventFeedCity, type EventFeedItem } from '@/lib/events-feed';
 import { applyHaversineDistances } from '@/lib/geo';
 import { mapApiMunicipioEvent } from '@/lib/municipio-events';
+import {
+  fetchCityApprovedBusinesses,
+  UTFORSKA_BUSINESS_CAP,
+} from '@/lib/nearby-businesses';
 import { isWithinOrderPublishWindow } from '@/lib/order-claim-window';
 
 export type OfferCardItem = {
@@ -290,44 +290,6 @@ function mergeOrdersById(...groups: any[][]): any[] {
   return Array.from(byId.values());
 }
 
-const BUSINESS_DETAIL_CONCURRENCY = 4;
-const GUEST_BUSINESS_DETAIL_MAX = 8;
-const MIN_ACTIVE_OFFERS_BEFORE_FANOUT = 6;
-
-async function fetchOrdersFromBusinessDetails(
-  businesses: ApiBusiness[],
-  maxBusinesses = GUEST_BUSINESS_DETAIL_MAX,
-  concurrency = BUSINESS_DETAIL_CONCURRENCY
-): Promise<any[]> {
-  const slice = businesses.slice(0, maxBusinesses);
-  const merged: any[] = [];
-
-  for (let i = 0; i < slice.length; i += concurrency) {
-    const batch = slice.slice(i, i + concurrency);
-    const results = await Promise.all(
-      batch.map(async (business, index) => {
-        const businessId = String(business.id ?? business._id ?? `business-${i + index}`);
-        try {
-          const res = await fetchWithTimeout(
-            apiUrl(`/business/${encodeURIComponent(businessId)}`),
-            {},
-            6_000
-          );
-          if (!res.ok) return [];
-          const json = await res.json().catch(() => ({}));
-          const businessObj = (json as any)?.business ?? json;
-          return parseOrdersFromBusinessRecord({ ...businessObj, id: businessId });
-        } catch {
-          return [];
-        }
-      })
-    );
-    merged.push(...results.flat());
-  }
-
-  return merged;
-}
-
 export function mapApiOrderToCardItem(order: any, index: number): OfferCardItem {
   const business = order?.business ?? {};
   const orderId = String(order?.id ?? order?._id ?? `order-${index}`);
@@ -580,7 +542,9 @@ function buildBusinessCards(
         (resolvedCategoryId ? options?.categoryNameById?.get(resolvedCategoryId) : undefined),
       categoryNames: resolveBusinessCategoryNames(business, options?.categoryNameById),
       subcategoryName: resolveBusinessSubcategoryName(business),
-      deal: visibleOrders.length > 0,
+      deal:
+        visibleOrders.length > 0 ||
+        Boolean((business as { hasOffer?: boolean }).hasOffer),
       orderIds,
       erbjudandepris: offerPrices,
       erbjudandeoriginalpris: offerOriginalPrices,
@@ -656,18 +620,16 @@ export async function fetchOfferListCards(
 
   if (mode === 'hot') {
     const popularUrl = city
-      ? `/business/popular?take=10&city=${encodeURIComponent(city)}`
-      : '/business/popular?take=10';
+      ? `/business/popular-cards?take=10&city=${encodeURIComponent(city)}`
+      : '/business/popular-cards?take=10';
     const popularRes = await fetchWithTimeout(apiUrl(popularUrl)).catch(() => null);
     const popularJson =
       popularRes && popularRes.ok ? await popularRes.json().catch(() => ({})) : {};
     const popularBusinesses = parsePopularBusinesses(popularJson);
     if (popularBusinesses.length > 0) {
-      const cachedCatalog = (peekApprovedBusinessesCatalog() as ApiBusiness[] | null) ?? [];
-      const enriched = enrichPopularBusinessesFromCatalog(popularBusinesses, cachedCatalog);
-      const withDistance = coords
-        ? applyHaversineDistances(buildBusinessCards(enriched, new Map()), coords)
-        : buildBusinessCards(enriched, new Map());
+      // popular-cards already includes imageUrl/coords/hours — skip catalog enrich.
+      const cards = buildBusinessCards(popularBusinesses, new Map());
+      const withDistance = coords ? applyHaversineDistances(cards, coords) : cards;
       return withDistance.slice(0, 10);
     }
   }
@@ -687,20 +649,36 @@ export async function fetchOfferListCards(
     }
   }
 
-  // Guest ending-soon / empty personalized response: single /orders call, no
-  // catalog paging and no per-business detail fan-out.
-  const ordersJson = await fetchWithTimeout(apiUrl('/orders'))
-    .then((res) => res.json().catch(() => []))
-    .catch(() => []);
-  const ordersRaw = parseOrdersPayload(ordersJson).filter((order) =>
-    isActiveOffer(order, nowMs)
-  );
-  if (ordersRaw.length === 0) return [];
+  // Guest ending-soon / empty personalized response: slim /orders/active only.
+  const resolvedCity = city?.trim() || resolveEventFeedCity(city, coords);
+  const activeUrl = resolvedCity
+    ? `/orders/active?city=${encodeURIComponent(resolvedCity)}&take=${Math.min(Math.max(limit, 1), 50)}`
+    : `/orders/active?take=${Math.min(Math.max(limit, 1), 50)}`;
+  const activeRes = await fetchWithTimeout(apiUrl(activeUrl)).catch(() => null);
+  if (!activeRes?.ok) return [];
+  const activeJson = await activeRes.json().catch(() => []);
+  const activeOrders = Array.isArray(activeJson)
+    ? activeJson
+    : Array.isArray((activeJson as { orders?: unknown[] })?.orders)
+      ? (activeJson as { orders: unknown[] }).orders
+      : [];
+  if (activeOrders.length === 0) return [];
 
-  const catalogCardsFlat = dedupeOfferCardsById(
-    ordersRaw.map((order, index) => mapApiOrderToCardItem(order, index))
+  const cards = dedupeOfferCardsById(
+    activeOrders.map((order, index) =>
+      mapApiOrderToCardItem(
+        {
+          ...(order as object),
+          orderTimeTo: (order as { end?: string }).end,
+          imageUrl: (order as { imageUrl?: string }).imageUrl,
+          businessId: (order as { businessId?: string }).businessId,
+          isActive: true,
+        },
+        index
+      )
+    )
   );
-  const sorted = resolveCarouselCards(catalogCardsFlat, catalogCardsFlat, mode, limit);
+  const sorted = resolveCarouselCards(cards, cards, mode, limit);
   return coords ? applyHaversineDistances(sorted, coords) : sorted;
 }
 
@@ -718,24 +696,6 @@ export type HomeScreenData = {
   /** `home` = single city bootstrap; `legacy` = old multi-endpoint path. */
   source?: 'home' | 'legacy';
 };
-
-async function readCachedBusinessImageUrls(ids: string[]): Promise<Map<string, string>> {
-  const map = new Map<string, string>();
-  if (ids.length === 0) return map;
-
-  try {
-    const pairs = await AsyncStorage.multiGet(ids.map(businessImageCacheKey));
-    const prefix = 'toodoo_business_image_url_';
-    pairs.forEach(([key, value]) => {
-      if (!value || !key.startsWith(prefix)) return;
-      map.set(key.slice(prefix.length), value);
-    });
-  } catch {
-    // ignore cache read errors
-  }
-
-  return map;
-}
 
 function sortHomeDeals(
   cards: OfferCardItem[],
@@ -1069,16 +1029,28 @@ export async function fetchHomeViaCityEndpoint(
 
   const headers: Record<string, string> = {};
   if (options.token) headers.Authorization = `Bearer ${options.token}`;
+  // Shared ETag only applies to unsigned /home.
+  const useEtag = !options.token;
+  const etagCacheKey = `home:${params.toString()}`;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 8_000);
   try {
-    const res = await fetch(apiUrl(`/home?${params.toString()}`), {
-      headers,
-      signal: controller.signal,
+    const { status, json } = await fetchJsonWithEtag<Record<string, unknown>>({
+      url: apiUrl(`/home?${params.toString()}`),
+      cacheKey: etagCacheKey,
+      useEtag,
+      init: {
+        headers,
+        signal: controller.signal,
+      },
     });
-    if (!res.ok) return null;
-    const json = await res.json().catch(() => null);
+    if (status === 304 && json && typeof json === 'object') {
+      return mapHomePayloadToScreenData(json, options.coords, {
+        endingSoonLimit: options.endingSoonLimit ?? clamp(options.ordersTake, 50, 100),
+      });
+    }
+    if (status < 200 || status >= 300) return null;
     if (!json || typeof json !== 'object' || (json as any).error) return null;
     return mapHomePayloadToScreenData(json, options.coords, {
       endingSoonLimit: options.endingSoonLimit ?? clamp(options.ordersTake, 50, 100),
@@ -1132,31 +1104,58 @@ async function fetchHomeScreenDataUncached(
   const viaHome = await fetchHomeViaCityEndpoint({ token, coords, city });
   if (viaHome) return viaHome;
 
+  // Slim fallback only — never page the national catalog or fat GET /orders.
   const nowMs = Date.now();
+  const resolvedCity =
+    city?.trim() || resolveEventFeedCity(city, coords) || undefined;
 
-  // Fire every network request up front — the orders/popular/close calls do not
-  // depend on the catalogs, so overlapping them removes a full round-trip batch
-  // from location switches (the catalog refetch is the slowest call when stale).
-  const popularUrl = '/business/popular?take=10';
+  const popularUrl = resolvedCity
+    ? `/business/popular-cards?take=10&city=${encodeURIComponent(resolvedCity)}`
+    : '/business/popular-cards?take=10';
   const closeUrl = coords
     ? `/orders/for-you/close?take=10&lat=${coords.lat}&lng=${coords.lng}`
     : '/orders/for-you/close?take=10';
-  const ordersPromise = fetchWithTimeout(apiUrl('/orders'))
-    .then((res) => res.json().catch(() => []))
-    .catch(() => []);
-  const popularPromise = fetchWithTimeout(apiUrl(popularUrl)).catch(() => null);
-  const closePromise = token
-    ? fetchWithTimeout(apiUrl(closeUrl), {
-        headers: { Authorization: `Bearer ${token}` },
-      }).catch(() => null)
-    : null;
+  const activeOrdersUrl = resolvedCity
+    ? `/orders/active?city=${encodeURIComponent(resolvedCity)}&take=50`
+    : '/orders/active?take=50';
 
-  const [categoriesRaw, businessesRaw] = await Promise.all([
+  const ordersPromise = fetchWithTimeout(apiUrl(activeOrdersUrl))
+    .then(async (res) => {
+      if (!res.ok) return [] as any[];
+      const json = await res.json().catch(() => []);
+      const list = Array.isArray(json)
+        ? json
+        : Array.isArray((json as { orders?: unknown[] })?.orders)
+          ? (json as { orders: unknown[] }).orders
+          : [];
+      return list.map((row: any) => ({
+        ...row,
+        orderTimeTo: row?.end ?? row?.orderTimeTo,
+        imageUrl: row?.imageUrl,
+        businessId: row?.businessId,
+        isActive: true,
+      }));
+    })
+    .catch(() => [] as any[]);
+
+  const [categoriesRaw, cityPage, ordersJson, closeRes, popularRes] = await Promise.all([
     fetchCategoriesCatalog().catch(() => [] as unknown[]),
-    fetchApprovedBusinessesCatalog().catch(() => [] as unknown[]),
+    fetchCityApprovedBusinesses({
+      city: resolvedCity,
+      coords,
+      take: UTFORSKA_BUSINESS_CAP,
+      preferNearby: Boolean(coords),
+    }).catch(() => ({ businesses: [] as unknown[], city: resolvedCity, hasMore: false, source: 'business' as const })),
+    ordersPromise,
+    token
+      ? fetchWithTimeout(apiUrl(closeUrl), {
+          headers: { Authorization: `Bearer ${token}` },
+        }).catch(() => null)
+      : Promise.resolve(null),
+    fetchWithTimeout(apiUrl(popularUrl)).catch(() => null),
   ]);
 
-  const approvedBusinessesEarly = (businessesRaw as ApiBusiness[]).filter(
+  const approvedBusinessesEarly = (cityPage.businesses as ApiBusiness[]).filter(
     (business) => (business.status ?? 'APPROVED').toUpperCase() === 'APPROVED'
   );
 
@@ -1176,38 +1175,20 @@ async function fetchHomeScreenDataUncached(
     })
     .filter((item): item is HomeFilterCategory => Boolean(item));
 
-  const ordersFromBusinessList = approvedBusinessesEarly.flatMap(parseOrdersFromBusinessRecord);
-  let allOrdersRaw: any[] = [...ordersFromBusinessList];
-  let nearYouFromApi: OfferCardItem[] = [];
-  let hotFromApi: OfferCardItem[] = [];
-  let popularBusinesses: ApiBusiness[] = [];
-
-  const [ordersJson, closeRes, popularRes] = await Promise.all([
-    ordersPromise,
-    closePromise,
-    popularPromise,
-  ]);
-
-  allOrdersRaw = mergeOrdersById(parseOrdersPayload(ordersJson), ordersFromBusinessList);
+  const allOrdersRaw = parseOrdersPayload(ordersJson).filter((order) =>
+    isActiveOffer(order, nowMs)
+  );
 
   const popularJson =
     popularRes && popularRes.ok ? await popularRes.json().catch(() => ({})) : {};
-  popularBusinesses = parsePopularBusinesses(popularJson);
+  const popularBusinesses = parsePopularBusinesses(popularJson);
 
-  if (token) {
-    const closeJson =
-      closeRes && closeRes.ok ? await closeRes.json().catch(() => ({})) : {};
+  let nearYouFromApi: OfferCardItem[] = [];
+  if (token && closeRes?.ok) {
+    const closeJson = await closeRes.json().catch(() => ({}));
     nearYouFromApi = buildCatalogOfferCardsFlat(
       parseOrdersPayload(closeJson).filter((order) => isActiveOffer(order, nowMs)),
       approvedBusinessesEarly
-    );
-  }
-
-  const activeCount = allOrdersRaw.filter((order) => isActiveOffer(order, nowMs)).length;
-  if (activeCount < MIN_ACTIVE_OFFERS_BEFORE_FANOUT) {
-    allOrdersRaw = mergeOrdersById(
-      allOrdersRaw,
-      await fetchOrdersFromBusinessDetails(approvedBusinessesEarly)
     );
   }
 
@@ -1225,22 +1206,7 @@ async function fetchHomeScreenDataUncached(
     ordersByBusinessId.get(key)?.push(order);
   });
 
-  const needsImageCacheIds = approvedBusinessesEarly
-    .map((business, index) => {
-      const id = String(business.id ?? business._id ?? `business-${index}`);
-      const hasImage =
-        (typeof business.imageUrl === 'string' && business.imageUrl.trim()) ||
-        (typeof (business as any)?.image?.publicUrl === 'string' &&
-          (business as any).image.publicUrl.trim());
-      return hasImage ? null : id;
-    })
-    .filter((id): id is string => Boolean(id))
-    .slice(0, 24);
-
-  const cachedImageUrlById = await readCachedBusinessImageUrls(needsImageCacheIds);
-
   const cards = buildBusinessCards(approvedBusinessesEarly, ordersByBusinessId, {
-    cachedImageUrlById,
     categoryNameById,
   });
 
@@ -1248,28 +1214,16 @@ async function fetchHomeScreenDataUncached(
   const businessOfferCards = buildOfferCardsFromBusinessCards(cards);
   const catalogCardsFlat = buildCatalogOfferCardsFlat(allOrdersRaw, approvedBusinessesEarly);
 
-  if (token) {
-    if (nearYouFromApi.length === 0) {
-      nearYouFromApi = resolveCarouselCards(catalogCardsFlat, businessOfferCards, 'endingSoon');
-    }
-  } else {
+  if (nearYouFromApi.length === 0) {
     nearYouFromApi = resolveCarouselCards(catalogCardsFlat, businessOfferCards, 'endingSoon');
   }
 
+  let hotFromApi: OfferCardItem[] = [];
   if (popularBusinesses.length > 0) {
-    // Build cards from popular rank order, enriched with full catalog fields
-    // (subcategory + opening hours are often missing from /business/popular).
-    const enrichedPopular = enrichPopularBusinessesFromCatalog(
-      popularBusinesses,
-      approvedBusinessesEarly
-    );
-    hotFromApi = buildBusinessCards(enrichedPopular, ordersByBusinessId, {
-      cachedImageUrlById,
+    hotFromApi = buildBusinessCards(popularBusinesses, ordersByBusinessId, {
       categoryNameById,
     }).slice(0, 10);
   }
-
-  // Guests / missing popular response: keep a stable catalog slice (not random).
   if (hotFromApi.length === 0) {
     hotFromApi = deals.slice(0, 10);
   }
@@ -1279,6 +1233,7 @@ async function fetchHomeScreenDataUncached(
     deals,
     nearYouCards: nearYouFromApi,
     hotOfferCards: hotFromApi,
+    resolvedCity: cityPage.city ?? resolvedCity,
     source: 'legacy',
   };
 }

@@ -156,6 +156,7 @@ export type UnifiedSearchResult = {
   subtitle?: string;
   city?: string;
   category?: { id?: string; name?: string; slug?: string; icon?: string } | null;
+  categoryName?: string;
   /** Nested on hydrated business records; search hits may omit this. */
   categories?: Array<{
     id?: string;
@@ -168,6 +169,12 @@ export type UnifiedSearchResult = {
   endDate?: number;
   source?: string;
   image?: string | { publicUrl?: string; url?: string } | null;
+  imageUrl?: string;
+  latitude?: number;
+  longitude?: number;
+  hasOffer?: boolean;
+  hasEvent?: boolean;
+  openingHours?: unknown;
   distanceKm?: number;
 };
 
@@ -193,17 +200,22 @@ async function fetchUnifiedSearch(
 
 function resultImageUri(result: UnifiedSearchResult): string | undefined {
   const raw =
-    typeof result.image === 'string'
+    (typeof result.imageUrl === 'string' ? result.imageUrl : undefined) ??
+    (typeof result.image === 'string'
       ? result.image
       : result.image && typeof result.image === 'object'
         ? result.image.publicUrl ?? result.image.url
-        : undefined;
+        : undefined);
   const imageUri = normalizeImageUrl(raw);
   // Prefer https — Visit Sweden sometimes returns http:// assets that browsers block on HTTPS pages.
   if (imageUri && imageUri.startsWith('http://')) {
     return `https://${imageUri.slice('http://'.length)}`;
   }
   return imageUri;
+}
+
+function searchHitIsCardReady(result: UnifiedSearchResult): boolean {
+  return Boolean(resultImageUri(result) || result.category?.name || result.categoryName);
 }
 
 function mapEventSource(
@@ -270,14 +282,27 @@ function mapBusinessSearchHitToCard(result: UnifiedSearchResult): OfferCardItem 
       uri: imageUri ?? `https://picsum.photos/seed/${encodeURIComponent(id)}/300/200`,
     },
     categoryId: result.category?.id,
-    categoryName: result.category?.name?.trim() || subtitle || undefined,
+    categoryName:
+      result.categoryName?.trim() ||
+      result.category?.name?.trim() ||
+      subtitle ||
+      undefined,
     ...(subcategoryName ? { subcategoryName } : {}),
-    deal: false,
+    deal: Boolean(result.hasOffer),
     orderIds: [],
     Adress: locality || 'Adress saknas',
+    latitude:
+      typeof result.latitude === 'number' && Number.isFinite(result.latitude)
+        ? result.latitude
+        : undefined,
+    longitude:
+      typeof result.longitude === 'number' && Number.isFinite(result.longitude)
+        ? result.longitude
+        : undefined,
     Website: '',
     kortbeskrivning: subtitle,
     långbeskrivning: '',
+    openingHours: result.openingHours,
     ...(typeof result.distanceKm === 'number' && Number.isFinite(result.distanceKm)
       ? { distanceKm: result.distanceKm }
       : {}),
@@ -423,6 +448,38 @@ async function hydrateTasks(
 ): Promise<(OfferCardItem | null)[]> {
   const ordered: (OfferCardItem | null)[] = new Array(tasks.length).fill(null);
 
+  // Prefer one GET /business/batch for remaining business hydrates.
+  const businessIds: string[] = [];
+  tasks.forEach((task) => {
+    if (task.kind === 'business') {
+      businessIds.push(task.id);
+    }
+  });
+  let batchById = new Map<string, OfferCardItem>();
+  if (businessIds.length > 0 && !signal?.aborted) {
+    try {
+      const { fetchBusinessBatch, cityCardToCatalogBusiness } = await import(
+        '@/lib/nearby-businesses'
+      );
+      const batchCards = await fetchBusinessBatch(businessIds, signal);
+      batchById = new Map(
+        batchCards.map((card) => {
+          const business = cityCardToCatalogBusiness(card);
+          const mapped = mapBusinessRecordToCard(business, []);
+          return [
+            card.id,
+            {
+              ...mapped,
+              deal: Boolean(card.hasOffer) || mapped.deal,
+            },
+          ] as const;
+        })
+      );
+    } catch {
+      batchById = new Map();
+    }
+  }
+
   for (let i = 0; i < tasks.length; i += SEARCH_HYDRATE_CONCURRENCY) {
     if (signal?.aborted) break;
     const batch = tasks.slice(i, i + SEARCH_HYDRATE_CONCURRENCY);
@@ -432,6 +489,10 @@ async function hydrateTasks(
         if (task.kind === 'order') {
           const orderCard = await hydrateOrderCard(task.id, signal);
           return orderCard;
+        }
+        const fromBatch = batchById.get(task.id);
+        if (fromBatch) {
+          return task.fallback ? overlaySearchDistance(fromBatch, task.fallback) : fromBatch;
         }
         const hydrated = await hydrateBusinessCard(task.id, signal);
         if (hydrated) {
@@ -531,7 +592,8 @@ function buildHydrationTasks(
       tasks.push({ kind: 'ready', card: overlaySearchDistance(known, result), rank });
       continue;
     }
-    if (detailBudgetUsed >= hydrateLimit) {
+    // Rich /search hits already include imageUrl + coords — skip GET /business/:id.
+    if (searchHitIsCardReady(result) || detailBudgetUsed >= hydrateLimit) {
       const lightweight = mapBusinessSearchHitToCard(result);
       if (lightweight) tasks.push({ kind: 'ready', card: lightweight, rank });
       continue;

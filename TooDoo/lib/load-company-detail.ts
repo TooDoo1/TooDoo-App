@@ -34,6 +34,25 @@ async function fetchOrderById(orderId: string) {
 }
 
 async function fetchBusinessById(businessId: string) {
+  // Prefer composite screen payload (business + orders + events) when available.
+  try {
+    const screenRes = await fetch(
+      apiUrl(`/business/${encodeURIComponent(businessId)}/screen`)
+    );
+    if (screenRes.ok) {
+      const screenJson = await screenRes.json().catch(() => ({}));
+      const businessObj =
+        (screenJson as any)?.business ??
+        ((screenJson as any)?.id || (screenJson as any)?.name ? screenJson : null);
+      if (businessObj) {
+        const ordersRaw = extractOrdersFromBusinessPayload(businessObj, screenJson);
+        return { businessObj, ordersRaw };
+      }
+    }
+  } catch {
+    // Fall through to legacy detail GET.
+  }
+
   const res = await fetch(apiUrl(`/business/${encodeURIComponent(businessId)}`));
   const json = await res.json().catch(() => ({}));
   const businessObj = (json as any)?.business ?? (json as any);

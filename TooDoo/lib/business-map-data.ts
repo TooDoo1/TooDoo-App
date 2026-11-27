@@ -11,6 +11,7 @@ import { resolveBusinessCategoryIds } from '@/lib/home-offers';
 import { fetchCategoriesCatalog } from '@/lib/catalog-cache';
 import {
   fetchCityApprovedBusinesses,
+  fetchMapPins,
   MAP_BUSINESS_CANDIDATE_CAP,
 } from '@/lib/nearby-businesses';
 import { resolveEventFeedCity } from '@/lib/events-feed';
@@ -234,6 +235,14 @@ export async function searchMapBusinesses(
           categoryName: pickCategoryName(business),
           categoryId: resolveBusinessCategoryIds(business)[0],
           categoryIcon: pickCategoryIcon(business),
+          hasOffer:
+            typeof business?.hasOffer === 'boolean'
+              ? business.hasOffer
+              : undefined,
+          hasEvent:
+            typeof business?.hasEvent === 'boolean'
+              ? business.hasEvent
+              : undefined,
           pendingGeocode,
         });
       }
@@ -575,11 +584,54 @@ export async function loadMapBusinesses(
   onUpdate?: (businesses: MapBusiness[]) => void,
   options?: { city?: string | null }
 ): Promise<MapBusiness[]> {
-  const activityPromise = loadActivitySets();
+  let activityPromise: Promise<{
+    eventIds: Set<string>;
+    offerIds: Set<string>;
+  }> | null = null;
+  const ensureActivitySets = () => {
+    if (!activityPromise) activityPromise = loadActivitySets();
+    return activityPromise;
+  };
 
   try {
     const city =
       options?.city?.trim() || resolveEventFeedCity(options?.city, coords) || undefined;
+
+    // Prefer pin-only endpoint — no fat /business, no /orders activity fan-out.
+    if (city) {
+      try {
+        const pins = await fetchMapPins({
+          city,
+          take: MAP_BUSINESS_CANDIDATE_CAP,
+        });
+        if (pins.length > 0) {
+          const mapped: MapBusiness[] = pins.map((pin) => ({
+            id: pin.id,
+            name: pin.name,
+            imageUri: normalizeImageUrl(pin.imageUrl) ?? undefined,
+            address: city,
+            latitude: pin.latitude,
+            longitude: pin.longitude,
+            distanceKm:
+              coords != null
+                ? haversineKm(coords.lat, coords.lng, pin.latitude, pin.longitude)
+                : undefined,
+            hasOffer: Boolean(pin.hasOffer),
+            hasEvent: Boolean(pin.hasEvent),
+          }));
+          const current = sortMapBusinesses(mapped);
+          onUpdate?.(current);
+          const pinCards = current.filter(hasMapPinCoords).map(toNearbyCard);
+          if (pinCards.length > 0) {
+            setHomeNearbyBusinessesCache(pinCards);
+          }
+          return current;
+        }
+      } catch {
+        // Fall through to city-cards /business.
+      }
+    }
+
     const [page, categoriesRaw] = await Promise.all([
       fetchCityApprovedBusinesses({
         city,
@@ -588,8 +640,12 @@ export async function loadMapBusinesses(
       }),
       fetchCategoriesCatalog().catch(() => [] as unknown[]),
     ]);
-    const { eventIds, offerIds } = await activityPromise;
     const raw = parseBusinesses(page.businesses);
+    const usedSlimList = page.source === 'city-cards' || page.source === 'nearby';
+    // Slim lists already ship hasOffer/hasEvent — skip fat /orders + events fan-out.
+    const { eventIds, offerIds } = usedSlimList
+      ? { eventIds: new Set<string>(), offerIds: new Set<string>() }
+      : await ensureActivitySets();
 
     const categoryNameById = new Map<string, string>();
     (categoriesRaw as any[]).forEach((category) => {
@@ -622,8 +678,10 @@ export async function loadMapBusinesses(
       const categoryId = resolveBusinessCategoryIds(b)[0];
       const categoryIcon = pickCategoryIcon(b);
       const imageUri = pickImageUri(b);
-      const hasEvent = eventIds.has(id);
-      const hasOffer = offerIds.has(id);
+      const hasEvent =
+        typeof b?.hasEvent === 'boolean' ? b.hasEvent : eventIds.has(id);
+      const hasOffer =
+        typeof b?.hasOffer === 'boolean' ? b.hasOffer : offerIds.has(id);
       const parsed = parseLatLng(b);
       const base = {
         id,
@@ -698,7 +756,7 @@ export async function loadMapBusinesses(
     // fall through to cache
   }
 
-  const { eventIds, offerIds } = await activityPromise;
+  const { eventIds, offerIds } = await ensureActivitySets();
   const cached =
     getHomeNearbyBusinessesCache() ?? peekHomeNearbyBusinessesCache() ?? [];
   return cached

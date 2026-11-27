@@ -3442,6 +3442,8 @@ export default function HomeScreen() {
           city: exploreCityRef.current ?? userCity,
           skip: exploreApiSkipRef.current,
           take: NEARBY_PAGE_SIZE,
+          coords,
+          sortByDistance: Boolean(coords),
         });
         exploreApiSkipRef.current += page.length;
         exploreApiHasMoreRef.current = page.length >= NEARBY_PAGE_SIZE;

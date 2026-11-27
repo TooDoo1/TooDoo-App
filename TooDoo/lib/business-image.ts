@@ -146,8 +146,21 @@ export async function hydrateOfferCardImages(
   });
 
   const stillMissingBusiness = [...needsBusinessHydration].filter((id) => !resolvedByBusinessId.has(id));
-  for (let i = 0; i < stillMissingBusiness.length; i += HYDRATE_CONCURRENCY) {
-    const batch = stillMissingBusiness.slice(i, i + HYDRATE_CONCURRENCY);
+  if (stillMissingBusiness.length > 0) {
+    try {
+      const { fetchBusinessBatch } = await import('@/lib/nearby-businesses');
+      const batchCards = await fetchBusinessBatch(stillMissingBusiness);
+      for (const card of batchCards) {
+        const uri = normalizeImageUrl(card.imageUrl);
+        if (uri) resolvedByBusinessId.set(card.id, uri);
+      }
+    } catch {
+      // Fall through to per-id GETs below.
+    }
+  }
+  const stillMissingAfterBatch = stillMissingBusiness.filter((id) => !resolvedByBusinessId.has(id));
+  for (let i = 0; i < stillMissingAfterBatch.length; i += HYDRATE_CONCURRENCY) {
+    const batch = stillMissingAfterBatch.slice(i, i + HYDRATE_CONCURRENCY);
     const results = await Promise.all(
       batch.map(async (id) => {
         const uri = await fetchBusinessImageUrl(id);

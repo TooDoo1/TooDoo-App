@@ -395,12 +395,13 @@ export default function NaraDigScreen() {
       }
 
       try {
-        // City-paged /business only — never download the national catalog here.
+        // Prefer /business/nearby (coords) or city-cards — never national catalog.
         const city = resolveEventFeedCity(undefined, coords);
         const { businesses } = await fetchCityApprovedBusinesses({
           city,
           coords,
           take: NARA_DIG_BUSINESS_CAP,
+          preferNearby: Boolean(coords),
         });
         const businessesRaw = (businesses as any[]).filter(
           (b) => (b?.status ?? 'APPROVED').toUpperCase() === 'APPROVED'
@@ -411,6 +412,10 @@ export default function NaraDigScreen() {
           const lat = typeof b?.latitude === 'number' ? b.latitude : undefined;
           const lng = typeof b?.longitude === 'number' ? b.longitude : undefined;
           const address = [b?.address, b?.city].filter(Boolean).join(', ') || 'Adress saknas';
+          const distanceKm =
+            typeof b?.distanceKm === 'number' && Number.isFinite(b.distanceKm)
+              ? b.distanceKm
+              : undefined;
 
           const categoryIds = resolveBusinessCategoryIds(b);
           return {
@@ -425,10 +430,13 @@ export default function NaraDigScreen() {
             openingHours: b?.openingHours,
             latitude: lat,
             longitude: lng,
+            distanceKm,
           };
         });
 
-        const sorted = coords ? withHaversineDistances(mapped, coords) : sortByDistance(mapped);
+        const sorted = coords
+          ? withHaversineDistances(mapped, coords)
+          : sortByDistance(mapped);
         if (!cancelled) {
           setCompanies(sorted);
           setHomeNearbyBusinessesCache(sorted.map(nearbyToCacheItem));

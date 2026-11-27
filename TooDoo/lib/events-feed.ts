@@ -1,5 +1,6 @@
 import type { ImageSourcePropType } from 'react-native';
 
+import { apiUrl, fetchWithTimeout, normalizeImageUrl } from '@/lib/api';
 import {
   fetchBusinessEvents,
   formatEventDateRange,
@@ -105,7 +106,16 @@ export function formatFeedEventDateRange(event: EventFeedItem): string | null {
   if (event.source === 'municipio' && event.municipioEvent) {
     return formatMunicipioEventDateRange(event.municipioEvent);
   }
-  return null;
+  const start = new Date(event.startsAt);
+  if (!Number.isFinite(start.getTime())) return null;
+  return new Intl.DateTimeFormat('sv-SE', {
+    timeZone: EVENT_TZ,
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(start);
 }
 
 export function getFeedEventStartParts(
@@ -159,6 +169,106 @@ export function resolveEventFeedCity(
   return undefined;
 }
 
+function decodeHtml(value: string): string {
+  return value
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&#8211;/gi, '–')
+    .replace(/&#8212;/gi, '—')
+    .replace(/&#(\d+);/g, (_, code) => {
+      const n = Number(code);
+      return Number.isFinite(n) ? String.fromCharCode(n) : _;
+    })
+    .trim();
+}
+
+function parsePlaceCoords(place: unknown): { lat?: number; lng?: number; label?: string } {
+  if (typeof place !== 'string' || !place.trim()) return {};
+  try {
+    const parsed = JSON.parse(place);
+    const row = Array.isArray(parsed) ? parsed[0] : parsed;
+    if (!row || typeof row !== 'object') return { label: place };
+    const lat = Number(row.latitude);
+    const lng = Number(row.longitude);
+    const label =
+      typeof row.name === 'string'
+        ? row.name
+        : typeof row.address === 'string'
+          ? row.address
+          : undefined;
+    return {
+      lat: Number.isFinite(lat) ? lat : undefined,
+      lng: Number.isFinite(lng) ? lng : undefined,
+      label,
+    };
+  } catch {
+    return { label: place };
+  }
+}
+
+function mapUnifiedFeedRow(row: Record<string, unknown>): EventFeedItem | null {
+  const id = String(row.id ?? '').trim();
+  if (!id) return null;
+  const kind = String(row.kind ?? '').toLowerCase();
+  const source: EventFeedItem['source'] = kind === 'business' ? 'business' : 'municipio';
+  const title = decodeHtml(String(row.title ?? 'Evenemang'));
+  const placeInfo = parsePlaceCoords(row.place);
+  const cityLabel =
+    typeof row.city === 'string' && row.city.trim() ? row.city.trim() : undefined;
+  const subtitle = placeInfo.label || cityLabel || 'Evenemang';
+  const imageUrl = normalizeImageUrl(
+    typeof row.imageUrl === 'string' ? row.imageUrl : undefined
+  );
+  const startsAt = String(row.start ?? row.startsAt ?? '');
+  const endsAt = String(row.end ?? row.endsAt ?? startsAt);
+  return {
+    id: `${source}:${id}`,
+    source,
+    title,
+    subtitle,
+    startsAt,
+    endsAt,
+    image: imageUrl ? { uri: imageUrl } : undefined,
+    latitude: placeInfo.lat,
+    longitude: placeInfo.lng,
+    businessId: typeof row.businessId === 'string' ? row.businessId : undefined,
+    categoryName: typeof row.categoryName === 'string' ? row.categoryName : undefined,
+  };
+}
+
+async function fetchUnifiedEventsFeed(options?: {
+  limit?: number;
+  city?: string;
+  days?: number;
+}): Promise<EventFeedItem[] | null> {
+  const city = options?.city?.trim();
+  if (!city) return null;
+  const params = new URLSearchParams({
+    city,
+    days: String(options?.days ?? EVENT_FEED_DAYS),
+    take: String(Math.min(Math.max(options?.limit ?? 100, 1), 100)),
+  });
+  const res = await fetchWithTimeout(apiUrl(`/events/feed?${params.toString()}`));
+  if (!res.ok) return null;
+  const json = await res.json().catch(() => []);
+  const rows = Array.isArray(json)
+    ? json
+    : Array.isArray((json as { events?: unknown[] })?.events)
+      ? (json as { events: unknown[] }).events
+      : [];
+  const mapped = sortFeedItems(
+    rows
+      .map((row) => mapUnifiedFeedRow(row as Record<string, unknown>))
+      .filter((row): row is EventFeedItem => Boolean(row))
+      .filter((event) => isUpcomingFeedEvent(event))
+  );
+  return mapped;
+}
+
 export async function fetchEventFeed(options?: {
   limit?: number;
   city?: string;
@@ -168,6 +278,24 @@ export async function fetchEventFeed(options?: {
   days?: number;
 }): Promise<EventFeedItem[]> {
   const city = options?.city?.trim() || undefined;
+
+  try {
+    const unified = await fetchUnifiedEventsFeed({
+      city,
+      days: options?.days,
+      limit: options?.limit && options.limit > 0 ? Math.max(options.limit, 40) : 100,
+    });
+    if (unified && unified.length > 0) {
+      const limit = options?.limit;
+      if (typeof limit === 'number' && limit > 0) {
+        return unified.slice(0, limit);
+      }
+      return unified;
+    }
+  } catch {
+    // Fall through to legacy dual-feed.
+  }
+
   const [businessEvents, municipioEvents] = await Promise.all([
     fetchBusinessEvents(),
     fetchMunicipioEvents({
