@@ -47,7 +47,7 @@ const SLIDES: OnboardingSlide[] = [
     icon: 'pricetags',
     accent: ['#ff7a45', '#ff9b46'],
     title: 'Ta del av erbjudanden',
-    body: 'Claima heta erbjudanden och visa enkelt din QR-kod på plats för att lösa in dem.',
+    body: 'Delta i heta erbjudanden och visa enkelt din QR-kod på plats för att lösa in dem.',
   },
   {
     key: 'favorites',

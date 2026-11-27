@@ -148,15 +148,15 @@ export function getClaimFailureMessage(
   const reason = String(payload.reason ?? '').toUpperCase();
 
   if (reason === 'ORDER_NOT_CLAIMABLE') {
-    return getOrderNotClaimableReason(order) ?? 'Erbjudandet går inte att claima just nu.';
+    return getOrderNotClaimableReason(order) ?? 'Erbjudandet går inte att delta i just nu.';
   }
 
   if (reason === 'MAX_REDEMPTIONS_REACHED') {
-    return 'Erbjudandet är fullclaimat (max antal uppnått).';
+    return 'Erbjudandet är fulltecknat (max antal uppnått).';
   }
 
   if (reason.includes('PER_PERSON') || reason.includes('ALREADY')) {
-    return 'Du har redan claimat det här erbjudandet.';
+    return 'Du har redan deltagit i det här erbjudandet.';
   }
 
   const direct =
@@ -168,10 +168,10 @@ export function getClaimFailureMessage(
   }
 
   if (status === 401 || status === 403) {
-    return 'Logga in igen för att claima erbjudanden.';
+    return 'Logga in igen för att delta i erbjudanden.';
   }
 
-  return `Kunde inte claima erbjudandet (${status})`;
+  return `Kunde inte delta i erbjudandet (${status})`;
 }
 
 export async function parseClaimResponse(response: Response): Promise<{

@@ -622,7 +622,7 @@ export default function CompanyDetailScreen() {
     }
 
     if (hasExhaustedPersonalClaims(orderId)) {
-      Alert.alert('Redan claimad', 'Du har redan claimat det här erbjudandet.');
+      Alert.alert('Redan deltagit', 'Du har redan deltagit i det här erbjudandet.');
       return;
     }
 
@@ -632,7 +632,7 @@ export default function CompanyDetailScreen() {
     try {
       const latestCounts = await syncUserClaimCounts();
       if (hasExhaustedPersonalClaims(orderId, latestCounts)) {
-        Alert.alert('Redan claimad', 'Du har redan claimat det här erbjudandet.');
+        Alert.alert('Redan deltagit', 'Du har redan deltagit i det här erbjudandet.');
         return;
       }
 
@@ -650,7 +650,7 @@ export default function CompanyDetailScreen() {
       if (!isClaimApiSuccess(response, payload)) {
         if (response.status === 401 || response.status === 403) {
           pendingClaimOfferRef.current = offer;
-          Alert.alert('Sessionen har gått ut', 'Logga in igen för att claima erbjudanden.', [
+          Alert.alert('Sessionen har gått ut', 'Logga in igen för att delta i erbjudanden.', [
             { text: 'Avbryt', style: 'cancel' },
             { text: 'Logga in', onPress: navigateToLogin },
           ]);
@@ -659,13 +659,13 @@ export default function CompanyDetailScreen() {
 
         if (isDuplicateClaimReason(payload)) {
           await syncUserClaimCounts();
-          Alert.alert('Redan claimad', 'Du har redan claimat det här erbjudandet.');
+          Alert.alert('Redan deltagit', 'Du har redan deltagit i det här erbjudandet.');
           return;
         }
 
         const latestCounts = await syncUserClaimCounts();
         if (hasExhaustedPersonalClaims(orderId, latestCounts)) {
-          Alert.alert('Redan claimad', 'Du har redan claimat det här erbjudandet.');
+          Alert.alert('Redan deltagit', 'Du har redan deltagit i det här erbjudandet.');
           return;
         }
 
@@ -676,7 +676,7 @@ export default function CompanyDetailScreen() {
           responseText,
         });
 
-        Alert.alert('Kunde inte claima', getClaimFailureMessage(payload, response.status, order));
+        Alert.alert('Kunde inte delta', getClaimFailureMessage(payload, response.status, order));
         return;
       }
 
@@ -699,7 +699,7 @@ export default function CompanyDetailScreen() {
       });
       setClaimSuccess({ title: offer.text ?? title ?? 'Erbjudande', qrCode });
     } catch {
-      Alert.alert('Kunde inte claima', 'Kontrollera din anslutning och försök igen.');
+      Alert.alert('Kunde inte delta', 'Kontrollera din anslutning och försök igen.');
     } finally {
       claimInFlightRef.current = false;
       setClaimingOrderId(null);
@@ -1162,12 +1162,12 @@ export default function CompanyDetailScreen() {
                 const isClaimDisabled = isThisClaiming || isAlreadyClaimed;
 
                 const claimLabel = !isLoggedIn
-                  ? "Logga in för att claima!"
+                  ? "Logga in för att delta!"
                   : isAlreadyClaimed
-                    ? "Redan claimad"
+                    ? "Redan deltagit"
                     : isThisClaiming
-                      ? "Claimar..."
-                      : "Claima";
+                      ? "Deltar..."
+                      : "Delta";
 
                 return (
                   <View key={`offer-${offer.id}`} className="mr-3 w-[320px] rounded-2xl p-4" style={{ backgroundColor: theme.cardBg }}>
@@ -1244,7 +1244,7 @@ export default function CompanyDetailScreen() {
                             <Text className="text-blue-300 line-through">{offer.originalPriceText} kr</Text>
                           ) : null}
                         </View>
-                        <Text className="mt-1" style={{ color: theme.textMuted }}>Claimade: {offer.claimedCount} / {offer.totalCount || "-"}</Text>
+                        <Text className="mt-1" style={{ color: theme.textMuted }}>Deltagna: {offer.claimedCount} / {offer.totalCount || "-"}</Text>
                         <View className="mt-2 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: theme.cardBgMuted }}>
                           <View
                             className="h-full rounded-full bg-[#ff3b30]"
@@ -1389,10 +1389,10 @@ export default function CompanyDetailScreen() {
             style={{ backgroundColor: theme.cardBg, borderColor: theme.border }}
           >
             <Text className="text-2xl font-semibold text-center" style={{ color: theme.text }}>
-              Claimat!
+              Deltagit!
             </Text>
             <Text className="mt-2 text-center" style={{ color: theme.textMuted }}>
-              {claimSuccess?.title ?? 'Erbjudandet är claimat.'}
+              {claimSuccess?.title ?? 'Du har deltagit i erbjudandet.'}
             </Text>
 
             <View

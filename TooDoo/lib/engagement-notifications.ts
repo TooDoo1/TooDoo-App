@@ -121,7 +121,7 @@ async function scheduleWeekendNotifications() {
         hour: 16,
         minute: 0,
         title: 'Fredagskänsla?',
-        body: 'Se vad som händer i helgen och claima deals innan de tar slut.',
+        body: 'Se vad som händer i helgen och delta i deals innan de tar slut.',
       },
       {
         weekday: WEEKDAY.saturday,

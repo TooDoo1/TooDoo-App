@@ -240,7 +240,7 @@ export default function ClaimedOffers({ items, scrollEnabled = true }: Props) {
 										<View className="w-24 items-end">
 											{renderCountdownBadge(item)}
 											<Text className="text-xs text-right" style={{ color: theme.textFaint }}>
-												{item.statusText ?? 'Claimad'}
+												{item.statusText ?? 'Deltagit'}
 											</Text>
 										</View>
 									</View>
@@ -254,7 +254,7 @@ export default function ClaimedOffers({ items, scrollEnabled = true }: Props) {
 									</View>
 									{item.claimedAtText ? (
 										<Text className="mt-2 text-xs" style={{ color: theme.textFaint }}>
-											Claimad: {item.claimedAtText}
+											Deltagit: {item.claimedAtText}
 										</Text>
 									) : null}
 								</View>
@@ -314,7 +314,7 @@ export default function ClaimedOffers({ items, scrollEnabled = true }: Props) {
 										<View className="w-24 items-end">
 											{renderCountdownBadge(item)}
 											<Text className="text-xs text-right" style={{ color: theme.textFaint }}>
-												{item.statusText ?? 'Claimad'}
+												{item.statusText ?? 'Deltagit'}
 											</Text>
 										</View>
 									</View>
@@ -328,7 +328,7 @@ export default function ClaimedOffers({ items, scrollEnabled = true }: Props) {
 									</View>
 									{item.claimedAtText ? (
 										<Text className="mt-2 text-xs" style={{ color: theme.textFaint }}>
-											Claimad: {item.claimedAtText}
+											Deltagit: {item.claimedAtText}
 										</Text>
 									) : null}
 								</View>

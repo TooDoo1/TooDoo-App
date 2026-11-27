@@ -50,7 +50,7 @@ export default function ProfileSupportScreen() {
           Vanliga ärenden
         </Text>
         <Text className="mt-2 text-sm leading-6" style={{ color: theme.textMuted }}>
-          • Problem med att claima eller lösa in erbjudanden{'\n'}
+          • Problem med att delta eller lösa in erbjudanden{'\n'}
           • Uppdatering av kontouppgifter{'\n'}
           • Företag och samarbeten
         </Text>

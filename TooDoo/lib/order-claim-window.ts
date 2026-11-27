@@ -116,7 +116,7 @@ export function getRedeemCountdown(
 
 export function getOrderNotClaimableReason(order: any, nowMs: number = Date.now()): string | null {
   if (!order) {
-    return 'Ordern går inte att claima just nu.';
+    return 'Ordern går inte att delta i just nu.';
   }
 
   if (order?.isActive === false) {
@@ -140,21 +140,21 @@ export function getOrderNotClaimableReason(order: any, nowMs: number = Date.now(
     const toMin = parseOrderDailyTime(order?.validTo);
 
     if (fromMin != null && toMin != null) {
-      return `Erbjudandet kan claimas mellan ${formatHHmm(fromMin)} och ${formatHHmm(toMin)} (svensk tid).`;
+      return `Du kan delta mellan ${formatHHmm(fromMin)} och ${formatHHmm(toMin)} (svensk tid).`;
     }
     if (fromMin != null) {
-      return `Erbjudandet kan claimas från ${formatHHmm(fromMin)} (svensk tid).`;
+      return `Du kan delta från ${formatHHmm(fromMin)} (svensk tid).`;
     }
     if (toMin != null) {
-      return `Erbjudandet kan claimas till ${formatHHmm(toMin)} (svensk tid).`;
+      return `Du kan delta till ${formatHHmm(toMin)} (svensk tid).`;
     }
-    return 'Erbjudandet kan inte claimas just nu (utanför dagens tidsfönster).';
+    return 'Du kan inte delta just nu (utanför dagens tidsfönster).';
   }
 
   const maxRedemptions = Number(order?.maxRedemptions ?? 0);
   const claimedCount = Number(order?.claimedRedemptions ?? order?.claimedCount ?? 0);
   if (maxRedemptions > 0 && Number.isFinite(claimedCount) && claimedCount >= maxRedemptions) {
-    return 'Erbjudandet är fullclaimat (max antal uppnått).';
+    return 'Erbjudandet är fulltecknat (max antal uppnått).';
   }
 
   return null;

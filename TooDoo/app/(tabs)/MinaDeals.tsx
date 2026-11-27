@@ -434,7 +434,7 @@ export default function MinaDealsScreen() {
 							{isLoggedIn
 								? activeClaimCount > 0
 									? 'Dina aktiva deals'
-									: 'Claima deals för att se dem här'
+									: 'Delta i deals för att se dem här'
 								: 'Dina aktiva deals'}
 						</Text>
 					</View>
@@ -443,7 +443,7 @@ export default function MinaDealsScreen() {
 					<>
 						{isLoadingClaims ? (
 							<View className="mt-4 rounded-2xl px-4 py-6" style={{ backgroundColor: theme.cardBg }}>
-								<LoadingSpinner label="Uppdaterar dina claimade erbjudanden..." />
+								<LoadingSpinner label="Uppdaterar deals du deltagit i..." />
 							</View>
 						) : visibleOffers.length === 0 ? (
 							<View style={styles.emptyState}>
@@ -457,7 +457,7 @@ export default function MinaDealsScreen() {
 									Inga erbjudanden ännu
 								</Text>
 								<Text style={[styles.emptyText, { color: theme.textMuted }]}>
-									Claima deals ute i appen så dyker de upp här.
+									Delta i deals ute i appen så dyker de upp här.
 								</Text>
 								<Pressable
 									onPress={() => router.push('/')}
@@ -589,7 +589,7 @@ export default function MinaDealsScreen() {
 							Säkra deals du gillar
 						</Text>
 						<Text style={[styles.emptyText, { color: theme.textMuted }]}>
-							Logga in så sparas dina claimade erbjudanden här.
+							Logga in så sparas deals du deltagit i här.
 						</Text>
 						<Pressable
 							accessibilityRole="button"
